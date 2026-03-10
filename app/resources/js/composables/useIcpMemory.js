@@ -14,21 +14,30 @@ import { HttpAgent, Actor } from '@dfinity/agent';
 import { IDL } from '@dfinity/candid';
 
 // Candid IDL matching the deployed Motoko canister.
-// store_memory has no user_id field — the canister uses msg.caller.
+// store_memory has no user_id — the canister uses msg.caller.
+// memory_type is a variant: { Public: null } | { Private: null } | { Sensitive: null }
 const idlFactory = ({ IDL }) => {
+  const MemoryType = IDL.Variant({
+    Public:    IDL.Null,
+    Private:   IDL.Null,
+    Sensitive: IDL.Null,
+  });
+
   const StoreRequest = IDL.Record({
-    session_id: IDL.Text,
-    content:    IDL.Text,
-    metadata:   IDL.Opt(IDL.Text),
+    session_id:  IDL.Text,
+    content:     IDL.Text,
+    metadata:    IDL.Opt(IDL.Text),
+    memory_type: IDL.Opt(MemoryType),
   });
 
   const MemoryResponse = IDL.Record({
-    id:         IDL.Text,
-    user_id:    IDL.Text,
-    session_id: IDL.Text,
-    content:    IDL.Text,
-    timestamp:  IDL.Int,
-    metadata:   IDL.Opt(IDL.Text),
+    id:          IDL.Text,
+    user_id:     IDL.Text,
+    session_id:  IDL.Text,
+    content:     IDL.Text,
+    timestamp:   IDL.Int,
+    metadata:    IDL.Opt(IDL.Text),
+    memory_type: MemoryType,
   });
 
   return IDL.Service({
@@ -38,6 +47,13 @@ const idlFactory = ({ IDL }) => {
     health:               IDL.Func([], [IDL.Record({ status: IDL.Text, count: IDL.Nat })], ['query']),
   });
 };
+
+// Convert a string type name to the Candid variant expected by the canister.
+function toMemoryTypeVariant(type) {
+  if (type === 'private')   return { Private:   null };
+  if (type === 'sensitive') return { Sensitive: null };
+  return { Public: null };
+}
 
 export function useIcpMemory({ identity, canisterId, host }) {
   if (!canisterId) {
@@ -68,13 +84,22 @@ export function useIcpMemory({ identity, canisterId, host }) {
    * @param {string|null} params.metadata — optional JSON string
    * @returns {Promise<string|null>} the stored record ID, or null on error
    */
-  async function storeMemory({ sessionId, content, metadata = null }) {
+  /**
+   * @param {object} params
+   * @param {string} params.sessionId
+   * @param {string} params.content
+   * @param {string|null} params.metadata
+   * @param {'public'|'private'|'sensitive'} [params.type='public']
+   * @returns {Promise<string|null>} stored record ID or null on error
+   */
+  async function storeMemory({ sessionId, content, metadata = null, type = 'public' }) {
     try {
       const actor = await getActor();
       const id = await actor.store_memory({
-        session_id: sessionId,
+        session_id:  sessionId,
         content,
-        metadata: metadata ? [metadata] : [],
+        metadata:    metadata ? [metadata] : [],
+        memory_type: [toMemoryTypeVariant(type)],
       });
       return id;
     } catch (err) {

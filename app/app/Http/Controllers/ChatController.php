@@ -127,31 +127,37 @@ class ChatController extends Controller
             'content'    => $aiResponse,
         ]);
 
-        // Summarize the exchange into a durable fact.
-        $memorySummary = $this->summarizer->extract($validated['message'], $aiResponse);
-        $memoryId      = null;
-        $metadata      = json_encode(['source' => 'chat', 'provider' => $this->llm->provider()]);
+        // Summarize the exchange into a durable fact with a sensitivity classification.
+        // Returns ['content' => '...', 'type' => 'public'|'private'|'sensitive'] or null.
+        $memory   = $this->summarizer->extract($validated['message'], $aiResponse);
+        $memoryId = null;
+        $metadata = json_encode(['source' => 'chat', 'provider' => $this->llm->provider()]);
 
-        if ($memorySummary) {
+        if ($memory) {
             if ($this->icp->isMockMode()) {
-                // Mock mode: server writes to file cache (no browser canister access).
+                // Mock mode: server writes to file cache.
+                // Sensitive memories are still written server-side here — the user
+                // approval flow only applies in live ICP mode (where the browser signs).
                 $memoryId = $this->icp->storeMemory(
                     userId: $userId,
                     sessionId: $sessionId,
-                    content: $memorySummary,
+                    content: $memory['content'],
                     metadata: $metadata,
+                    memoryType: $memory['type'] ?? 'public',
                 );
             }
-            // Live ICP mode: return the summary to the browser.
-            // The browser signs and writes it to the canister using the user's identity.
+            // Live ICP mode:
+            //   public/private → browser auto-signs and stores.
+            //   sensitive      → browser shows approval UI first.
+            // The server returns the summary + type and steps back.
             // msg.caller on the canister will be the user's Ed25519 principal.
-            // The server cannot write under the user's principal.
         }
 
         return response()->json([
             'message'         => $aiResponse,
             'memory_id'       => $memoryId,
-            'memory'          => $memorySummary,
+            'memory'          => $memory['content'] ?? null,
+            'memory_type'     => $memory['type']    ?? null,
             'memory_metadata' => $metadata,
             'identity_source' => $identitySource,
             'user_id'         => $userId,

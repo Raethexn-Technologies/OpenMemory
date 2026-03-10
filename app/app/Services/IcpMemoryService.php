@@ -30,17 +30,23 @@ class IcpMemoryService
     /**
      * Store a memory record in the ICP canister.
      */
-    public function storeMemory(string $userId, string $sessionId, string $content, ?string $metadata = null): string
-    {
+    public function storeMemory(
+        string $userId,
+        string $sessionId,
+        string $content,
+        ?string $metadata = null,
+        string $memoryType = 'public',
+    ): string {
         if ($this->isMockMode()) {
-            return $this->mockStore($userId, $sessionId, $content, $metadata);
+            return $this->mockStore($userId, $sessionId, $content, $metadata, $memoryType);
         }
 
         $response = Http::timeout(10)->post("{$this->baseUrl}/store", [
-            'user_id'    => $userId,
-            'session_id' => $sessionId,
-            'content'    => $content,
-            'metadata'   => $metadata,
+            'user_id'     => $userId,
+            'session_id'  => $sessionId,
+            'content'     => $content,
+            'metadata'    => $metadata,
+            'memory_type' => $memoryType,
         ]);
 
         if ($response->failed()) {
@@ -180,16 +186,17 @@ class IcpMemoryService
 
     private array $mockStorage = [];
 
-    private function mockStore(string $userId, string $sessionId, string $content, ?string $metadata): string
+    private function mockStore(string $userId, string $sessionId, string $content, ?string $metadata, string $memoryType = 'public'): string
     {
         $id = $userId . ':' . time() . ':' . rand(1000, 9999);
         $this->mockStorage[] = [
-            'id'         => $id,
-            'user_id'    => $userId,
-            'session_id' => $sessionId,
-            'content'    => $content,
-            'timestamp'  => now()->toIso8601String(),
-            'metadata'   => $metadata,
+            'id'          => $id,
+            'user_id'     => $userId,
+            'session_id'  => $sessionId,
+            'content'     => $content,
+            'timestamp'   => now()->toIso8601String(),
+            'metadata'    => $metadata,
+            'memory_type' => $memoryType,
         ];
         // Persist mock data in session/cache for demo continuity
         $existing = cache()->get("mock_icp_{$userId}", []);

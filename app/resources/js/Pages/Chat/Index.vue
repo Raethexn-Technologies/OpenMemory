@@ -49,6 +49,32 @@
         </div>
       </div>
 
+      <!-- Identity divergence warning -->
+      <!-- This appears when localStorage was cleared but the session still holds the old principal.
+           Reads and writes will go to different identities until the session is reset. -->
+      <div
+        v-if="identityDiverged"
+        class="flex items-start gap-3 bg-yellow-950/50 border border-yellow-700/40 rounded-xl px-4 py-3 text-sm"
+        role="alert"
+      >
+        <svg class="w-4 h-4 text-yellow-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+        </svg>
+        <div class="flex-1">
+          <p class="text-yellow-300 font-medium">Browser key has changed</p>
+          <p class="text-yellow-500/80 text-xs mt-0.5">
+            Your localStorage key no longer matches the session identity. Reads will use the old principal;
+            new writes will use the current browser key. Start a new session to realign them.
+          </p>
+        </div>
+        <button
+          @click="resetSession"
+          class="text-xs text-yellow-400 hover:text-yellow-200 border border-yellow-700/50 hover:border-yellow-500 px-2 py-1 rounded transition-colors flex-shrink-0"
+        >
+          Reset session
+        </button>
+      </div>
+
       <!-- Messages -->
       <div
         ref="messagesEl"
@@ -123,21 +149,96 @@
         </template>
       </div>
 
-      <!-- Memory flash notification -->
+      <!-- Memory write notification — three states: pending / success / failed -->
       <transition name="fade">
+        <!-- Pending: browser write in flight -->
         <div
-          v-if="lastMemory"
+          v-if="memoryState?.status === 'pending'"
+          class="flex items-center gap-2.5 bg-sky-950/40 border border-sky-800/40 rounded-xl px-4 py-3 text-sm"
+        >
+          <svg class="w-4 h-4 text-sky-400 flex-shrink-0 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+          </svg>
+          <span class="text-sky-400">Signing and writing to ICP canister…</span>
+        </div>
+      </transition>
+      <transition name="fade">
+        <!-- Success -->
+        <div
+          v-if="memoryState?.status === 'success'"
           class="flex items-start gap-2.5 bg-emerald-950/60 border border-emerald-800/50 rounded-xl px-4 py-3 text-sm"
         >
           <svg class="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           <div class="flex-1">
-            <span class="text-emerald-400 font-medium">{{ memoryWriteLabel }}:</span>
-            <span class="text-emerald-300/80 ml-1">{{ lastMemory }}</span>
-            <p v-if="lastMemoryWriteSource === 'browser'" class="text-emerald-600/60 text-xs mt-0.5 font-mono">
-              Signed by your browser key · server cannot write this
+            <span class="font-medium" :class="memoryState.source === 'browser' ? 'text-emerald-400' : 'text-amber-400'">
+              {{ memoryState.source === 'browser' ? 'Written to ICP (browser-signed):' : 'Stored (mock):' }}
+            </span>
+            <span
+              v-if="memoryState.type"
+              :class="[
+                'text-[10px] font-mono px-1.5 py-0.5 rounded border ml-1.5',
+                memoryState.type === 'sensitive' ? 'bg-red-950/50 border-red-800/40 text-red-400' :
+                memoryState.type === 'private'   ? 'bg-sky-950/50 border-sky-800/40 text-sky-400' :
+                                                   'bg-gray-800/60 border-gray-700/40 text-gray-400'
+              ]"
+            >{{ memoryState.type }}</span>
+            <span class="text-emerald-300/80 ml-1">{{ memoryState.content }}</span>
+            <p v-if="memoryState.source === 'browser'" class="text-emerald-600/60 text-xs mt-0.5 font-mono">
+              msg.caller = your browser principal · server did not write this
             </p>
+          </div>
+        </div>
+      </transition>
+      <transition name="fade">
+        <!-- Failed -->
+        <div
+          v-if="memoryState?.status === 'failed'"
+          class="flex items-start gap-2.5 bg-red-950/50 border border-red-800/40 rounded-xl px-4 py-3 text-sm"
+        >
+          <svg class="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          <div class="flex-1">
+            <span class="text-red-400 font-medium">ICP write failed:</span>
+            <span class="text-red-300/70 ml-1">{{ memoryState.content }}</span>
+            <p class="text-red-600/60 text-xs mt-0.5">Summary was extracted but not stored. Check console and canister connection.</p>
+          </div>
+        </div>
+      </transition>
+
+      <!-- Sensitive memory approval — shown instead of auto-signing -->
+      <transition name="fade">
+        <div
+          v-if="pendingApproval"
+          class="flex items-start gap-3 bg-yellow-950/50 border border-yellow-700/50 rounded-xl px-4 py-4 text-sm"
+          role="alert"
+        >
+          <svg class="w-4 h-4 text-yellow-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          <div class="flex-1 min-w-0">
+            <p class="text-yellow-300 font-medium mb-1">Sensitive memory — review before storing</p>
+            <p class="text-yellow-200/80 mb-3 italic">"{{ pendingApproval.content }}"</p>
+            <p class="text-yellow-600/70 text-xs mb-3 font-mono">
+              The agent flagged this as sensitive. Approving will sign it with your browser key and store it in the canister under your principal. Rejecting discards it — nothing is written.
+            </p>
+            <div class="flex gap-2">
+              <button
+                @click="approveMemory"
+                class="text-xs bg-emerald-800/60 hover:bg-emerald-700/60 text-emerald-300 border border-emerald-700/50 px-3 py-1.5 rounded-lg transition-colors"
+              >
+                Sign &amp; store
+              </button>
+              <button
+                @click="rejectMemory"
+                class="text-xs bg-red-950/40 hover:bg-red-900/40 text-red-400 border border-red-800/40 px-3 py-1.5 rounded-lg transition-colors"
+              >
+                Discard
+              </button>
+            </div>
           </div>
         </div>
       </transition>
@@ -196,12 +297,19 @@ const page = usePage();
 const { identity, principal } = useIcpIdentity();
 const identityReady = ref(true);
 
-// displayUserId: show the browser principal once established, otherwise the server fallback.
-// After the first message, the server will adopt the browser principal as the canonical user_id.
 const displayUserId = computed(() => principal);
 
 const identityTooltip = computed(() =>
   `Ed25519 principal generated in your browser.\nStored in localStorage — the server never has your private key.\nThis is your memory identity in ICP live mode.`
+);
+
+// Detect identity divergence: localStorage was cleared but the session still holds
+// the old principal. Reads and writes will target different identities until reset.
+// Only meaningful when the session has already adopted a browser principal.
+const identityDiverged = computed(() =>
+  props.identity_source === 'browser' &&
+  !!props.user_id &&
+  props.user_id !== principal
 );
 
 // ─── ICP memory writer (live mode only) ───────────────────────────
@@ -218,17 +326,22 @@ const icpMemory = computed(() =>
 );
 
 // ─── Chat state ────────────────────────────────────────────────────
-const messages            = ref(props.messages ?? []);
-const input               = ref('');
-const loading             = ref(false);
-const lastMemory          = ref(null);
-const lastMemoryWriteSource = ref(null); // 'browser' | 'server' | null
-const messagesEl          = ref(null);
+const messages   = ref(props.messages ?? []);
+const input      = ref('');
+const loading    = ref(false);
+const messagesEl = ref(null);
 
-const memoryWriteLabel = computed(() => {
-  if (icpMode.value === 'icp') return 'Memory stored on ICP (browser-signed)';
-  return 'Memory stored (mock)';
-});
+// memoryState drives the three-state memory notification:
+//   null                                    — no notification
+//   { status: 'pending' }                   — browser write in flight
+//   { status: 'success', content, source }  — write confirmed
+//   { status: 'failed',  content }          — write failed
+const memoryState = ref(null);
+
+// pendingApproval holds a sensitive memory waiting for user review.
+// Sensitive memories are NOT auto-signed — the user explicitly approves or rejects.
+// { content, type, metadata }
+const pendingApproval = ref(null);
 
 const suggestions = [
   "My name is Anthony and I build AI tools.",
@@ -248,6 +361,40 @@ async function scrollToBottom() {
   }
 }
 
+function clearMemoryState(delay = 7000) {
+  setTimeout(() => { memoryState.value = null; }, delay);
+}
+
+// Sign and write a memory to the canister from the browser.
+// Called for auto-approved types (public, private) and after manual approval (sensitive).
+async function writeMemoryToBrowser(content, type, metadata) {
+  memoryState.value = { status: 'pending' };
+  const id = await icpMemory.value.storeMemory({
+    sessionId: props.session_id,
+    content,
+    type:      type ?? 'public',
+    metadata:  metadata ?? null,
+  });
+  if (id) {
+    memoryState.value = { status: 'success', content, source: 'browser' };
+  } else {
+    memoryState.value = { status: 'failed', content };
+  }
+  clearMemoryState();
+}
+
+// User approved a sensitive memory — sign and store it now.
+async function approveMemory() {
+  const m = pendingApproval.value;
+  pendingApproval.value = null;
+  if (m) await writeMemoryToBrowser(m.content, m.type, m.metadata);
+}
+
+// User rejected the sensitive memory — discard it silently.
+function rejectMemory() {
+  pendingApproval.value = null;
+}
+
 async function send() {
   const text = input.value.trim();
   if (!text || loading.value) return;
@@ -255,12 +402,11 @@ async function send() {
   messages.value.push({ role: 'user', content: text });
   input.value = '';
   loading.value = true;
-  lastMemory.value = null;
-  lastMemoryWriteSource.value = null;
+  memoryState.value = null;
+  pendingApproval.value = null;
   await scrollToBottom();
 
   try {
-    // Always send the browser principal so the server can adopt it as user_id.
     const { data } = await axios.post('/chat/send', {
       message:   text,
       principal: principal,
@@ -269,28 +415,29 @@ async function send() {
     messages.value.push({ role: 'assistant', content: data.message });
 
     if (data.memory) {
-      lastMemory.value = data.memory;
-
-      if (icpMode.value === 'icp' && data.memory && canisterId.value) {
-        // Live mode: browser writes the summary to the canister directly.
-        // msg.caller on the canister = our Ed25519 principal (cryptographically enforced).
-        lastMemoryWriteSource.value = 'browser';
-        icpMemory.value.storeMemory({
-          sessionId: props.session_id,
-          content:   data.memory,
-          metadata:  data.memory_metadata ?? null,
-        }).then((id) => {
-          if (id) console.info('[ICP] memory stored, id:', id);
-        });
+      if (icpMode.value === 'icp' && canisterId.value) {
+        if (data.memory_type === 'sensitive') {
+          // Sensitive: surface an approval UI before signing anything.
+          // This directly addresses the "blind signing" problem.
+          pendingApproval.value = {
+            content:  data.memory,
+            type:     data.memory_type,
+            metadata: data.memory_metadata ?? null,
+          };
+        } else {
+          // Public / Private: auto-sign and write to canister.
+          await writeMemoryToBrowser(data.memory, data.memory_type, data.memory_metadata ?? null);
+        }
       } else {
-        // Mock mode: server already wrote to file cache.
-        lastMemoryWriteSource.value = 'server';
+        // Mock mode: server already wrote. Report success.
+        memoryState.value = {
+          status:  'success',
+          content: data.memory,
+          source:  'server',
+          type:    data.memory_type,
+        };
+        clearMemoryState();
       }
-
-      setTimeout(() => {
-        lastMemory.value = null;
-        lastMemoryWriteSource.value = null;
-      }, 7000);
     }
   } catch (err) {
     messages.value.push({
