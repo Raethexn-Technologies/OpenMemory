@@ -1,9 +1,9 @@
 {
     "$schema": "https://getcomposer.org/schema.json",
-    "name": "laravel/laravel",
+    "name": "open-memory-agent/app",
     "type": "project",
-    "description": "The skeleton application for the Laravel framework.",
-    "keywords": ["laravel", "framework"],
+    "description": "A conversational AI whose memory lives on open infrastructure instead of private servers.",
+    "keywords": ["laravel", "vue", "inertia", "icp", "ai", "memory"],
     "license": "MIT",
     "require": {
         "php": "^8.2",
