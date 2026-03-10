@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Services\LLM\LlmService;
+use Illuminate\Support\Facades\Log;
 
 class MemorySummarizationService
 {
@@ -70,7 +71,11 @@ PROMPT;
             ];
         }
 
-        // LLM responded with something unexpected — treat as public to avoid losing the memory
-        return ['type' => 'public', 'content' => $result];
+        // LLM responded with something we can't parse — discard rather than silently downgrade
+        // a potentially Sensitive or Private classification to Public.
+        Log::warning('MemorySummarizationService: unparseable LLM response — discarding', [
+            'raw' => mb_substr($result, 0, 200),
+        ]);
+        return null;
     }
 }

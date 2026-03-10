@@ -220,10 +220,17 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
           <div class="flex-1 min-w-0">
-            <p class="text-yellow-300 font-medium mb-1">Sensitive memory — review before storing</p>
+            <p class="text-yellow-300 font-medium mb-1">
+              {{ pendingApproval.type === 'sensitive' ? 'Sensitive memory — review before storing' : 'Private memory — review before storing' }}
+            </p>
             <p class="text-yellow-200/80 mb-3 italic">"{{ pendingApproval.content }}"</p>
             <p class="text-yellow-600/70 text-xs mb-3 font-mono">
-              The agent flagged this as sensitive. Approving will sign it with your browser key and store it in the canister under your principal. Rejecting discards it — nothing is written.
+              <template v-if="pendingApproval.type === 'sensitive'">
+                The agent flagged this as sensitive. Approving will store it under your principal — only you can read it back. Rejecting discards it permanently.
+              </template>
+              <template v-else>
+                The agent flagged this as private. Approving stores it under your principal — it won't be shared with the LLM or any public endpoint. Rejecting discards it.
+              </template>
             </p>
             <div class="flex gap-2">
               <button
@@ -383,11 +390,31 @@ async function writeMemoryToBrowser(content, type, metadata) {
   clearMemoryState();
 }
 
-// User approved a sensitive memory — sign and store it now.
+// User approved a Private/Sensitive memory — sign and store it now.
 async function approveMemory() {
   const m = pendingApproval.value;
   pendingApproval.value = null;
-  if (m) await writeMemoryToBrowser(m.content, m.type, m.metadata);
+  if (!m) return;
+
+  if (icpMode.value === 'icp' && canisterId.value) {
+    // Live mode: browser signs and writes directly to the canister.
+    await writeMemoryToBrowser(m.content, m.type, m.metadata);
+  } else {
+    // Mock mode: POST to server after user approval — server writes to file cache.
+    // Consent behavior is identical to live mode; only the storage destination differs.
+    memoryState.value = { status: 'pending' };
+    try {
+      await axios.post('/chat/store-memory', {
+        content:     m.content,
+        memory_type: m.type,
+        metadata:    m.metadata ?? null,
+      });
+      memoryState.value = { status: 'success', content: m.content, source: 'server', type: m.type };
+    } catch {
+      memoryState.value = { status: 'failed', content: m.content };
+    }
+    clearMemoryState();
+  }
 }
 
 // User rejected the sensitive memory — discard it silently.
@@ -415,21 +442,20 @@ async function send() {
     messages.value.push({ role: 'assistant', content: data.message });
 
     if (data.memory) {
-      if (icpMode.value === 'icp' && canisterId.value) {
-        if (data.memory_type === 'sensitive') {
-          // Sensitive: surface an approval UI before signing anything.
-          // This directly addresses the "blind signing" problem.
-          pendingApproval.value = {
-            content:  data.memory,
-            type:     data.memory_type,
-            metadata: data.memory_metadata ?? null,
-          };
-        } else {
-          // Public / Private: auto-sign and write to canister.
-          await writeMemoryToBrowser(data.memory, data.memory_type, data.memory_metadata ?? null);
-        }
+      if (data.memory_type !== 'public') {
+        // Private and Sensitive always require user review before storing — in both modes.
+        // Live mode: user approves → browser signs → writes to canister.
+        // Mock mode: user approves → browser POSTs to /chat/store-memory → file cache write.
+        pendingApproval.value = {
+          content:  data.memory,
+          type:     data.memory_type,
+          metadata: data.memory_metadata ?? null,
+        };
+      } else if (icpMode.value === 'icp' && canisterId.value) {
+        // Public in live mode: auto-sign and write to canister.
+        await writeMemoryToBrowser(data.memory, data.memory_type, data.memory_metadata ?? null);
       } else {
-        // Mock mode: server already wrote. Report success.
+        // Public in mock mode: server already wrote. Report success.
         memoryState.value = {
           status:  'success',
           content: data.memory,

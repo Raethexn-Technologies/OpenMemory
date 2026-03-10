@@ -104,8 +104,9 @@ class ChatController extends Controller
             'content'    => $validated['message'],
         ]);
 
-        // Retrieve existing memories from ICP (query call — no authentication required)
-        $memories = $this->icp->getMemories($userId);
+        // Retrieve only Public memories for LLM context.
+        // Private and Sensitive records are never fed to the LLM — see IcpMemoryService::getPublicMemories().
+        $memories = $this->icp->getPublicMemories($userId);
 
         // Build prompt with memory context
         $systemPrompt = $this->llm->buildSystemPrompt($memories);
@@ -134,23 +135,19 @@ class ChatController extends Controller
         $metadata = json_encode(['source' => 'chat', 'provider' => $this->llm->provider()]);
 
         if ($memory) {
-            if ($this->icp->isMockMode()) {
-                // Mock mode: server writes to file cache.
-                // Sensitive memories are still written server-side here — the user
-                // approval flow only applies in live ICP mode (where the browser signs).
+            if ($this->icp->isMockMode() && ($memory['type'] ?? 'public') === 'public') {
+                // Mock mode, public only: safe to write server-side without consent.
                 $memoryId = $this->icp->storeMemory(
                     userId: $userId,
                     sessionId: $sessionId,
                     content: $memory['content'],
                     metadata: $metadata,
-                    memoryType: $memory['type'] ?? 'public',
+                    memoryType: 'public',
                 );
             }
-            // Live ICP mode:
-            //   public/private → browser auto-signs and stores.
-            //   sensitive      → browser shows approval UI first.
-            // The server returns the summary + type and steps back.
-            // msg.caller on the canister will be the user's Ed25519 principal.
+            // Private / Sensitive (both modes) and all types in live ICP mode:
+            //   The browser shows an approval UI and POSTs to /chat/store-memory (mock)
+            //   or signs directly to the canister (live). The server steps back.
         }
 
         return response()->json([
@@ -164,6 +161,44 @@ class ChatController extends Controller
             'provider'        => $this->llm->provider(),
             'icp_mode'        => $this->icp->mode(),
         ]);
+    }
+
+    /**
+     * Store a browser-approved Private or Sensitive memory in mock mode.
+     *
+     * In live ICP mode the browser writes directly to the canister (browser-signed).
+     * In mock mode there is no canister, so the browser POSTs here after the user
+     * clicks "Sign & store" in the approval UI. This keeps the consent flow identical
+     * between mock and live mode — the server never writes Private/Sensitive without approval.
+     */
+    public function storeMemory(Request $request)
+    {
+        if (! $this->icp->isMockMode()) {
+            return response()->json(['error' => 'Only used in mock mode. In live mode the browser writes directly to the canister.'], 400);
+        }
+
+        $validated = $request->validate([
+            'content'     => 'required|string|max:2000',
+            'memory_type' => 'required|in:private,sensitive',
+            'metadata'    => 'nullable|string|max:1000',
+        ]);
+
+        $userId    = session()->get('chat_user_id');
+        $sessionId = session()->get('chat_session_id');
+
+        if (! $userId || ! $sessionId) {
+            return response()->json(['error' => 'Session not found. Please refresh.'], 422);
+        }
+
+        $id = $this->icp->mockStoreApproved(
+            userId: $userId,
+            sessionId: $sessionId,
+            content: $validated['content'],
+            metadata: $validated['metadata'] ?? null,
+            memoryType: $validated['memory_type'],
+        );
+
+        return response()->json(['id' => $id]);
     }
 
     /**

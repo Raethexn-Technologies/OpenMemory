@@ -59,8 +59,10 @@ class IcpMemoryService
 
     /**
      * Retrieve all memory records for a user from the ICP canister.
+     * Returns all types the caller is authorised to see.
+     * Do NOT pass this directly to the LLM — use getPublicMemories() instead.
      *
-     * @return array<int, array{id: string, user_id: string, session_id: string, content: string, timestamp: string, metadata: string|null}>
+     * @return array<int, array{id: string, user_id: string, session_id: string, content: string, timestamp: string, metadata: string|null, memory_type: string}>
      */
     public function getMemories(string $userId): array
     {
@@ -76,6 +78,24 @@ class IcpMemoryService
         }
 
         return $response->json('memories', []);
+    }
+
+    /**
+     * Retrieve ONLY Public memories for LLM context injection.
+     *
+     * Private and Sensitive records must never be fed to the LLM.
+     * In live mode the canister enforces this via anonymous caller identity;
+     * this method adds an explicit application-layer filter so the contract is
+     * enforced regardless of how the adapter is authenticated.
+     *
+     * @return array<int, array{id: string, user_id: string, content: string, timestamp: string, memory_type: string}>
+     */
+    public function getPublicMemories(string $userId): array
+    {
+        return array_values(array_filter(
+            $this->getMemories($userId),
+            fn ($r) => ($r['memory_type'] ?? 'public') === 'public'
+        ));
     }
 
     /**
@@ -213,6 +233,15 @@ class IcpMemoryService
     private function mockGet(string $userId): array
     {
         return cache()->get("mock_icp_{$userId}", []);
+    }
+
+    /**
+     * Mock-mode store called after the user approves a Private/Sensitive memory in the browser.
+     * Mirrors the live-mode path where the browser POSTs approval and then writes.
+     */
+    public function mockStoreApproved(string $userId, string $sessionId, string $content, ?string $metadata, string $memoryType): string
+    {
+        return $this->mockStore($userId, $sessionId, $content, $metadata, $memoryType);
     }
 
     private function mockListRecent(int $limit): array

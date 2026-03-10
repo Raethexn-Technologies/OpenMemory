@@ -11,6 +11,9 @@ Route::get('/', fn() => redirect()->route('chat'));
 Route::get('/chat', [ChatController::class, 'index'])->name('chat');
 Route::post('/chat/send', [ChatController::class, 'send'])->name('chat.send');
 Route::post('/chat/reset', [ChatController::class, 'reset'])->name('chat.reset');
+// Browser calls this after user approves a Private/Sensitive memory in mock mode.
+// In live ICP mode the browser writes directly to the canister — this endpoint is not used.
+Route::post('/chat/store-memory', [ChatController::class, 'storeMemory'])->name('chat.storeMemory');
 
 // Memory inspector
 Route::get('/memory', [MemoryController::class, 'index'])->name('memory.index');
