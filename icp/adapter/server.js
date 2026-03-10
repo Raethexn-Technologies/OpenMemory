@@ -30,9 +30,15 @@ const MOCK_MODE   = process.env.ICP_MOCK !== 'false';
 const mockStore = [];
 
 // ─── Candid IDL for the memory canister ───────────────────────────
+//
+// NOTE: store_memory is a shared (update) call — the canister uses msg.caller
+// as the user_id. This adapter is used by Laravel for READS only in live mode.
+// WRITES in live mode come from the browser (signed with the user's Ed25519 key).
+// The adapter's /store endpoint is only meaningful in mock mode.
+//
 const idlFactory = ({ IDL }) => {
+  // user_id is absent — the canister derives it from msg.caller.
   const StoreRequest = IDL.Record({
-    user_id:    IDL.Text,
     session_id: IDL.Text,
     content:    IDL.Text,
     metadata:   IDL.Opt(IDL.Text),
@@ -68,6 +74,9 @@ async function getActor() {
 // ─── Routes ────────────────────────────────────────────────────────
 
 // POST /store
+// Mock mode only: Laravel calls this to persist memories when no canister is available.
+// In live mode, the browser writes directly to the canister (browser-signed via @dfinity/agent).
+// The user_id field here is the browser-derived principal, not a server-generated ID.
 app.post('/store', async (req, res) => {
   const { user_id, session_id, content, metadata } = req.body;
 
@@ -77,9 +86,11 @@ app.post('/store', async (req, res) => {
     return res.json({ id });
   }
 
+  // Live mode: this endpoint should not be called — the browser writes directly to the canister.
+  // If called anyway (e.g., during migration), attempt the call without user_id (canister uses msg.caller).
   try {
     const actor = await getActor();
-    const id = await actor.store_memory({ user_id, session_id, content, metadata: metadata ? [metadata] : [] });
+    const id = await actor.store_memory({ session_id, content, metadata: metadata ? [metadata] : [] });
     res.json({ id });
   } catch (err) {
     console.error('store_memory error:', err);
