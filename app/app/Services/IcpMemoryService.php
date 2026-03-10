@@ -7,13 +7,16 @@ use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
 /**
- * Connects to the ICP memory canister via HTTP.
+ * Connects to the ICP memory canister via the Node adapter (icp/adapter/server.js).
  *
- * For demo purposes this uses the canister's HTTP gateway endpoint.
- * In local dev, dfx serves the canister at http://localhost:4943.
+ * The adapter translates HTTP JSON calls into Candid calls against the deployed
+ * Motoko canister. In mock mode (ICP_MOCK_MODE=true) it stores memories in
+ * Laravel's file cache — useful for local dev without a running dfx replica.
  *
- * The canister exposes Candid-over-HTTP or we use a thin Node adapter.
- * See docs/ICP_INTEGRATION.md for details.
+ * To connect a real canister:
+ *   1. cd icp && dfx start --background && dfx deploy
+ *   2. cd icp/adapter && npm install && ICP_MOCK=false node server.js
+ *   3. Set ICP_MOCK_MODE=false, ICP_CANISTER_ENDPOINT=http://localhost:3100 in .env
  */
 class IcpMemoryService
 {
@@ -105,6 +108,16 @@ class IcpMemoryService
         }
 
         return $response->json('memories', []);
+    }
+
+    public function mode(): string
+    {
+        return $this->isMockMode() ? 'mock' : 'icp';
+    }
+
+    public function canisterId(): string
+    {
+        return config('services.icp.canister_id', '');
     }
 
     private function isMockMode(): bool

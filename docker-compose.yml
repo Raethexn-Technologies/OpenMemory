@@ -65,6 +65,27 @@ services:
       - db
       - app
 
+  # ICP memory adapter — required when ICP_MOCK_MODE=false
+  # Bridges Laravel HTTP calls to the deployed Motoko canister via @dfinity/agent.
+  # In mock mode this container still runs but uses its own in-memory store.
+  icp-adapter:
+    image: node:20-alpine
+    container_name: oma_icp_adapter
+    restart: unless-stopped
+    working_dir: /app
+    command: sh -c "npm install && node server.js"
+    volumes:
+      - ./icp/adapter:/app
+    ports:
+      - "3100:3100"
+    environment:
+      PORT: 3100
+      ICP_MOCK: ${ICP_MOCK_MODE:-true}
+      ICP_CANISTER_ID: ${ICP_CANISTER_ID:-}
+      ICP_HOST: ${ICP_CANISTER_ENDPOINT:-http://localhost:4943}
+    networks:
+      - oma_network
+
 networks:
   oma_network:
     driver: bridge
