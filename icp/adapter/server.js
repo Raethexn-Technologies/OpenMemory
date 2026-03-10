@@ -99,16 +99,16 @@ app.post('/store', async (req, res) => {
     return res.json({ id });
   }
 
-  // Live mode: this endpoint should not be called — the browser writes directly to the canister.
-  // If called anyway (e.g., during migration), attempt the call without user_id (canister uses msg.caller).
-  try {
-    const actor = await getActor();
-    const id = await actor.store_memory({ session_id, content, metadata: metadata ? [metadata] : [] });
-    res.json({ id });
-  } catch (err) {
-    console.error('store_memory error:', err);
-    res.status(500).json({ error: err.message });
-  }
+  // Live mode: this endpoint must NOT be called.
+  // In live mode all writes come from the browser (browser-signed, msg.caller = user's principal).
+  // Routing writes through this adapter in live mode would drop memory_type entirely,
+  // causing the canister to default to #Public — silently publishing private/sensitive records.
+  // Fail loudly so this is never silently triggered.
+  console.error('[OMA adapter] POST /store called in live mode — rejecting. Writes must come from the browser.');
+  return res.status(400).json({
+    error: 'Live mode writes must originate from the browser (browser-signed via @dfinity/agent). '
+      + 'Routing writes through this adapter drops memory_type and would publish all records as Public.',
+  });
 });
 
 // GET /memories/:userId

@@ -7,9 +7,13 @@
         <div>
           <h1 class="text-lg font-semibold text-gray-100">Memory Inspector</h1>
           <p class="text-sm text-gray-500 mt-1">
-            Live view of memory records from the
-            <span v-if="isMock" class="text-amber-400">mock cache</span>
-            <span v-else class="text-emerald-400">ICP canister</span>.
+            <template v-if="isMock">
+              All records from the <span class="text-amber-400">mock cache</span>.
+            </template>
+            <template v-else>
+              <span class="text-emerald-400">Public records only</span> from the ICP canister.
+              Private &amp; sensitive records are owner-gated — use the chat panel to read them.
+            </template>
           </p>
         </div>
         <div class="flex items-center gap-2">
@@ -78,17 +82,31 @@
       </div>
 
       <!-- Stats row -->
+      <!-- In live mode the data source is listRecentMemories → public records only.     -->
+      <!-- The Private stat is only shown in mock mode where all types are returned.      -->
+      <!-- In live mode, showing Private: 0 would be a false zero — so we omit it.       -->
       <div class="grid grid-cols-4 gap-4">
-        <StatCard label="Total Memories" :value="memories.length" />
+        <StatCard label="Total Shown" :value="memories.length" />
         <StatCard label="Public" :value="countByType('public')" />
-        <StatCard label="Private" :value="countByType('private')" />
+        <StatCard
+          v-if="isMock"
+          label="Private"
+          :value="countByType('private')"
+        />
+        <StatCard
+          v-else
+          label="Private / Sensitive"
+          value="Owner-gated"
+        />
         <StatCard label="Storage Layer" :value="isMock ? 'Mock (cache)' : 'ICP Canister'" :highlight="!isMock" />
       </div>
 
       <!-- Memory records -->
       <div class="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
         <div class="px-4 py-3 border-b border-gray-800 flex items-center justify-between">
-          <h2 class="text-sm font-medium text-gray-300">Stored Records</h2>
+          <h2 class="text-sm font-medium text-gray-300">
+            {{ isMock ? 'All Stored Records' : 'Public Records' }}
+          </h2>
           <span class="text-xs text-gray-500">{{ memories.length }} records</span>
         </div>
 
