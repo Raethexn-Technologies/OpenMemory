@@ -7,16 +7,29 @@
         <div>
           <h1 class="text-lg font-semibold text-gray-100">Chat</h1>
           <p class="text-xs text-gray-500 mt-0.5">
-            Session: <code class="text-sky-400/80 font-mono">{{ props.session_id.slice(0, 8) }}...</code>
+            Identity: <code class="text-sky-400/80 font-mono">{{ props.user_id }}</code>
             · Provider: <span class="text-sky-400/80">{{ props.llm_provider }}</span>
           </p>
         </div>
-        <button
-          @click="resetSession"
-          class="text-xs text-gray-500 hover:text-red-400 transition-colors px-2 py-1 rounded border border-gray-800 hover:border-red-900"
-        >
-          Reset session
-        </button>
+        <div class="flex items-center gap-2">
+          <!-- Mode badge — always truthful -->
+          <span
+            :class="[
+              'text-xs px-2 py-0.5 rounded-full font-mono border',
+              props.icp_mode === 'mock'
+                ? 'bg-amber-950/60 border-amber-800/50 text-amber-400'
+                : 'bg-emerald-950/60 border-emerald-800/50 text-emerald-400'
+            ]"
+          >
+            {{ props.icp_mode === 'mock' ? 'Memory: Mock' : 'Memory: ICP Live' }}
+          </span>
+          <button
+            @click="resetSession"
+            class="text-xs text-gray-500 hover:text-red-400 transition-colors px-2 py-1 rounded border border-gray-800 hover:border-red-900"
+          >
+            New session
+          </button>
+        </div>
       </div>
 
       <!-- Messages -->
@@ -36,7 +49,7 @@
           <div class="text-center">
             <p class="text-gray-300 font-medium">Start a conversation</p>
             <p class="text-gray-500 text-sm mt-1">
-              Tell me something about yourself — I'll remember it on ICP.
+              Tell me something about yourself — I'll remember it.
             </p>
           </div>
           <div class="flex flex-wrap gap-2 justify-center">
@@ -103,7 +116,9 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           <div>
-            <span class="text-emerald-400 font-medium">Memory stored on ICP:</span>
+            <span class="text-emerald-400 font-medium">
+              Memory stored{{ props.icp_mode === 'icp' ? ' on ICP' : ' (mock)' }}:
+            </span>
             <span class="text-emerald-300/80 ml-1">{{ lastMemory }}</span>
           </div>
         </div>
@@ -149,6 +164,7 @@ const props = defineProps({
   user_id: String,
   messages: Array,
   llm_provider: String,
+  icp_mode: String,
 });
 
 const messages = ref(props.messages ?? []);
@@ -205,7 +221,7 @@ async function send() {
 }
 
 function resetSession() {
-  if (confirm('Reset the current session? Chat history will be cleared.')) {
+  if (confirm('Start a new session? Chat history will be cleared.\n\nYour identity and memory are preserved — the agent will still remember you.')) {
     router.post('/chat/reset');
   }
 }

@@ -21,26 +21,23 @@ class MemoryController extends Controller
         $recent = $this->icp->listRecentMemories(50);
 
         return Inertia::render('Memory/Index', [
-            'memories' => $recent,
+            'memories'    => $recent,
+            'icp_mode'    => $this->icp->mode(),
+            'canister_id' => $this->icp->canisterId(),
         ]);
     }
 
     /**
-     * Get memories for the current user (AJAX).
+     * Refresh memories for the inspector — returns all recent records.
      */
-    public function forUser(Request $request)
+    public function refresh(Request $request)
     {
-        $userId = session()->get('chat_user_id');
-
-        if (! $userId) {
-            return response()->json(['memories' => []]);
-        }
-
-        $memories = $this->icp->getMemories($userId);
+        $memories = $this->icp->listRecentMemories(50);
 
         return response()->json([
-            'user_id'  => $userId,
-            'memories' => $memories,
+            'memories'    => $memories,
+            'icp_mode'    => $this->icp->mode(),
+            'canister_id' => $this->icp->canisterId(),
         ]);
     }
 }

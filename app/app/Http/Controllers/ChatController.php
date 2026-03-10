@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\ChatSession;
 use App\Models\Message;
 use App\Services\IcpMemoryService;
 use App\Services\LLM\LlmService;
@@ -41,6 +40,7 @@ class ChatController extends Controller
             'user_id'      => $userId,
             'messages'     => $messages,
             'llm_provider' => $this->llm->provider(),
+            'icp_mode'     => $this->icp->mode(),
         ]);
     }
 
@@ -112,7 +112,8 @@ class ChatController extends Controller
     }
 
     /**
-     * Reset the current chat session.
+     * Reset the current chat session (transcript only).
+     * User identity is preserved so memory recall still works after reset.
      */
     public function reset(Request $request)
     {
@@ -122,7 +123,9 @@ class ChatController extends Controller
             Message::where('session_id', $sessionId)->delete();
         }
 
-        session()->forget(['chat_session_id', 'chat_user_id']);
+        // Only forget the session transcript ID — NOT the user identity.
+        // Forgetting user_id would break the core memory-recall demo.
+        session()->forget('chat_session_id');
 
         return redirect()->route('chat');
     }
