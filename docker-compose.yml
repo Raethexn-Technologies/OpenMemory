@@ -13,10 +13,15 @@ services:
       - ./docker/php/local.ini:/usr/local/etc/php/conf.d/local.ini
     env_file:
       - ./app/.env
+    environment:
+      # In Docker, the app talks to the adapter container by service name.
+      # This overrides any ICP_CANISTER_ENDPOINT in .env.
+      ICP_CANISTER_ENDPOINT: http://icp-adapter:3100
     networks:
       - oma_network
     depends_on:
       - db
+      - icp-adapter
 
   nginx:
     image: nginx:alpine
@@ -65,9 +70,12 @@ services:
       - db
       - app
 
-  # ICP memory adapter — required when ICP_MOCK_MODE=false
-  # Bridges Laravel HTTP calls to the deployed Motoko canister via @dfinity/agent.
-  # In mock mode this container still runs but uses its own in-memory store.
+  # ICP memory adapter — required when ICP_MOCK_MODE=false.
+  # Translates the app's HTTP JSON calls into Candid calls against the ICP canister.
+  # Also runs in mock mode (in-memory store) when ICP_MOCK_MODE=true.
+  #
+  # NOTE: ICP_DFX_HOST is the adapter→dfx URL, which is separate from
+  # ICP_CANISTER_ENDPOINT (the app→adapter URL set above in the app service).
   icp-adapter:
     image: node:20-alpine
     container_name: oma_icp_adapter
@@ -82,7 +90,9 @@ services:
       PORT: 3100
       ICP_MOCK: ${ICP_MOCK_MODE:-true}
       ICP_CANISTER_ID: ${ICP_CANISTER_ID:-}
-      ICP_HOST: ${ICP_CANISTER_ENDPOINT:-http://localhost:4943}
+      # ICP_DFX_HOST is where the adapter finds the dfx replica (or mainnet gateway).
+      # Default points to local dfx. Override for mainnet: https://ic0.app
+      ICP_DFX_HOST: ${ICP_DFX_HOST:-http://localhost:4943}
     networks:
       - oma_network
 
