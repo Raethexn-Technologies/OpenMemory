@@ -48,9 +48,13 @@ return [
 
     // ICP Memory Canister
     'icp' => [
-        'endpoint'   => env('ICP_CANISTER_ENDPOINT', 'http://localhost:4943'),
-        'canister_id' => env('ICP_CANISTER_ID', ''),
-        'mock'       => env('ICP_MOCK_MODE', true),
+        'endpoint'     => env('ICP_CANISTER_ENDPOINT', 'http://localhost:4943'),
+        'canister_id'  => env('ICP_CANISTER_ID', ''),
+        'mock'         => env('ICP_MOCK_MODE', true),
+        // ICP_BROWSER_HOST: the URL the user's browser uses to reach the dfx replica or
+        // ICP mainnet gateway. Separate from ICP_CANISTER_ENDPOINT (Laravel→adapter).
+        // Local default: http://localhost:4943  |  Mainnet: https://ic0.app
+        'browser_host' => env('ICP_BROWSER_HOST', 'http://localhost:4943'),
     ],
 
 ];

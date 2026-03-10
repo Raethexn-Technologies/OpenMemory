@@ -27,10 +27,13 @@ class HandleInertiaRequests extends Middleware
                 'success' => fn () => $request->session()->get('success'),
                 'error'   => fn () => $request->session()->get('error'),
             ],
-            // Shared globally so AppLayout and any page can react to mode
+            // Shared globally so AppLayout and any page can react to mode.
+            // browser_host and canister_id are used by the Vue composable for
+            // direct browser→canister writes (live mode only).
             'icp' => [
-                'mode'        => $icp->mode(),
-                'canister_id' => $icp->canisterId(),
+                'mode'         => $icp->mode(),
+                'canister_id'  => $icp->canisterId(),
+                'browser_host' => $icp->browserHost(),
             ],
         ]);
     }

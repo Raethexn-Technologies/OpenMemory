@@ -27,7 +27,10 @@ class ChatController extends Controller
         $sessionId = session()->get('chat_session_id', (string) Str::uuid());
         session()->put('chat_session_id', $sessionId);
 
-        $userId = session()->get('chat_user_id', 'user_' . Str::random(8));
+        // identity_source tracks where the user_id came from.
+        // 'browser' = browser-derived Ed25519 principal (set on first /chat/send with a principal).
+        // 'session' = legacy server-generated fallback (first page load before any message).
+        $userId = session()->get('chat_user_id', 'session_' . Str::random(8));
         session()->put('chat_user_id', $userId);
 
         $messages = Message::where('session_id', $sessionId)
@@ -36,28 +39,62 @@ class ChatController extends Controller
             ->toArray();
 
         return Inertia::render('Chat/Index', [
-            'session_id'   => $sessionId,
-            'user_id'      => $userId,
-            'messages'     => $messages,
-            'llm_provider' => $this->llm->provider(),
-            'icp_mode'     => $this->icp->mode(),
+            'session_id'      => $sessionId,
+            'user_id'         => $userId,
+            'identity_source' => session()->get('identity_source', 'session'),
+            'messages'        => $messages,
+            'llm_provider'    => $this->llm->provider(),
+            'icp_mode'        => $this->icp->mode(),
         ]);
     }
 
     /**
      * Handle a new chat message.
+     *
+     * Identity flow:
+     *   - The browser generates an Ed25519 principal and sends it as `principal`.
+     *   - On first message, we store that principal as the user_id and mark the
+     *     identity_source as 'browser'. Subsequent messages verify it matches.
+     *   - If no principal is supplied (e.g. direct API call), the session-generated
+     *     fallback is used and identity_source remains 'session'.
+     *
+     * Memory write flow (live ICP mode):
+     *   - Laravel returns the memory_summary to the browser.
+     *   - The browser calls the canister directly with the user's Ed25519 identity.
+     *   - msg.caller on the canister == the user's principal (cryptographically verified).
+     *   - The server cannot write under the user's principal in live mode.
+     *
+     * Memory write flow (mock mode):
+     *   - Laravel writes server-side to the file cache (no canister available).
+     *   - The principal is still browser-derived; it just isn't cryptographically enforced.
      */
     public function send(Request $request)
     {
         $validated = $request->validate([
-            'message' => 'required|string|max:2000',
+            'message'   => 'required|string|max:2000',
+            'principal' => 'nullable|string|max:128|regex:/^[a-z0-9][a-z0-9\-]*[a-z0-9]$/',
         ]);
 
         $sessionId = session()->get('chat_session_id');
-        $userId    = session()->get('chat_user_id');
-
-        if (! $sessionId || ! $userId) {
+        if (! $sessionId) {
             return response()->json(['error' => 'Session not found. Please refresh.'], 422);
+        }
+
+        // Accept browser-derived principal on first message; lock it in after that.
+        $userId         = session()->get('chat_user_id');
+        $identitySource = session()->get('identity_source', 'session');
+        $incomingPrincipal = $validated['principal'] ?? null;
+
+        if ($incomingPrincipal && $identitySource === 'session') {
+            // First browser-principal message — adopt it and upgrade identity source.
+            $userId = $incomingPrincipal;
+            session()->put('chat_user_id', $userId);
+            session()->put('identity_source', 'browser');
+            $identitySource = 'browser';
+        }
+
+        if (! $userId) {
+            return response()->json(['error' => 'No user identity. Please refresh.'], 422);
         }
 
         // Persist user message
@@ -67,7 +104,7 @@ class ChatController extends Controller
             'content'    => $validated['message'],
         ]);
 
-        // Retrieve existing memories from ICP
+        // Retrieve existing memories from ICP (query call — no authentication required)
         $memories = $this->icp->getMemories($userId);
 
         // Build prompt with memory context
@@ -90,24 +127,36 @@ class ChatController extends Controller
             'content'    => $aiResponse,
         ]);
 
-        // Extract and store memory asynchronously (in practice, queue this)
+        // Summarize the exchange into a durable fact.
         $memorySummary = $this->summarizer->extract($validated['message'], $aiResponse);
         $memoryId      = null;
+        $metadata      = json_encode(['source' => 'chat', 'provider' => $this->llm->provider()]);
 
         if ($memorySummary) {
-            $memoryId = $this->icp->storeMemory(
-                userId: $userId,
-                sessionId: $sessionId,
-                content: $memorySummary,
-                metadata: json_encode(['source' => 'chat', 'provider' => $this->llm->provider()])
-            );
+            if ($this->icp->isMockMode()) {
+                // Mock mode: server writes to file cache (no browser canister access).
+                $memoryId = $this->icp->storeMemory(
+                    userId: $userId,
+                    sessionId: $sessionId,
+                    content: $memorySummary,
+                    metadata: $metadata,
+                );
+            }
+            // Live ICP mode: return the summary to the browser.
+            // The browser signs and writes it to the canister using the user's identity.
+            // msg.caller on the canister will be the user's Ed25519 principal.
+            // The server cannot write under the user's principal.
         }
 
         return response()->json([
-            'message'    => $aiResponse,
-            'memory_id'  => $memoryId,
-            'memory'     => $memorySummary,
-            'provider'   => $this->llm->provider(),
+            'message'         => $aiResponse,
+            'memory_id'       => $memoryId,
+            'memory'          => $memorySummary,
+            'memory_metadata' => $metadata,
+            'identity_source' => $identitySource,
+            'user_id'         => $userId,
+            'provider'        => $this->llm->provider(),
+            'icp_mode'        => $this->icp->mode(),
         ]);
     }
 

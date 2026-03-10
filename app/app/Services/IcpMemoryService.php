@@ -121,6 +121,15 @@ class IcpMemoryService
     }
 
     /**
+     * The URL the browser uses to reach the dfx replica or ICP mainnet gateway.
+     * This is separate from the adapter endpoint (which is server→adapter).
+     */
+    public function browserHost(): string
+    {
+        return config('services.icp.browser_host', 'http://localhost:4943');
+    }
+
+    /**
      * Ping the adapter for live status.
      * Returns structured health info suitable for the /api/status endpoint.
      */
@@ -160,7 +169,7 @@ class IcpMemoryService
         }
     }
 
-    private function isMockMode(): bool
+    public function isMockMode(): bool
     {
         return config('services.icp.mock', true);
     }

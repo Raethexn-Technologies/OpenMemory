@@ -63,6 +63,41 @@ class ExampleTest extends TestCase
         $this->assertDatabaseMissing('messages', ['session_id' => 'sess-222']);
     }
 
+    // ─── Principal-based identity ──────────────────────────────────────
+
+    public function test_send_adopts_browser_principal_on_first_message(): void
+    {
+        // Simulate a fresh session with a server-generated fallback id
+        $this->withSession([
+            'chat_session_id' => 'sess-333',
+            'chat_user_id'    => 'session_fallback',
+            'identity_source' => 'session',
+        ])->postJson('/chat/send', [
+            'message'   => 'Hello',
+            'principal' => 'abc12-defgh-ijklm-nopqr-cai',
+        ]);
+
+        // After the first message with a principal, the session user_id should be the principal
+        $this->assertEquals('abc12-defgh-ijklm-nopqr-cai', $this->app['session']->get('chat_user_id'));
+        $this->assertEquals('browser', $this->app['session']->get('identity_source'));
+    }
+
+    public function test_send_does_not_replace_established_browser_principal(): void
+    {
+        // Once identity_source is 'browser', subsequent messages cannot change the user_id
+        $this->withSession([
+            'chat_session_id' => 'sess-444',
+            'chat_user_id'    => 'original-principal-cai',
+            'identity_source' => 'browser',
+        ])->postJson('/chat/send', [
+            'message'   => 'Hello again',
+            'principal' => 'different-principal-cai',
+        ]);
+
+        // Should remain the original — first-message lock-in is preserved
+        $this->assertEquals('original-principal-cai', $this->app['session']->get('chat_user_id'));
+    }
+
     // ─── Status API ────────────────────────────────────────────────────
 
     public function test_status_endpoint_returns_mode(): void

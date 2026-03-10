@@ -122,6 +122,21 @@
                 <div v-if="memory.metadata" class="mt-1.5">
                   <code class="text-xs text-gray-500 bg-gray-800 px-1.5 py-0.5 rounded">{{ memory.metadata }}</code>
                 </div>
+                <!-- Live mode: show the public canister URL for this user's memory -->
+                <div v-if="!isMock && canisterId" class="mt-2">
+                  <a
+                    :href="canisterMemoryUrl(memory.user_id)"
+                    target="_blank"
+                    rel="noopener"
+                    class="inline-flex items-center gap-1 text-xs text-emerald-500/70 hover:text-emerald-400 font-mono transition-colors"
+                    title="Open memory record in ICP canister (outside this app)"
+                  >
+                    <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                    ic0.app/memory/{{ memory.user_id }}
+                  </a>
+                </div>
               </div>
               <div class="text-right flex-shrink-0">
                 <p class="text-xs text-gray-600 font-mono">{{ formatTime(memory.timestamp) }}</p>
@@ -207,6 +222,10 @@ async function checkStatus() {
 
 // Auto-check on load when in live mode
 if (props.icp_mode === 'icp') checkStatus();
+
+function canisterMemoryUrl(userId) {
+  return `https://${canisterId.value}.ic0.app/memory/${encodeURIComponent(userId)}`;
+}
 
 function formatTime(ts) {
   if (!ts) return '—';

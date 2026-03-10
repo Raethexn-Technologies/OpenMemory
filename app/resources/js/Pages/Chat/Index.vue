@@ -6,13 +6,30 @@
       <div class="flex items-center justify-between">
         <div>
           <h1 class="text-lg font-semibold text-gray-100">Chat</h1>
-          <p class="text-xs text-gray-500 mt-0.5">
-            Identity: <code class="text-sky-400/80 font-mono">{{ props.user_id }}</code>
-            · Provider: <span class="text-sky-400/80">{{ props.llm_provider }}</span>
+          <p class="text-xs text-gray-500 mt-0.5 flex items-center gap-1.5 flex-wrap">
+            <!-- Identity badge — shows source of the principal -->
+            <span
+              :title="identityTooltip"
+              :class="[
+                'inline-flex items-center gap-1 px-1.5 py-0.5 rounded border font-mono text-[11px]',
+                identityReady
+                  ? 'bg-emerald-950/40 border-emerald-800/40 text-emerald-400/80'
+                  : 'bg-gray-800/60 border-gray-700/60 text-gray-500'
+              ]"
+            >
+              <svg class="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+              </svg>
+              {{ identityReady ? 'Browser key' : 'Generating…' }}
+            </span>
+            <code class="text-sky-400/70 font-mono truncate max-w-[200px]" :title="displayUserId">{{ displayUserId }}</code>
+            <span class="text-gray-700">·</span>
+            <span class="text-sky-400/80">{{ props.llm_provider }}</span>
           </p>
         </div>
         <div class="flex items-center gap-2">
-          <!-- Mode badge — always truthful -->
+          <!-- Memory mode badge -->
           <span
             :class="[
               'text-xs px-2 py-0.5 rounded-full font-mono border',
@@ -115,11 +132,12 @@
           <svg class="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
-          <div>
-            <span class="text-emerald-400 font-medium">
-              Memory stored{{ props.icp_mode === 'icp' ? ' on ICP' : ' (mock)' }}:
-            </span>
+          <div class="flex-1">
+            <span class="text-emerald-400 font-medium">{{ memoryWriteLabel }}:</span>
             <span class="text-emerald-300/80 ml-1">{{ lastMemory }}</span>
+            <p v-if="lastMemoryWriteSource === 'browser'" class="text-emerald-600/60 text-xs mt-0.5 font-mono">
+              Signed by your browser key · server cannot write this
+            </p>
           </div>
         </div>
       </transition>
@@ -154,24 +172,63 @@
 </template>
 
 <script setup>
-import { ref, nextTick, onMounted } from 'vue';
-import { router } from '@inertiajs/vue3';
+import { ref, computed, nextTick, onMounted } from 'vue';
+import { usePage, router } from '@inertiajs/vue3';
 import axios from 'axios';
 import AppLayout from '@/Components/AppLayout.vue';
+import { useIcpIdentity } from '@/composables/useIcpIdentity';
+import { useIcpMemory } from '@/composables/useIcpMemory';
 
 const props = defineProps({
-  session_id: String,
-  user_id: String,
-  messages: Array,
-  llm_provider: String,
-  icp_mode: String,
+  session_id:      String,
+  user_id:         String,
+  identity_source: String,
+  messages:        Array,
+  llm_provider:    String,
+  icp_mode:        String,
 });
 
-const messages = ref(props.messages ?? []);
-const input = ref('');
-const loading = ref(false);
-const lastMemory = ref(null);
-const messagesEl = ref(null);
+const page = usePage();
+
+// ─── Identity ──────────────────────────────────────────────────────
+// Generate (or load) the Ed25519 key pair from localStorage.
+// This runs synchronously — the principal is available immediately.
+const { identity, principal } = useIcpIdentity();
+const identityReady = ref(true);
+
+// displayUserId: show the browser principal once established, otherwise the server fallback.
+// After the first message, the server will adopt the browser principal as the canonical user_id.
+const displayUserId = computed(() => principal);
+
+const identityTooltip = computed(() =>
+  `Ed25519 principal generated in your browser.\nStored in localStorage — the server never has your private key.\nThis is your memory identity in ICP live mode.`
+);
+
+// ─── ICP memory writer (live mode only) ───────────────────────────
+const icpMode     = computed(() => page.props.icp?.mode);
+const canisterId  = computed(() => page.props.icp?.canister_id || '');
+const browserHost = computed(() => page.props.icp?.browser_host || 'http://localhost:4943');
+
+const icpMemory = computed(() =>
+  useIcpMemory({
+    identity,
+    canisterId: canisterId.value,
+    host: browserHost.value,
+  })
+);
+
+// ─── Chat state ────────────────────────────────────────────────────
+const messages            = ref(props.messages ?? []);
+const input               = ref('');
+const loading             = ref(false);
+const lastMemory          = ref(null);
+const lastMemoryWriteSource = ref(null); // 'browser' | 'server' | null
+const messagesEl          = ref(null);
+
+const memoryWriteLabel = computed(() => {
+  if (icpMode.value === 'icp') return 'Memory stored on ICP (browser-signed)';
+  return 'Memory stored (mock)';
+});
 
 const suggestions = [
   "My name is Anthony and I build AI tools.",
@@ -199,15 +256,41 @@ async function send() {
   input.value = '';
   loading.value = true;
   lastMemory.value = null;
+  lastMemoryWriteSource.value = null;
   await scrollToBottom();
 
   try {
-    const { data } = await axios.post('/chat/send', { message: text });
+    // Always send the browser principal so the server can adopt it as user_id.
+    const { data } = await axios.post('/chat/send', {
+      message:   text,
+      principal: principal,
+    });
+
     messages.value.push({ role: 'assistant', content: data.message });
 
     if (data.memory) {
       lastMemory.value = data.memory;
-      setTimeout(() => { lastMemory.value = null; }, 6000);
+
+      if (icpMode.value === 'icp' && data.memory && canisterId.value) {
+        // Live mode: browser writes the summary to the canister directly.
+        // msg.caller on the canister = our Ed25519 principal (cryptographically enforced).
+        lastMemoryWriteSource.value = 'browser';
+        icpMemory.value.storeMemory({
+          sessionId: props.session_id,
+          content:   data.memory,
+          metadata:  data.memory_metadata ?? null,
+        }).then((id) => {
+          if (id) console.info('[ICP] memory stored, id:', id);
+        });
+      } else {
+        // Mock mode: server already wrote to file cache.
+        lastMemoryWriteSource.value = 'server';
+      }
+
+      setTimeout(() => {
+        lastMemory.value = null;
+        lastMemoryWriteSource.value = null;
+      }, 7000);
     }
   } catch (err) {
     messages.value.push({
@@ -221,7 +304,10 @@ async function send() {
 }
 
 function resetSession() {
-  if (confirm('Start a new session? Chat history will be cleared.\n\nYour identity and memory are preserved — the agent will still remember you.')) {
+  if (confirm(
+    'Start a new session? Chat history will be cleared.\n\n' +
+    'Your identity and memory are preserved — the agent will still remember you.'
+  )) {
     router.post('/chat/reset');
   }
 }
