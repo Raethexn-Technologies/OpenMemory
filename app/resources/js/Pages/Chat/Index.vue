@@ -360,6 +360,8 @@ const props = defineProps({
   messages:        Array,
   llm_provider:    String,
   icp_mode:        String,
+  canister_id:     String,
+  browser_host:    String,
 });
 
 const page = usePage();
@@ -386,9 +388,9 @@ const identityDiverged = computed(() =>
 );
 
 // ─── ICP memory writer (live mode only) ───────────────────────────
-const icpMode     = computed(() => page.props.icp?.mode);
-const canisterId  = computed(() => page.props.icp?.canister_id || '');
-const browserHost = computed(() => page.props.icp?.browser_host || 'http://localhost:4943');
+const icpMode     = computed(() => props.icp_mode);
+const canisterId  = computed(() => props.canister_id || '');
+const browserHost = computed(() => props.browser_host || 'http://localhost:4943');
 
 const icpMemory = computed(() =>
   useIcpMemory({

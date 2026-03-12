@@ -45,6 +45,8 @@ class ChatController extends Controller
             'messages'        => $messages,
             'llm_provider'    => $this->llm->provider(),
             'icp_mode'        => $this->icp->mode(),
+            'canister_id'     => $this->icp->canisterId(),
+            'browser_host'    => $this->icp->browserHost(),
         ]);
     }
 
