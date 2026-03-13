@@ -75,9 +75,9 @@ The three-tier memory model is the core architectural claim of the project. Plea
 
 ## Scope
 
-This project is asking one specific architectural question: what does AI memory look like when the storage layer enforces its own access control independently of the host application? Pull requests that expand scope rather than deepen the answer to that question are unlikely to be accepted.
+This project is working through a layered set of research questions. The foundational question is: what does AI memory look like when the storage layer enforces its own access control independently of the host application? The research direction is extending that toward collective Physarum dynamics across multiple agents with cryptographic provenance on shared edge weights. Both layers are in scope; expansions that are unrelated to either are not.
 
-Things outside scope include encryption at rest, memory sharing between users, revocation flows, token economies, governance mechanisms, additional dashboard pages, and analytics pipelines. If you find yourself thinking "what if we also..." the right move is usually a separate project that builds on this one.
+Things outside scope include encryption at rest, token economies, governance mechanisms, additional dashboard pages, analytics pipelines, and agent orchestration frameworks that treat memory as a configuration detail rather than the research subject. If you find yourself thinking "what if we also added..." the right move is usually a separate project that builds on this one.
 
 ---
 
