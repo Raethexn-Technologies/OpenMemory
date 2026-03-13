@@ -474,6 +474,15 @@ async function writeMemoryToBrowser(content, type, metadata) {
     metadata:  metadata ?? null,
   });
   if (id) {
+    try {
+      await axios.post('/chat/sync-graph-memory', {
+        content,
+        memory_type: type ?? 'public',
+      });
+    } catch (err) {
+      console.warn('[chat] graph sync failed after browser memory write', err);
+    }
+
     memoryState.value = { status: 'success', content, source: 'browser' };
     // Refresh the owner panel so the new record appears immediately.
     if (showMyMemories.value) {

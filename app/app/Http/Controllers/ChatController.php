@@ -3,8 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Models\Message;
+use App\Services\GraphExtractionService;
 use App\Services\IcpMemoryService;
 use App\Services\LLM\LlmService;
+use App\Services\MemoryGraphService;
 use App\Services\MemorySummarizationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -17,6 +19,8 @@ class ChatController extends Controller
         private readonly LlmService $llm,
         private readonly IcpMemoryService $icp,
         private readonly MemorySummarizationService $summarizer,
+        private readonly GraphExtractionService $graphExtractor,
+        private readonly MemoryGraphService $graphService,
     ) {}
 
     /**
@@ -30,7 +34,7 @@ class ChatController extends Controller
         // identity_source tracks where the user_id came from.
         // 'browser' = browser-derived Ed25519 principal (set on first /chat/send with a principal).
         // 'session' = legacy server-generated fallback (first page load before any message).
-        $userId = session()->get('chat_user_id', 'session_' . Str::random(8));
+        $userId = session()->get('chat_user_id', 'session_'.Str::random(8));
         session()->put('chat_user_id', $userId);
 
         $messages = Message::where('session_id', $sessionId)
@@ -39,14 +43,14 @@ class ChatController extends Controller
             ->toArray();
 
         return Inertia::render('Chat/Index', [
-            'session_id'      => $sessionId,
-            'user_id'         => $userId,
+            'session_id' => $sessionId,
+            'user_id' => $userId,
             'identity_source' => session()->get('identity_source', 'session'),
-            'messages'        => $messages,
-            'llm_provider'    => $this->llm->provider(),
-            'icp_mode'        => $this->icp->mode(),
-            'canister_id'     => $this->icp->canisterId(),
-            'browser_host'    => $this->icp->browserHost(),
+            'messages' => $messages,
+            'llm_provider' => $this->llm->provider(),
+            'icp_mode' => $this->icp->mode(),
+            'canister_id' => $this->icp->canisterId(),
+            'browser_host' => $this->icp->browserHost(),
         ]);
     }
 
@@ -73,7 +77,7 @@ class ChatController extends Controller
     public function send(Request $request)
     {
         $validated = $request->validate([
-            'message'   => 'required|string|max:2000',
+            'message' => 'required|string|max:2000',
             'principal' => 'nullable|string|max:128|regex:/^[a-z0-9][a-z0-9\-]*[a-z0-9]$/',
         ]);
 
@@ -83,7 +87,7 @@ class ChatController extends Controller
         }
 
         // Accept browser-derived principal on first message; lock it in after that.
-        $userId         = session()->get('chat_user_id');
+        $userId = session()->get('chat_user_id');
         $identitySource = session()->get('identity_source', 'session');
         $incomingPrincipal = $validated['principal'] ?? null;
 
@@ -102,8 +106,8 @@ class ChatController extends Controller
         // Persist user message
         Message::create([
             'session_id' => $sessionId,
-            'role'       => 'user',
-            'content'    => $validated['message'],
+            'role' => 'user',
+            'content' => $validated['message'],
         ]);
 
         // Retrieve only Public memories for LLM context.
@@ -117,7 +121,7 @@ class ChatController extends Controller
         $history = Message::where('session_id', $sessionId)
             ->orderBy('created_at')
             ->get(['role', 'content'])
-            ->map(fn($m) => ['role' => $m->role, 'content' => $m->content])
+            ->map(fn ($m) => ['role' => $m->role, 'content' => $m->content])
             ->toArray();
 
         // Generate AI response
@@ -126,13 +130,13 @@ class ChatController extends Controller
         // Persist assistant message
         Message::create([
             'session_id' => $sessionId,
-            'role'       => 'assistant',
-            'content'    => $aiResponse,
+            'role' => 'assistant',
+            'content' => $aiResponse,
         ]);
 
         // Summarize the exchange into a durable fact with a sensitivity classification.
         // Returns ['content' => '...', 'type' => 'public'|'private'|'sensitive'] or null.
-        $memory   = $this->summarizer->extract($validated['message'], $aiResponse);
+        $memory = $this->summarizer->extract($validated['message'], $aiResponse);
         $memoryId = null;
         $metadata = json_encode(['source' => 'chat', 'provider' => $this->llm->provider()]);
 
@@ -146,22 +150,23 @@ class ChatController extends Controller
                     metadata: $metadata,
                     memoryType: 'public',
                 );
+                $this->syncMemoryGraph($userId, $memory['content'], 'public', $sessionId);
             }
             // Private / Sensitive (both modes) and all types in live ICP mode:
             //   The browser shows an approval UI and POSTs to /chat/store-memory (mock)
-            //   or signs directly to the canister (live). The server steps back.
+            //   or signs directly to the canister (live). The graph sync runs after that store succeeds.
         }
 
         return response()->json([
-            'message'         => $aiResponse,
-            'memory_id'       => $memoryId,
-            'memory'          => $memory['content'] ?? null,
-            'memory_type'     => $memory['type']    ?? null,
+            'message' => $aiResponse,
+            'memory_id' => $memoryId,
+            'memory' => $memory['content'] ?? null,
+            'memory_type' => $memory['type'] ?? null,
             'memory_metadata' => $metadata,
             'identity_source' => $identitySource,
-            'user_id'         => $userId,
-            'provider'        => $this->llm->provider(),
-            'icp_mode'        => $this->icp->mode(),
+            'user_id' => $userId,
+            'provider' => $this->llm->provider(),
+            'icp_mode' => $this->icp->mode(),
         ]);
     }
 
@@ -180,12 +185,12 @@ class ChatController extends Controller
         }
 
         $validated = $request->validate([
-            'content'     => 'required|string|max:2000',
+            'content' => 'required|string|max:2000',
             'memory_type' => 'required|in:private,sensitive',
-            'metadata'    => 'nullable|string|max:1000',
+            'metadata' => 'nullable|string|max:1000',
         ]);
 
-        $userId    = session()->get('chat_user_id');
+        $userId = session()->get('chat_user_id');
         $sessionId = session()->get('chat_session_id');
 
         if (! $userId || ! $sessionId) {
@@ -199,8 +204,31 @@ class ChatController extends Controller
             metadata: $validated['metadata'] ?? null,
             memoryType: $validated['memory_type'],
         );
+        $this->syncMemoryGraph($userId, $validated['content'], $validated['memory_type'], $sessionId);
 
         return response()->json(['id' => $id]);
+    }
+
+    /**
+     * Sync a browser-written memory into the local graph after the canister write succeeds.
+     */
+    public function syncGraphMemory(Request $request)
+    {
+        $validated = $request->validate([
+            'content' => 'required|string|max:2000',
+            'memory_type' => 'required|in:public,private,sensitive',
+        ]);
+
+        $userId = session()->get('chat_user_id');
+        $sessionId = session()->get('chat_session_id');
+
+        if (! $userId || ! $sessionId) {
+            return response()->json(['error' => 'Session not found. Please refresh.'], 422);
+        }
+
+        $this->syncMemoryGraph($userId, $validated['content'], $validated['memory_type'], $sessionId);
+
+        return response()->json(['ok' => true]);
     }
 
     /**
@@ -220,5 +248,13 @@ class ChatController extends Controller
         session()->forget('chat_session_id');
 
         return redirect()->route('chat');
+    }
+
+    private function syncMemoryGraph(string $userId, string $content, string $memoryType, ?string $sessionId = null): void
+    {
+        $extracted = $this->graphExtractor->extract($content, $memoryType);
+        if ($extracted) {
+            $this->graphService->storeNode($userId, $content, $extracted, $sessionId);
+        }
     }
 }

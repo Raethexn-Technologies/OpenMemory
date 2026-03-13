@@ -17,6 +17,11 @@
           </p>
         </div>
         <div class="flex items-center gap-2">
+          <!-- Graph explorer link -->
+          <a
+            href="/graph"
+            class="text-xs px-3 py-1 rounded border border-sky-800/60 bg-sky-950/40 text-sky-400 hover:bg-sky-900/50 transition-colors"
+          >🧠 Graph Explorer</a>
           <!-- Truthful mode badge -->
           <span
             :class="[
