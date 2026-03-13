@@ -3,11 +3,15 @@
 namespace Tests\Feature;
 
 use App\Models\Message;
+use App\Services\GraphExtractionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Mockery;
+use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Tests\TestCase;
 
 class ExampleTest extends TestCase
 {
+    use MockeryPHPUnitIntegration;
     use RefreshDatabase;
 
     // ─── Routing ──────────────────────────────────────────────────────
@@ -38,7 +42,7 @@ class ExampleTest extends TestCase
         // Establish a session with a user identity
         $session = $this->withSession([
             'chat_session_id' => 'sess-111',
-            'chat_user_id'    => 'user_abc123',
+            'chat_user_id' => 'user_abc123',
         ]);
 
         // Seed a message so reset has something to delete
@@ -70,10 +74,10 @@ class ExampleTest extends TestCase
         // Simulate a fresh session with a server-generated fallback id
         $this->withSession([
             'chat_session_id' => 'sess-333',
-            'chat_user_id'    => 'session_fallback',
+            'chat_user_id' => 'session_fallback',
             'identity_source' => 'session',
         ])->postJson('/chat/send', [
-            'message'   => 'Hello',
+            'message' => 'Hello',
             'principal' => 'abc12-defgh-ijklm-nopqr-cai',
         ]);
 
@@ -87,10 +91,10 @@ class ExampleTest extends TestCase
         // Once identity_source is 'browser', subsequent messages cannot change the user_id
         $this->withSession([
             'chat_session_id' => 'sess-444',
-            'chat_user_id'    => 'original-principal-cai',
+            'chat_user_id' => 'original-principal-cai',
             'identity_source' => 'browser',
         ])->postJson('/chat/send', [
-            'message'   => 'Hello again',
+            'message' => 'Hello again',
             'principal' => 'different-principal-cai',
         ]);
 
@@ -142,7 +146,7 @@ class ExampleTest extends TestCase
             ],
         ], now()->addHour());
 
-        $icp    = app(\App\Services\IcpMemoryService::class);
+        $icp = app(\App\Services\IcpMemoryService::class);
         $result = $icp->getPublicMemories($userId);
 
         // Only the public record must be returned to the LLM
@@ -153,13 +157,24 @@ class ExampleTest extends TestCase
 
     public function test_store_memory_endpoint_persists_with_correct_type_after_approval(): void
     {
+        $graphExtractor = Mockery::mock(GraphExtractionService::class);
+        $graphExtractor->shouldReceive('extract')->once()->with('User earns $120k annually', 'sensitive')->andReturn([
+            'type' => 'memory',
+            'label' => 'Compensation note',
+            'tags' => ['salary'],
+            'people' => [],
+            'projects' => [],
+            'sensitivity' => 'sensitive',
+        ]);
+        $this->app->instance(GraphExtractionService::class, $graphExtractor);
+
         // Simulate the browser calling /chat/store-memory after user approves
         // a sensitive memory in mock mode (mirrors live-mode browser→canister write)
         $response = $this->withSession([
             'chat_session_id' => 'sess-approve-test',
-            'chat_user_id'    => 'test-principal-xyz',
+            'chat_user_id' => 'test-principal-xyz',
         ])->postJson('/chat/store-memory', [
-            'content'     => 'User earns $120k annually',
+            'content' => 'User earns $120k annually',
             'memory_type' => 'sensitive',
         ]);
 
@@ -178,9 +193,9 @@ class ExampleTest extends TestCase
         // Accepting public here would bypass the approval-gate contract.
         $this->withSession([
             'chat_session_id' => 'sess-pub-test',
-            'chat_user_id'    => 'test-principal-pub',
+            'chat_user_id' => 'test-principal-pub',
         ])->postJson('/chat/store-memory', [
-            'content'     => 'I enjoy hiking',
+            'content' => 'I enjoy hiking',
             'memory_type' => 'public',
         ])->assertStatus(422); // validation rule: 'in:private,sensitive'
     }
