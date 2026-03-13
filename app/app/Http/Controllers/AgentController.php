@@ -197,6 +197,76 @@ class AgentController extends Controller
     }
 
     /**
+     * Compute pairwise intent alignment (Jaccard similarity) across all agents.
+     *
+     * For each agent, this method retrieves the Physarum neighbourhood without
+     * mutating any edge weights (read-only). The resulting active node ID sets are
+     * compared pairwise. Jaccard(A, B) = |A ∩ B| / |A ∪ B|.
+     *
+     * A Jaccard of 1.0 means two agents are pulling from identical memory regions.
+     * A Jaccard near 0 means they are operating in entirely separate subgraphs.
+     * A sudden drop after sustained alignment is an early signal worth investigating.
+     *
+     * This endpoint is intentionally read-only: no reinforce() call is made so
+     * alignment checks do not perturb the Physarum dynamics.
+     */
+    public function alignment(): \Illuminate\Http\JsonResponse
+    {
+        $userId = session()->get('chat_user_id');
+        $agents = Agent::where('owner_user_id', $userId)->get();
+
+        if ($agents->count() < 2) {
+            return response()->json(['pairs' => []]);
+        }
+
+        // Retrieve each agent's active context without reinforcing.
+        $activeSets = [];
+        foreach ($agents as $agent) {
+            $context = $this->graphService->retrieveContext($agent->graph_user_id);
+            $activeSets[$agent->id] = [
+                'name' => $agent->name,
+                // Compare semantic overlap across partitions by content hash.
+                // Agent-local node UUIDs are always distinct, so Jaccard on node IDs
+                // would incorrectly report zero even when two agents retrieved the
+                // same underlying memory content.
+                'content_hashes' => array_values(array_unique(array_map(
+                    fn ($record) => hash('sha256', $record['content']),
+                    $context,
+                ))),
+            ];
+        }
+
+        $pairs = [];
+        $agentList = $agents->values();
+        for ($i = 0; $i < $agentList->count(); $i++) {
+            for ($j = $i + 1; $j < $agentList->count(); $j++) {
+                $a = $agentList[$i];
+                $b = $agentList[$j];
+
+                $setA = $activeSets[$a->id]['content_hashes'];
+                $setB = $activeSets[$b->id]['content_hashes'];
+
+                $intersection = count(array_intersect($setA, $setB));
+                $union = count(array_unique(array_merge($setA, $setB)));
+
+                $jaccard = $union > 0 ? round($intersection / $union, 4) : 0.0;
+
+                $pairs[] = [
+                    'agent_a_id' => $a->id,
+                    'agent_b_id' => $b->id,
+                    'agent_a_name' => $a->name,
+                    'agent_b_name' => $b->name,
+                    'jaccard' => $jaccard,
+                ];
+            }
+        }
+
+        usort($pairs, fn ($x, $y) => $y['jaccard'] <=> $x['jaccard']);
+
+        return response()->json(['pairs' => $pairs]);
+    }
+
+    /**
      * Delete an agent and its graph partition.
      */
     public function destroy(string $agentId)

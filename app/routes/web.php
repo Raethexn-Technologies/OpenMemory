@@ -30,6 +30,12 @@ Route::get('/graph', [GraphController::class, 'index'])->name('graph');
 Route::get('/api/graph', [GraphController::class, 'data'])->name('api.graph');
 Route::get('/api/graph/neighborhood/{nodeId}', [GraphController::class, 'neighborhood'])->name('api.graph.neighborhood');
 Route::post('/api/graph/simulate', [GraphController::class, 'simulate'])->name('api.graph.simulate');
+Route::get('/api/graph/clusters', [GraphController::class, 'clusters'])->name('api.graph.clusters');
+Route::get('/api/graph/snapshots', [GraphController::class, 'snapshotIndex'])->name('api.graph.snapshots');
+Route::get('/api/graph/snapshots/{snapshotId}', [GraphController::class, 'snapshotShow'])->name('api.graph.snapshots.show');
+
+// Three.js mission control surface
+Route::get('/3d', [GraphController::class, 'threeD'])->name('threed');
 
 // Multi-agent simulation
 Route::get('/agents', [AgentController::class, 'index'])->name('agents');
@@ -38,4 +44,5 @@ Route::patch('/api/agents/{agentId}/trust', [AgentController::class, 'updateTrus
 Route::post('/api/agents/{agentId}/seed', [AgentController::class, 'seed'])->name('agents.seed');
 Route::post('/api/agents/{agentId}/simulate', [AgentController::class, 'simulate'])->name('agents.simulate');
 Route::post('/api/agents/simulate-all', [AgentController::class, 'simulateAll'])->name('agents.simulateAll');
+Route::get('/api/agents/alignment', [AgentController::class, 'alignment'])->name('agents.alignment');
 Route::delete('/api/agents/{agentId}', [AgentController::class, 'destroy'])->name('agents.destroy');

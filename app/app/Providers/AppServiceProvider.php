@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Services\ClusterDetectionService;
 use App\Services\GraphExtractionService;
 use App\Services\IcpMemoryService;
 use App\Services\LLM\LlmProviderInterface;
@@ -40,6 +41,8 @@ class AppServiceProvider extends ServiceProvider
         });
 
         $this->app->singleton(MemoryGraphService::class);
+
+        $this->app->singleton(ClusterDetectionService::class);
 
         $this->app->singleton(MultiAgentGraphService::class, function ($app) {
             return new MultiAgentGraphService($app->make(MemoryGraphService::class));
