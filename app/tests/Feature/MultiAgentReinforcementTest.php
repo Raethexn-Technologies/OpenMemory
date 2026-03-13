@@ -280,6 +280,71 @@ class MultiAgentReinforcementTest extends TestCase
         $this->assertEqualsWithDelta(0.9, $agent->trust_score, 0.0001);
     }
 
+    public function test_shared_edges_endpoint_returns_owner_scoped_summary_with_node_ids(): void
+    {
+        $agentA = $this->makeAgent('owner-shared-api', 'Alpha', 1.0);
+        $agentB = $this->makeAgent('owner-shared-api', 'Beta', 1.0);
+
+        $nodeA = $this->makeNode($agentA->graph_user_id, 'Shared API fact');
+        $nodeB = $this->makeNode($agentB->graph_user_id, 'Shared API fact');
+        app(MultiAgentGraphService::class)->reinforceShared([$nodeA->id], $agentA);
+
+        $response = $this->withSession([
+            'chat_user_id' => 'owner-shared-api',
+            'chat_session_id' => 'session-shared-api',
+        ])->getJson('/api/agents/shared-edges');
+
+        $response->assertOk();
+        $response->assertJsonCount(1, 'shared_edges');
+        $response->assertJsonPath('shared_edges.0.node_a_id', $nodeA->id);
+        $response->assertJsonPath('shared_edges.0.node_b_id', $nodeB->id);
+    }
+
+    public function test_agent_graph_endpoint_returns_public_partition_graph_for_owner(): void
+    {
+        $agent = $this->makeAgent('owner-agent-graph', 'Alpha', 0.7);
+
+        $public = $this->makeNode($agent->graph_user_id, 'Visible agent fact');
+        $private = MemoryNode::create([
+            'user_id' => $agent->graph_user_id,
+            'type' => 'memory',
+            'sensitivity' => 'private',
+            'label' => 'Hidden agent fact',
+            'content' => 'Hidden agent fact',
+            'tags' => [],
+            'confidence' => 1.0,
+            'source' => 'chat',
+        ]);
+        MemoryEdge::create([
+            'user_id' => $agent->graph_user_id,
+            'from_node_id' => $public->id,
+            'to_node_id' => $private->id,
+            'relationship' => 'related_to',
+            'weight' => 0.5,
+        ]);
+
+        $response = $this->withSession([
+            'chat_user_id' => 'owner-agent-graph',
+            'chat_session_id' => 'session-agent-graph',
+        ])->getJson("/api/agents/{$agent->id}/graph");
+
+        $response->assertOk();
+        $response->assertJsonCount(1, 'nodes');
+        $response->assertJsonPath('nodes.0.id', $public->id);
+        $response->assertJsonCount(0, 'edges');
+    }
+
+    public function test_agent_graph_endpoint_returns_not_found_for_other_owners_agent(): void
+    {
+        $agent = $this->makeAgent('owner-one', 'Alpha', 0.7);
+
+        $this->withSession([
+            'chat_user_id' => 'owner-two',
+            'chat_session_id' => 'session-agent-graph',
+        ])->getJson("/api/agents/{$agent->id}/graph")
+            ->assertNotFound();
+    }
+
     public function test_simulate_endpoint_returns_active_nodes_and_updates_access_tracking(): void
     {
         $agentA = $this->makeAgent('owner-simulate', 'Alpha', 1.0);

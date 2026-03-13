@@ -197,6 +197,43 @@ class AgentController extends Controller
     }
 
     /**
+     * Return the current shared-edge summary for all agents under this user.
+     *
+     * Used by the Three.js mission control surface to render cross-partition edges
+     * between nodes that two or more agents have both reinforced. Each entry in the
+     * response includes the content hash, both agent names, both node IDs, the
+     * accumulated shared weight, and the access count. The browser uses node IDs to
+     * locate the 3D positions of the two endpoints and draws a violet line between them.
+     */
+    public function sharedEdges(): \Illuminate\Http\JsonResponse
+    {
+        $userId = session()->get('chat_user_id');
+
+        $edges = $userId
+            ? $this->multiAgentService->getSharedEdgeSummary($userId)
+            : [];
+
+        return response()->json(['shared_edges' => $edges]);
+    }
+
+    /**
+     * Return the full graph for one agent's partition (public nodes and edges only).
+     *
+     * Used by the Three.js mission control surface to lay out each agent's subgraph
+     * in its own spatial region of the scene. Returns 404 if the agent does not
+     * belong to the current session user.
+     */
+    public function graph(string $agentId): \Illuminate\Http\JsonResponse
+    {
+        $userId = session()->get('chat_user_id');
+        $agent = Agent::where('owner_user_id', $userId)->findOrFail($agentId);
+
+        return response()->json(
+            $this->graphService->getGraph($agent->graph_user_id, ['sensitivity' => ['public']])
+        );
+    }
+
+    /**
      * Compute pairwise intent alignment (Jaccard similarity) across all agents.
      *
      * For each agent, this method retrieves the Physarum neighbourhood without

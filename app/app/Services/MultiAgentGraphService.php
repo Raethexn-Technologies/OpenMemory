@@ -220,6 +220,8 @@ class MultiAgentGraphService
             'id' => $e->id,
             'content_hash' => $e->content_hash,
             'content_preview' => mb_substr($e->nodeA?->content ?? '', 0, 100),
+            'node_a_id' => $e->node_a_id,
+            'node_b_id' => $e->node_b_id,
             'agent_a' => $e->agentA?->name ?? 'unknown',
             'agent_b' => $e->agentB?->name ?? 'unknown',
             'weight' => round($e->weight, 3),
