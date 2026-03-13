@@ -204,6 +204,63 @@
         </div>
       </div>
 
+      <!-- Simulation controls -->
+      <div v-if="activeView === 'graph'" class="absolute bottom-4 left-4 z-10">
+        <div class="flex items-center gap-3 bg-slate-900/95 border border-slate-700 rounded-xl px-4 py-2.5 backdrop-blur-sm shadow-lg">
+          <!-- Play / Pause -->
+          <button
+            @click="toggleSimulation"
+            :class="[
+              'w-7 h-7 flex items-center justify-center rounded-full text-sm font-bold transition-colors',
+              simulationRunning
+                ? 'bg-amber-500 hover:bg-amber-400 text-slate-900'
+                : 'bg-slate-700 hover:bg-sky-600 text-slate-200'
+            ]"
+            :title="simulationRunning ? 'Pause simulation' : 'Run Physarum simulation'"
+          >
+            {{ simulationRunning ? '⏸' : '▶' }}
+          </button>
+
+          <!-- Label -->
+          <span class="text-xs text-slate-400 font-medium">Simulate</span>
+
+          <div class="w-px h-4 bg-slate-700"></div>
+
+          <!-- Speed -->
+          <div class="flex items-center gap-1.5">
+            <span class="text-xs text-slate-600">speed</span>
+            <button
+              v-for="s in SIM_SPEEDS"
+              :key="s.ms"
+              @click="setSimSpeed(s.ms)"
+              :class="[
+                'text-xs px-2 py-0.5 rounded-full transition-colors',
+                simSpeed === s.ms
+                  ? 'bg-sky-600 text-white'
+                  : 'text-slate-500 hover:text-slate-300'
+              ]"
+            >{{ s.label }}</button>
+          </div>
+
+          <div class="w-px h-4 bg-slate-700"></div>
+
+          <!-- Tick counter -->
+          <div class="flex items-center gap-1.5">
+            <span class="text-xs text-slate-600">tick</span>
+            <span class="text-xs font-mono text-slate-300 w-8 text-right">{{ simTick }}</span>
+          </div>
+
+          <!-- Active node count badge -->
+          <div
+            v-if="simActiveCount > 0"
+            class="flex items-center gap-1 bg-amber-500/20 border border-amber-500/40 rounded-full px-2 py-0.5"
+          >
+            <span class="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+            <span class="text-xs text-amber-300 font-mono">{{ simActiveCount }}</span>
+          </div>
+        </div>
+      </div>
+
       <!-- Zoom controls -->
       <div v-if="activeView === 'graph'" class="absolute bottom-4 right-4 flex flex-col gap-1.5 z-10">
         <button
@@ -357,11 +414,28 @@ const searchQuery = ref('')
 const activeView  = ref('graph')
 const svgRef      = ref(null)
 
+// Simulation state
+const simulationRunning = ref(false)
+const simSpeed  = ref(1000)    // milliseconds between ticks
+const simTick   = ref(0)
+const simActiveCount = ref(0)
+let   simIntervalId = null
+let   simTickInFlight = false
+let   simGeneration = 0
+
+const SIM_SPEEDS = [
+  { label: 'slow', ms: 2000 },
+  { label: '1×',   ms: 1000 },
+  { label: 'fast', ms: 350  },
+]
+
 // D3 internals
 let simulation = null
 let svgEl      = null
 let zoomBehavior = null
 let gRoot      = null
+let linkSel    = null   // live reference for weight transitions
+let nodeSel    = null   // live reference for active-node flash
 
 // ── Computed ──────────────────────────────────────────────────────────────────
 
@@ -502,7 +576,7 @@ const renderGraph = (width, height) => {
     .force('collide', d3.forceCollide().radius(d => nodeRadius(d, degreeMap) + 10))
 
   // Edge lines
-  const link = gRoot.append('g').attr('opacity', 0.5)
+  linkSel = gRoot.append('g').attr('opacity', 0.5)
     .selectAll('line')
     .data(edges)
     .join('line')
@@ -544,6 +618,15 @@ const renderGraph = (width, height) => {
         .attr('stroke', typeColor(d.type))
     })
 
+  // Simulation active-node flash ring (amber, shown briefly on each sim tick)
+  node.append('circle')
+    .attr('r', d => nodeRadius(d, degreeMap) + 8)
+    .attr('fill', 'none')
+    .attr('stroke', '#f59e0b')
+    .attr('stroke-width', 2.5)
+    .attr('opacity', 0)
+    .attr('class', 'sim-ring')
+
   // Pulse ring for selected
   node.append('circle')
     .attr('r', d => nodeRadius(d, degreeMap) + 4)
@@ -573,8 +656,10 @@ const renderGraph = (width, height) => {
     .attr('pointer-events', 'none')
     .text(d => d.label.length > 22 ? d.label.slice(0, 20) + '…' : d.label)
 
+  nodeSel = node
+
   simulation.on('tick', () => {
-    link
+    linkSel
       .attr('x1', d => d.source.x)
       .attr('y1', d => d.source.y)
       .attr('x2', d => d.target.x)
@@ -582,6 +667,95 @@ const renderGraph = (width, height) => {
 
     node.attr('transform', d => `translate(${d.x},${d.y})`)
   })
+}
+
+// ── Simulation ────────────────────────────────────────────────────────────────
+
+const runSimTick = async () => {
+  if (!simulationRunning.value || simTickInFlight) return
+
+  const generation = simGeneration
+  simTickInFlight = true
+
+  try {
+    const res = await fetch('/api/graph/simulate', {
+      method: 'POST',
+      headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '' },
+    })
+    if (!res.ok) return
+
+    const data = await res.json()
+    if (generation !== simGeneration || !simulationRunning.value) return
+
+    const activeIds = data.active_node_ids ?? []
+    const updatedEdges = data.updated_edges ?? []
+
+    simTick.value++
+    simActiveCount.value = activeIds.length
+
+    // Flash active nodes with amber ring, then fade.
+    if (nodeSel && activeIds.length > 0) {
+      const activeSet = new Set(activeIds)
+      nodeSel.selectAll('.sim-ring')
+        .interrupt()
+        .attr('opacity', d => activeSet.has(d.id) ? 0.85 : 0)
+        .transition().delay(500).duration(800)
+        .attr('opacity', 0)
+    }
+
+    // Transition edge stroke widths for reinforced edges.
+    if (linkSel && updatedEdges.length > 0) {
+      const weightMap = Object.fromEntries(updatedEdges.map(e => [e.id, e.weight]))
+      linkSel.transition().duration(600)
+        .attr('stroke-width', d => {
+          const w = weightMap[d.id] ?? d.weight ?? 0.5
+          return 0.8 + w * 2
+        })
+    }
+  } catch {
+    // Network error during sim — do not crash, just skip this tick.
+  } finally {
+    simTickInFlight = false
+  }
+}
+
+const toggleSimulation = () => {
+  if (simulationRunning.value) {
+    stopSimulation()
+  } else {
+    startSimulation()
+  }
+}
+
+const startSimulation = () => {
+  if (simulationRunning.value) return
+  simulationRunning.value = true
+  simGeneration++
+  runSimTick()
+  simIntervalId = setInterval(runSimTick, simSpeed.value)
+}
+
+const stopSimulation = () => {
+  simulationRunning.value = false
+  simGeneration++
+  simActiveCount.value = 0
+  if (simIntervalId) {
+    clearInterval(simIntervalId)
+    simIntervalId = null
+  }
+  // Clear any remaining sim rings.
+  if (nodeSel) {
+    nodeSel.selectAll('.sim-ring').interrupt().transition().duration(400).attr('opacity', 0)
+  }
+}
+
+const setSimSpeed = (ms) => {
+  simSpeed.value = ms
+  if (simulationRunning.value) {
+    // Restart the interval at the new speed.
+    clearInterval(simIntervalId)
+    simIntervalId = setInterval(runSimTick, ms)
+  }
 }
 
 // ── Zoom controls ─────────────────────────────────────────────────────────────
@@ -629,6 +803,11 @@ watch(filteredNodes, async () => {
 })
 
 watch(activeView, async (view) => {
+  if (view !== 'graph') {
+    stopSimulation()
+    return
+  }
+
   if (view === 'graph') {
     await nextTick()
     if (svgRef.value && !gRoot) initD3()
@@ -656,5 +835,6 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (simulation) simulation.stop()
+  if (simIntervalId) clearInterval(simIntervalId)
 })
 </script>
