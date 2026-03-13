@@ -29,6 +29,7 @@ Route::get('/api/status', [MemoryController::class, 'status'])->name('api.status
 Route::get('/graph', [GraphController::class, 'index'])->name('graph');
 Route::get('/api/graph', [GraphController::class, 'data'])->name('api.graph');
 Route::get('/api/graph/neighborhood/{nodeId}', [GraphController::class, 'neighborhood'])->name('api.graph.neighborhood');
+Route::post('/api/graph/simulate', [GraphController::class, 'simulate'])->name('api.graph.simulate');
 
 // Multi-agent simulation
 Route::get('/agents', [AgentController::class, 'index'])->name('agents');

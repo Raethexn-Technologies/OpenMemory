@@ -148,4 +148,65 @@ class GraphControllerTest extends TestCase
             ->getJson("/api/graph/neighborhood/{$node->id}")
             ->assertNotFound();
     }
+
+    public function test_graph_simulate_reinforces_active_edges_and_returns_updated_weights(): void
+    {
+        $first = MemoryNode::create([
+            'user_id' => 'user-1',
+            'type' => 'memory',
+            'sensitivity' => 'public',
+            'label' => 'First',
+            'content' => 'First memory',
+            'tags' => ['alpha'],
+            'confidence' => 1.0,
+            'source' => 'chat',
+        ]);
+        $second = MemoryNode::create([
+            'user_id' => 'user-1',
+            'type' => 'memory',
+            'sensitivity' => 'public',
+            'label' => 'Second',
+            'content' => 'Second memory',
+            'tags' => ['alpha'],
+            'confidence' => 1.0,
+            'source' => 'chat',
+        ]);
+        $otherUser = MemoryNode::create([
+            'user_id' => 'user-2',
+            'type' => 'memory',
+            'sensitivity' => 'public',
+            'label' => 'Other',
+            'content' => 'Other memory',
+            'tags' => ['beta'],
+            'confidence' => 1.0,
+            'source' => 'chat',
+        ]);
+
+        $edge = MemoryEdge::create([
+            'user_id' => 'user-1',
+            'from_node_id' => $first->id,
+            'to_node_id' => $second->id,
+            'relationship' => 'same_topic_as',
+            'weight' => 0.5,
+        ]);
+        MemoryEdge::create([
+            'user_id' => 'user-2',
+            'from_node_id' => $otherUser->id,
+            'to_node_id' => $otherUser->id,
+            'relationship' => 'related_to',
+            'weight' => 0.4,
+        ]);
+
+        $response = $this->withSession(['chat_user_id' => 'user-1'])
+            ->postJson('/api/graph/simulate');
+
+        $response->assertOk();
+        $response->assertJsonCount(2, 'active_node_ids');
+        $response->assertJsonCount(1, 'updated_edges');
+        $response->assertJsonPath('updated_edges.0.id', $edge->id);
+        $response->assertJsonPath('updated_edges.0.weight', 0.6);
+
+        $edge->refresh();
+        $this->assertEqualsWithDelta(0.6, $edge->weight, 0.0001);
+    }
 }
