@@ -239,4 +239,38 @@ See DEVLOG Entry 002 for the full technical breakdown of what building this requ
 
 ---
 
+## The Hivemind Direction: Collective Physarum Across Multiple Agents
+
+The single-user sovereign memory problem is now solved at the cryptographic level. Kinic's zkTAM system proved that in 2025: one user, one agent, one signing identity, with zero-knowledge proofs attesting which specific memories influenced which responses. Building another single-user portable memory store would not contribute new findings.
+
+The open problem is one layer above that. It is the problem the December 2024 paper on Emergent Collective Memory (arXiv:2512.10166) identified precisely: individual memory gives a 68.7% performance gain over baselines; environmental traces accessible to all agents provide zero statistically significant benefit. The benefit requires cognitive infrastructure inside each agent, not just shared storage.
+
+The cognitive infrastructure is the graph. The question this project is now positioned to answer is:
+
+**What happens when multiple agents with their own ICP-signed memory graphs share edge weights on nodes they have both accessed, and the resulting collective Physarum dynamics determine what the group remembers?**
+
+This is not an incremental extension of the single-user system. It changes the semantics of edge weight from "this agent found these memories relevant together" to "the collective found these memories relevant together." The topology that emerges from collective Physarum reflects the group's accumulated intelligence, not any individual's.
+
+#### The four components this requires
+
+**Collective edge weights.** When agent A and agent B both traverse a node, the shared edge receives flux from both agents' individual Physarum networks. The combined conductance drives the collective network toward paths that multiple agents have independently found important. This is the multi-organism Physarum model applied to AI agent memory: individual organisms merge their networks at shared food sources.
+
+**Trust-weighted reinforcement.** MemoryGraft (arXiv:2512.16962) demonstrated that long-term memory is a poisoning attack surface. A single bad-actor agent can corrupt the shared graph by contributing flux to paths it wants the collective to prefer. The fix is trust-weighted ALPHA: each agent's contribution to shared edge weight is multiplied by the trust score of their signing principal. Principals with no reputation history contribute a small initial weight. Trust is earned through demonstrated accuracy over time. ICP's msg.caller makes this verifiable: every write and every reinforcement event carries the immutable principal of the contributing agent.
+
+**Cross-agent access grants on ICP.** The canister mediates which agents can read which nodes from another agent's graph. Agent A can grant Agent B read access to a specific node by signing a permission record on the canister. The bipartite access control model from Collaborative Memory (arXiv:2505.18279) provides the formal structure; ICP's msg.caller enforcement makes it cryptographic rather than application-level.
+
+**3D visualization of collective cognitive state.** Each agent's subgraph occupies a region of the Three.js sphere. Nodes shared between agents sit at the boundary between regions. Edge thickness reflects collective flux, not individual access count. Active nodes animate in real-time as each agent's current context loads. MemoryGraft anomalies (a low-trust principal reinforcing a high-weight cluster) are rendered visually as a foreign-colored pulse entering the graph. The collective brain is observable.
+
+#### What this does not yet implement
+
+Nothing in this section is built. The single-user system is the prerequisite: the graph dynamics, the Physarum model, the active_node_ids feedback loop, and the ICP ownership registry must all work correctly for a single user before the multi-agent layer can be added on top.
+
+The research confirms that when those prerequisites exist, the multi-agent extension is both technically feasible and scientifically uncharted. No paper identified in Entry 003 or Entry 007 addresses collective Physarum dynamics applied to AI agent shared memory with cryptographic provenance enforcement at the edge level.
+
+That is the research contribution this project is building toward.
+
+See DEVLOG Entry 007 for the full research landscape analysis and the specific papers that define the open frontier.
+
+---
+
 *This document was written to preserve the research thinking behind OpenMemoryAgent. The implementation will change; the questions it's asking are the part worth keeping.*

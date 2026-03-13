@@ -702,6 +702,81 @@ That decision should be made deliberately before implementing, because it change
 
 ---
 
+## Entry 007 — 2026-03-12
+### The hivemind pivot: what Kinic did not build and what remains genuinely open
+
+#### The question that prompted this
+
+After Entry 006 documented Kinic's zkTAM system and portable memory store on ICP, the legitimate concern was: if the most important research work on agent memory has already been done on ICP, what is left to discover here? The concern is worth taking seriously. Dismissing it would mean building in a direction without understanding what already exists.
+
+The answer requires distinguishing what Kinic built from what the full research landscape shows remains unbuilt.
+
+#### What Kinic actually built
+
+Kinic's product is a portable personal memory store. One user. One agent. One signing identity. Their architecture is correct and impressive: vetKey gives encryption at rest with user-owned keys, WebAuthn replaces Ed25519 KeyIdentity in localStorage with hardware-rooted signing, and their Vectune vector database runs as Wasm on ICP for semantic search. Their zkTAM framework adds a zero-knowledge proof layer so the agent can prove which specific records influenced a given response.
+
+The system is designed to answer this question: "Can a user carry their AI memory from one application to another without trusting the application server?"
+
+That question is answered. The user sovereign memory problem for a single agent is solved at the cryptographic level.
+
+Kinic's tagline is "One Memory Layer. Every AI Agent." The "every" refers to application portability: your single memory works across Claude, GPT, Gemini. It does not refer to collective memory: it does not mean many users' memories converging into a shared structure.
+
+#### What collective memory research reveals
+
+Three papers from the research pass define the open frontier precisely.
+
+**Emergent Collective Memory (arXiv:2512.10166, December 2024)** ran a controlled experiment measuring agent performance on tasks requiring collective memory across multiple agents. Individual memory gave a 68.7% performance gain over baselines. Environmental traces (stigmergic pheromone deposits accessible to all agents, equivalent to shared state without cognitive infrastructure) provided zero statistically significant benefit. The conclusion: collective benefit requires cognitive infrastructure inside each agent, not just shared storage. The system described in this DEVLOG is that infrastructure. The Physarum graph is not the pheromone trail; it is the organism's cognitive map built from traversing the trail.
+
+**Collaborative Memory (arXiv:2505.18279, May 2025, Accenture)** formalizes multi-user multi-agent memory with bipartite access control graphs: one partition contains users and agents, the other contains memory records, and edges represent permissions. Their access control model is correct. Their memory dynamics are static: edges in the bipartite graph do not carry weights, do not decay, do not reinforce through co-access. The social graph of who can read what is solved. The dynamics of what the collective actually remembers and how importance distributes across the shared corpus is not addressed.
+
+**Society of HiveMind (arXiv:2503.05473, 2025)** treats agents as graph nodes and optimizes their communication topology. The research question is "which agents should talk to which other agents to maximize task performance?" Not "how should the shared memory structure evolve based on what the collective accesses together?" The communication topology problem and the shared memory dynamics problem are adjacent, not identical.
+
+The gap is clear across all three: collective memory access control is partially solved; collective memory dynamics, specifically how edge weights should evolve based on multi-agent co-access patterns, is not addressed in any paper found.
+
+#### The MemoryGraft problem is the trust problem for collective memory
+
+MemoryGraft (arXiv:2512.16962) demonstrated a persistent poisoning attack on agent long-term memory. The attack works by planting a small number of records that describe a fabricated successful experience (the agent "remembers" that a particular malicious action worked well in a past task). Because the agent's memory retrieval is based on semantic relevance rather than provenance verification, the planted record competes on equal footing with legitimate records and eventually shapes the agent's behaviour.
+
+For a single-user system, MemoryGraft is a server-side security problem: prevent unauthorized writes to the memory store. ICP's msg.caller enforcement mostly solves this for ICP-backed memory because writes are signed by the user's principal.
+
+For a collective memory system where multiple agents contribute writes from multiple principals, MemoryGraft becomes a social engineering attack. An agent operating under a principal that the user has granted write access to can plant memories that corrupt the shared graph. The attack surface is proportional to the number of contributing principals.
+
+No paper identified a cryptographic solution specific to collective memory poisoning. The closest mechanism available is ICP's authorship provenance: every write to the canister carries the signing principal, and that principal is immutable at the protocol level. A trust-weighted Physarum model can use principal trust scores as a multiplicative factor on edge reinforcement. A principal with no reputation history contributes a small ALPHA; a well-established principal with a verified history of accurate contributions earns a larger effective ALPHA. The graph then converges toward the structure that trusted agents collectively find important, while untrusted writes contribute small initial weights that require sustained reinforcement to become significant.
+
+This mechanism is architecturally feasible with the current system. It has not been built anywhere, and the MemoryGraft attack surface makes it a necessary component of any collective memory system that allows multiple contributing principals.
+
+#### What the collective Physarum model looks like
+
+In the biological model, multiple Physarum organisms introduced to the same maze begin as independent networks. They merge at food sources. Tubes that two organisms both traverse receive flux from both, and their combined conductance update drives the merged network toward shorter paths faster than either organism would find alone. Tubes used by only one organism contribute less to the collective decision.
+
+Translated to AI collective memory:
+
+Each agent maintains a PostgreSQL graph under their own user partition. The ICP canister stores memory records with msg.caller enforcement. When two agents' graphs contain nodes derived from the same ICP record (same content, same canister record ID), a cross-agent edge can be created in a shared coordination layer. The weight of that shared edge is the sum of the individual agents' edge weights, normalized by the trust scores of their respective principals.
+
+When the system retrieves memories for agent A, it now considers not only agent A's Physarum weights but the cross-agent weights on shared nodes. If agent B has heavily reinforced a node that agent A has lightly accessed, that node's effective weight in agent A's retrieval is elevated because the collective has found it important. This is the emergent collective memory that the December 2024 paper showed is not achievable through environmental traces alone.
+
+The ICP layer's role in this model is different from its current role. Currently ICP stores memory records and enforces read access. In the hivemind model, ICP also stores the cross-agent edge weights as a separate canister, signed by both contributing principals. The weights in that canister represent collective endorsement: neither agent can unilaterally alter the shared edge without the other's principal consenting. The bipartite access control from the Accenture paper is the permission model; the Physarum dynamics are the weight model. Both are needed and neither is yet combined with the other.
+
+#### Where the Three.js visualization fits
+
+The 3D brain globe described in Entry 002 becomes the observation surface for collective cognitive state. Each agent's subgraph occupies a region of the sphere. Shared nodes sit at the boundary between regions, glowing proportionally to their collective weight. Edges thick with accumulated flux are the high-conductance tubes of the Physarum network: the paths the collective has found important.
+
+A live animation of a chat turn would show a specific agent's active node set lighting up, reinforcement waves propagating through the Hebbian neighbourhood, and the cross-agent shared nodes brightening as their collective weight updates. When a MemoryGraft-suspicious write occurs (a low-reputation principal attempting to write a high-semantic-similarity record near a high-weight node), the visualization could render the anomaly visually: a foreign-colored pulse entering the graph near a sensitive cluster.
+
+This does not exist. Building it requires the graph dynamics from Entry 003 and Entry 004, the ICP provenance layer from Entry 006, and the multi-agent weight coordination model described in this entry. Each layer is necessary for the next.
+
+#### What the genuine research contribution is
+
+The contribution is not that user-sovereign memory is achievable (Kinic proved that). The contribution is the dynamics of collective memory under a Physarum-inspired co-activation model, with cryptographic provenance enforcement at the edge level, and a MemoryGraft-resistant trust weighting mechanism.
+
+More concretely: can a group of AI agents, each with their own ICP-signed memory store, develop a shared memory structure whose topology reflects what the collective has found important, where the topology is resistant to poisoning by unauthorized writes, and where the entire structure is observable through a live 3D visualization of collective cognitive state?
+
+No paper cited in Entry 003 answers this question. The components needed to answer it exist across multiple papers and systems that have not been combined. The system being built here is assembling those components.
+
+That is what remains to be discovered.
+
+---
+
 ## Entry 004 — 2026-03-12
 ### Implementing dynamic edge weights: the Physarum model in code
 
