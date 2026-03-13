@@ -56,6 +56,16 @@ OpenMemoryAgent is a working prototype of one concrete answer to the above quest
 
 **MCP server.** A Model Context Protocol server wraps the public HTTP endpoint. Any MCP-compatible agent (Claude Desktop, other LLMs) can read a user's public memories by principal without touching the host application.
 
+**Memory graph with Physarum dynamics.** A PostgreSQL graph layer stores each confirmed memory as a typed node (memory, person, project, document, task, event, concept) with directed semantic edges (same_topic_as, about_person, part_of, caused_by, related_to). Edge weights evolve according to the Tero et al. (2010) discrete Physarum polycephalum model: weights increment by ALPHA=0.10 on Hebbian co-activation (two nodes loaded into the same LLM context window count as one co-activation event) and decay by RHO=0.97 daily. The weight floor is 0.05; edges never fully disappear. This turns the graph into a relevance index: nodes and edges that the LLM has found useful together accumulate weight; unused paths decay toward the floor and become traversal dead-ends.
+
+**Graph-guided retrieval replacing flat recall.** LLM context assembly uses the Physarum neighbourhood of the highest-weight nodes rather than the full public memory set. Seeds are the public nodes with the highest total connected edge weight. BFS from those seeds collects neighbours in weight-descending order up to a limit. Only the retrieved neighbourhood is reinforced on each turn, so frequently traversed paths grow stronger and unused paths decay toward the floor. Cold-start fallback to flat ICP recall handles the case where no graph exists yet. Each turn's response now includes `active_node_ids`, the exact node IDs that entered the context window.
+
+**Multi-agent collective Physarum.** Multiple agents each hold their own graph partition, keyed by a derived `graph_user_id`. When two agents both access nodes from the same memory content, identified by SHA-256 content hash, a shared edge accumulates weight at `SHARED_ALPHA * trust_score`. Trust-weighted reinforcement is the MemoryGraft resistance mechanism: zero-trust agents cannot shift collective edge weights. Their access patterns are recorded but their contribution to the collective graph is effectively zero until trust is explicitly granted.
+
+**Three.js mission control surface.** A real-time 3D observation surface renders the multi-agent graph at the cluster level, not the node level. Agent partitions occupy distinct spatial regions in the scene. Shared nodes, meaning memory content appearing in more than one agent's partition, float at partition boundaries, sized larger and colored violet. Intra-partition edges are grey with weight-proportional opacity. Cross-partition shared edges are violet, drawn between the specific nodes in each agent's subgraph that hold the same content. Cluster heat spheres show mean internal edge weight, interpolated from cool blue (low, inactive) to hot amber (high, frequently reinforced). A temporal axis scrubber lets operators inspect any cluster state from the past 24 hours of 15-minute snapshots. An intent alignment panel shows pairwise Jaccard similarity of agent active content sets.
+
+**Cluster detection.** Weighted label propagation (Raghavan et al. 2007) partitions the graph into communities on demand. Each node starts as its own community; in each iteration it adopts the label of its strongest weighted neighbour. Convergence typically happens within 5-20 iterations. Cluster membership and mean internal weight are stored in graph snapshots every 15 minutes for the temporal axis.
+
 ### What's standard
 
 The chat interface, LLM integration, session management, and transcript storage are all unremarkable. The memory sensitivity classification is an LLM call with a structured prompt. The mock mode uses Laravel's file cache. None of this is unusual; it exists to make the novel parts demonstrable.
@@ -74,19 +84,31 @@ The chat interface, LLM integration, session management, and transcript storage 
 
 **The MCP connection is real.** The MCP server reads from the canister's public endpoint. Any MCP-compatible agent can be given a principal and retrieve that user's public memories, with no integration work beyond adding the MCP server to their configuration.
 
+**Physarum dynamics produce a genuine relevance index.** Before graph-guided retrieval, all public memories were injected into every context window equally. Edge weights had no bearing on what the LLM received. After graph-guided retrieval, the weights determine which memories enter context: frequently co-activated nodes accumulate weight and are retrieved; rarely traversed nodes decay and drop out. This is measurable by tracking retrieval entropy across turns: a flat recall baseline returns the same N nodes every turn; a weight-driven baseline shifts its selection as high-weight nodes pull in their neighbours and low-weight nodes fall out.
+
+**MemoryGraft-resistant collective reinforcement is implementable at the graph layer.** The trust-weighted SHARED_ALPHA mechanism is a working implementation of collective weight dynamics that is resistant to low-trust agent manipulation. A zero-trust agent that reinforces a cluster contributes zero weight increment to shared edges. An agent with trust_score=0.5 contributes half the individual ALPHA per co-access event. The resistance is a continuous function of trust, not a binary block. Each agent's contribution to shared edge weight scales linearly with its trust score, so the operator adjusts influence by adjusting trust rather than by granting or revoking access entirely.
+
 ---
 
 ## What This Does Not Prove
 
 **User-controlled memory content.** The server still decides what text gets extracted and stored. The browser signs the write, but the user sees only the finished summary, not the extraction logic or any alternative phrasings that were considered. Approving a memory is consent to store that specific string, not consent to the summarization decision.
 
-**Strong key custody.** `localStorage` is accessible to any same-origin JavaScript. An operator-controlled frontend could read the private key. A script injection attack could exfiltrate it. True user key custody requires a hardware key, WebAuthn, or Internet Identity. The current implementation is meaningfully better than a server-generated ID (the server never has the key) but meaningfully weaker than a hardware-backed identity.
+**Strong key custody.** `localStorage` is accessible to any same-origin JavaScript. An operator-controlled frontend could read the private key. A script injection attack could exfiltrate it. True user key custody requires a hardware key, WebAuthn, or Internet Identity. The server never holds the key, which prevents server-side forgery. However, localStorage remains vulnerable to script injection where a hardware key or WebAuthn would not be.
 
 **User-chosen classification.** The LLM classifies each memory. The user cannot say "mark this private." Classification accuracy depends on model quality and prompt design. There is no correction mechanism; a misclassified memory stays misclassified until it is deleted.
 
 **Multi-device portability.** The Ed25519 key lives in one browser's `localStorage`. Clearing it generates a new identity. Cross-device access requires manual key export and import. Internet Identity would solve this, and it requires only swapping the identity source.
 
 **Decentralized application layer.** The application itself (Laravel, Vue) runs on conventional infrastructure. Only the memory storage layer is decentralized. "Decentralized AI memory" is accurate; "decentralized AI" is not.
+
+**Whether the LLM actually used the injected memory.** `active_node_ids` identifies which memory nodes entered the context window on each turn. It does not prove that the model attended to those records when generating the response. The model's attention distribution over the context window is not observable. A memory record present at token position 40,000 in a long context may receive near-zero attention. The response might be identical with or without the memory present. This is the observation gap this project is most directly working toward closing. The zkTAM framework (Kinic, 2025) applies zero-knowledge proofs to prove that a response was actually conditioned on specific verified memory records; `active_node_ids` is the precondition that makes zkTAM applicable here.
+
+**The causal direction of cluster reinforcement.** When a cluster is reinforced during a turn, the edge weight change records that those nodes were co-accessed. It does not record whether those nodes were causally relevant to the response. The LLM may have responded from its own parametric knowledge while the injected memory sat in context unused. Physarum weights track access frequency; they do not track influence. An agent with a full, well-structured memory graph might produce identical outputs to an agent with an empty graph if the LLM's attention consistently bypasses the memory context.
+
+**Iteration depth and internal reasoning visibility.** There is no observability into how many internal steps an agent took, how many tool calls, or how many retries occurred before producing an output. Whether the agent arrived at a correct answer on step 5 or step 500 is not recorded anywhere in the graph. The cluster heat map shows which memory regions were accessed. It cannot show the path from question to answer. This is the grain-of-sand problem: you can inspect any individual grain precisely, but you cannot reconstruct why the sandstorm happened from examining grains. The cluster level is the right abstraction for aggregate behavior, but iteration depth requires a different instrument entirely, structured execution tracing rather than memory graph observation.
+
+**Cross-canister memory coherence.** Memories written to different ICP canisters at different times have no global index and no built-in consistency enforcement. A fact recorded in canister A three months ago may contradict a fact recorded in canister B last week. The graph layer captures `supersedes` and `contradicts` edges for memories within a single user's graph partition, but cross-canister semantic consistency is not currently tracked. This is the distributed memory coherence problem at the longest time scale.
 
 ---
 
@@ -148,7 +170,7 @@ Initially, Private memories were auto-signed, with only Sensitive requiring appr
 
 ## What Was Learned
 
-**The hardest part is not the canister; it's the trust boundary in the middle.** The canister enforcement is clean and provably correct. The hard part is the server that sits between the user and the canister, generating summaries and deciding what to surface for approval. That server is still a trusted intermediary even in live mode. Reducing that trust requires either moving classification into the browser or making the classification verifiable.
+**The central unsolved problem is not the canister; it's the server in the middle.** The canister enforcement is clean and provably correct. The server that sits between the user and the canister, generating summaries and deciding what to surface for approval, is still a trusted intermediary even in live mode. Reducing that trust requires either moving classification into the browser or making the classification verifiable.
 
 **Mock mode creates a misleading development environment.** The default local development experience is mock mode, where there is no canister, no identity enforcement, and no meaningful privacy guarantee. Developers building against mock mode develop a different intuition about the system than users running in live mode. This gap is dangerous for a project where the security properties are the point.
 
@@ -176,13 +198,23 @@ This project is one concrete implementation. The questions it surfaces are more 
 
 6. **Can the summarization step itself be user-verifiable?** Right now the user sees the summary but not the extraction process. Could a commitment scheme or verifiable computation make the relationship between conversation and stored summary auditable?
 
+7. **Does injected memory context actually change the LLM's response?** The `active_node_ids` field identifies what was in context. There is currently no way to verify that those records influenced the output rather than sitting unused in the context window. A controlled experiment (same conversation, same model, memory present versus absent) is the test that determines whether the retrieval system is doing useful work. Without that evidence, the memory graph might be adding latency and complexity without improving response quality. This is the most important open question for the retrieval layer.
+
+8. **At what cluster granularity does collective Physarum dynamics become meaningfully different from individual Physarum?** The multi-agent simulation runs individual Physarum dynamics in separate partitions and connects them via trust-weighted shared edges. The claim is that the collective weight distribution reflects group knowledge in a way that individual weights do not. This claim is currently untested. An experiment with agents that have genuinely different knowledge domains is the test that determines whether the collective graph topology differs measurably from the sum of individual topologies.
+
 ---
 
 ## The Strongest Truthful Pitch
 
-> "We're working on what AI memory looks like when the storage layer enforces its own access control, independent of the host application. In live mode, the canister verifies the caller's cryptographic identity before returning private records. The LLM, the server, and external agents can only see what you've marked as public. Writes are signed by your browser key, not the server. The memory lives on open infrastructure and is readable by any tool that knows your principal.
+> "We're working on two connected problems: what AI memory looks like when the storage layer belongs to the user, and what it looks like when you can actually observe what the memory system is doing across multiple agents running for days.
 >
-> This is an experiment, not a product. The key is in localStorage. The classification is LLM-generated. The server still writes the summary. We know where the trust boundary actually is, and we can tell you exactly. What we've built is a specific, working instantiation of a question: what would it take for AI memory to belong to the user?"
+> On the ownership side: in live ICP mode, the canister verifies the caller's cryptographic identity before returning private records. Writes are signed by the browser key, not the server. The memory lives on open infrastructure and is readable by any tool that knows the user's principal.
+>
+> On the observability side: each conversation turn identifies exactly which memory nodes entered the context window. Those nodes and the edges between them evolve according to a Physarum conductance model. Frequently co-accessed paths grow stronger and unused paths decay. A Three.js mission control surface renders this at the cluster level across multiple agent partitions simultaneously, showing which knowledge regions are hot, where agents are converging, and where cross-agent shared edges have formed.
+>
+> What we have not proven: whether the LLM actually attends to the injected memory, whether the weight distribution reflects causal influence rather than access frequency, and whether the collective graph topology differs meaningfully from independent individual graphs. Those are the open questions this implementation is positioned to investigate.
+>
+> This is an experiment, not a product. The key is in localStorage. The classification is LLM-generated. The server still writes the summary. The observation surface shows what entered context, not what influenced the response. We know exactly where the trust boundary and the visibility boundary are. What exists is a working system where AI memory lives on open infrastructure, browser-signed writes prevent server-side forgery, and aggregate agent behavior is observable from a mission control surface across multiple partitions simultaneously."
 
 ---
 

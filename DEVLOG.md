@@ -16,6 +16,71 @@ The log is append-only. Entries are not edited after the fact.
 
 ---
 
+## Entry 012 - 2026-03-12
+### The black box problem: five layers of invisible AI behavior and what this surface makes visible
+
+#### What prompted this
+
+A design question about the 3D surface surfaced a deeper problem: what is actually being read, retained, and applied inside the AI? Not in a philosophical sense, but in a practical operator sense. If you have 2-3 agents running for 48 hours writing thousands of memories, what is actually happening inside the memory access path that you cannot see?
+
+The question exposed that the Three.js surface was partly solving the wrong problem by rendering node-level detail, and partly not yet solving the right problem because it was not rendering per-agent partitions at all. Both were fixed.
+
+#### The five layers of invisible behavior
+
+**Layer 1: What went in.** The 50k lines of context engineering problem. Every LLM response is conditioned on: system prompt, tool descriptions, injected memory context, conversation history, and retrieval results, none of which are visible to the user seeing the response. `active_node_ids` is the first step toward making this visible. The operator can see exactly which memory records entered the context window on each turn. That is further than most systems go.
+
+**Layer 2: Whether it was used.** Presence in the context window does not mean the model attended to it. Attention is non-uniform. A record at token position 40,000 in a 100,000-token context may receive near-zero attention. The model might produce the same response without that record being present. There is currently no signal for this. The zkTAM gap: zero-knowledge proofs that a response was actually conditioned on specific records, not just that they were present.
+
+**Layer 3: How it was applied.** The wrong-brain-region problem. An agent reasoning about a software architecture decision might activate a memory cluster associated with social dynamics from an unrelated project. The Physarum weights record that the social dynamics cluster was reinforced during that turn, but you cannot see the causal direction: did the agent use that cluster because it was relevant, or because it had the highest accumulated weight from prior access frequency? The cluster heat map shows which regions are hot. It does not yet show whether that heat was appropriate for the task.
+
+**Layer 4: Iteration depth.** No visibility into how many internal steps an agent took, how many tool calls, how many retries. Whether the agent got to the correct answer on step 5 or step 500. You can observe the final output and the edge weight change. The path from input to output is invisible. This is the grain-of-sand problem: you can measure the grain, you cannot reconstruct why the sandstorm happened from examining individual grains.
+
+**Layer 5: Cross-canister coherence.** Memories dispersed across many canisters over months have no global index. There is no equivalent of `ls` for distributed canister memory. Whether records are consistent with each other, whether newer records supersede older ones, or whether the agent's understanding has evolved or hardened incorrectly, none of this is observable without modeling the memory graph over time. The `supersedes` / `contradicts` edge type from A-MEM addresses this directly; it is the next research gap.
+
+#### The folder analogy, corrected
+
+A file explorer lets you expand a folder and see what's inside. It lets you open multiple folders simultaneously. It lets you drag between folders, a copy or move of a relationship. But it does not show you the connections between files across different folders. A file in `/photos/2024` that references a person who also appears in `/docs/contracts/2023` means the folder view hides that relationship entirely. The interface was designed for hierarchical containment.
+
+The memory graph is the opposite structure. The organizing principle is the edge, not the folder. A node's position in the graph is defined by what it connects to, not what container it sits in. When you look at a cluster, you are looking at a region where the Physarum model has determined that these memories are frequently relevant together.
+
+The cross-partition edges are the connections between files in different folders. They are the violet lines in the Three.js scene: edges that cross from one agent's subgraph to another, drawn where two agents have both reinforced the same underlying memory content. These edges are the signal. They form where collective memory is being built.
+
+#### What was fixed
+
+The Three.js surface was not rendering per-agent partitions. `buildScene()` was fetching only the personal graph and placing all nodes around a single centroid, ignoring the agent ring layout entirely. This made the scene look correct for the single-user case but produced no meaningful information about collective dynamics.
+
+The fix:
+- `fetchPartitions()` now fetches the personal graph and each agent's partition via `GET /api/agents/{agentId}/graph` in parallel
+- A content string map detects shared nodes (same content appearing in two or more partitions) and positions them at the average of their contributing partition centroids, offset upward on Y so they visually float at the boundary
+- Agent partitions are laid out in a ring in the XZ plane; the personal graph sits above origin
+- Two edge types are now rendered: intra-partition edges (grey, weight-opacity) and cross-partition shared edges (violet, weight-opacity)
+- Cross-partition shared edges use `node_a_id` and `node_b_id` from the shared edge summary to draw lines between specific nodes in different subgraphs
+
+New endpoints added: `GET /api/agents/{agentId}/graph`, `GET /api/agents/shared-edges`.
+
+The intent alignment endpoint was corrected by the linter: Jaccard was comparing partition-local node UUIDs, which always produces near-zero overlap even when agents retrieve the same content. It now compares SHA-256 hashes of content strings, which correctly identifies semantic overlap across partitions.
+
+#### What this surface makes visible now
+
+- Which memory clusters are hot (cluster heat map, blue to amber by mean internal edge weight)
+- Which specific nodes were loaded into context on each simulation tick (`active_node_ids` flash animation)
+- Where agent subgraphs overlap in content (violet shared nodes at partition boundaries)
+- How strongly two agents have co-reinforced shared content (cross-partition edge brightness)
+- Whether agents are converging or diverging in the memories they reach for (alignment Jaccard matrix)
+- What the graph's collective state looked like at any point in the past 24 hours (temporal axis scrubber)
+
+#### What this surface does not yet make visible
+
+- Whether the LLM actually used the injected memory in its response
+- How many internal reasoning steps occurred
+- Whether an agent is stuck in a retry loop
+- Whether newer memories have superseded older contradictory ones
+- Cross-canister coherence across ICP canisters written at different times
+
+The first of these, Layer 2 and whether memory was actually used, is the next hard problem. The zkTAM connection (`active_node_ids` already returned per turn) is the path toward it.
+
+---
+
 ## Entry 011 — 2026-03-12
 ### VISION.md updated: brain globe retired, mission control cockpit adopted as stable design position
 
