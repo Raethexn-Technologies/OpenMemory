@@ -9,6 +9,7 @@ use App\Services\LLM\LlmService;
 use App\Services\LLM\OpenRouterProvider;
 use App\Services\MemoryGraphService;
 use App\Services\MemorySummarizationService;
+use App\Services\MultiAgentGraphService;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -39,6 +40,10 @@ class AppServiceProvider extends ServiceProvider
         });
 
         $this->app->singleton(MemoryGraphService::class);
+
+        $this->app->singleton(MultiAgentGraphService::class, function ($app) {
+            return new MultiAgentGraphService($app->make(MemoryGraphService::class));
+        });
     }
 
     public function boot(): void

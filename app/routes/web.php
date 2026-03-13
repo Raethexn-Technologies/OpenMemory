@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AgentController;
 use App\Http\Controllers\ChatController;
 use App\Http\Controllers\GraphController;
 use App\Http\Controllers\MemoryController;
@@ -28,3 +29,12 @@ Route::get('/api/status', [MemoryController::class, 'status'])->name('api.status
 Route::get('/graph', [GraphController::class, 'index'])->name('graph');
 Route::get('/api/graph', [GraphController::class, 'data'])->name('api.graph');
 Route::get('/api/graph/neighborhood/{nodeId}', [GraphController::class, 'neighborhood'])->name('api.graph.neighborhood');
+
+// Multi-agent simulation
+Route::get('/agents', [AgentController::class, 'index'])->name('agents');
+Route::post('/api/agents', [AgentController::class, 'store'])->name('agents.store');
+Route::patch('/api/agents/{agentId}/trust', [AgentController::class, 'updateTrust'])->name('agents.updateTrust');
+Route::post('/api/agents/{agentId}/seed', [AgentController::class, 'seed'])->name('agents.seed');
+Route::post('/api/agents/{agentId}/simulate', [AgentController::class, 'simulate'])->name('agents.simulate');
+Route::post('/api/agents/simulate-all', [AgentController::class, 'simulateAll'])->name('agents.simulateAll');
+Route::delete('/api/agents/{agentId}', [AgentController::class, 'destroy'])->name('agents.destroy');
