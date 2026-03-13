@@ -214,28 +214,43 @@ These are not near-term goals; they are the research trajectory the design point
 - Opt-in private recall: a user-gated path for the LLM to access private memories for a session, with the canister returning private records only after the user's signed approval for that session.
 - Memory portability: export principal and records, import into another application that uses the same canister interface. The graph is reconstructible from the ICP records by re-running graph extraction.
 - zkTAM (Trustless Agentic Memory): Kinic's framework applies zero-knowledge proofs to prove that an agent used specific verified memories when generating a response. The active_node_ids field now returned by /chat/send is the precondition for this: it identifies exactly which memories were loaded into context for each turn. A zkML proof over that set closes the open research question about verifiable summarization.
-- Graph-guided retrieval replacing flat getPublicMemories(): retrieve the Hebbian neighbourhood of the most recently active nodes rather than the full public set, so Physarum edge weights carry a genuine relevance signal instead of reflecting uniform co-occurrence across all public memories.
-
 ---
 
-## The Larger Direction: AI Memory as a Living 3D Interface
+## The Larger Direction: AI Memory as a Mission Control Surface
 
-The graph memory layer built in this project points toward a larger interface paradigm that is worth naming explicitly.
+The graph memory layer built in this project points toward a larger interface paradigm that is worth naming precisely, because the obvious framing is wrong.
 
-The current flat graph explorer (D3, 2D canvas) is the right foundation but not the destination. The destination is a Three.js 3D globe — the AI's brain as a navigable spatial object — where:
+The obvious framing is the brain globe: a Three.js sphere where individual memory nodes float in space, lighting up as the AI reads them, edges wiring in as new memories form. That is a compelling demo. It is also the wrong tool for the actual problem.
 
-- Memory nodes live on and inside a sphere, positioned by semantic proximity not folder hierarchy
-- Node geometry and animation encode type, sensitivity, recency, and connection strength
-- The globe is *live*: when the AI reads memory to build a response, those nodes light up in sequence, making the agent's context load visible in real time
-- When a new memory is written, the node materializes and its edges wire in as you watch
+At a few hundred nodes the brain globe works well enough. At one hundred thousand nodes — after two or three days of continuous multi-agent operation — it is an unnavigable point cloud. No individual node is legible at that scale. Watching specific nodes light up tells you nothing useful about what the system is doing at the macro level, which is the level that matters when you are deciding whether to intervene. A visualization that cannot be used when the system is actually running at scale is not a visualization; it is a demo prop.
 
-The cross-agent extension is where this becomes a fundamentally new kind of tool. Multiple agents working across projects are visible simultaneously as distinct activity regions on the globe. Shared memory nodes — facts referenced by more than one agent — glow between the regions. You can watch one agent's reasoning touch a node that another agent's reasoning has touched. The multi-agent memory topology becomes inspectable rather than invisible.
+The problem this interface needs to solve is different. When two or three agents have been running for 48 hours, generating thousands of memories, reinforcing edges across a shared graph, the operator needs answers to questions like: which knowledge clusters are actively hot right now and which have gone stale, are the agents converging on aligned memory paths or drifting into disconnected subgraphs, has a low-trust agent been reinforcing a cluster that the other agents depend on, and what was the graph's state twelve hours ago when the anomaly first appeared. Those are operational monitoring questions, not browsing questions.
 
-The file explorer connection is the deepest claim. The linear folder hierarchy is a 1970s interface applied to a 2025 problem. A folder tree is sequential, flat at each level, navigationally one-directional, and structurally oblivious to the semantic relationships between files. A 3D memory graph replaces folder hierarchy with spatial position, simultaneous visibility across projects, associative traversal by following edges, and relationship as a first-class UI primitive.
+The correct interface is a mission control surface, not a brain globe. The distinction is the same as the distinction between a file browser and a server monitoring dashboard. A file browser is for navigation. A monitoring dashboard is for situational awareness, anomaly detection, and targeted intervention. The memory graph at scale needs the second thing.
 
-The memory graph already built is the data layer for this. The 3D visualization is the experience layer. They are the same system at different levels of rendering.
+#### What the mission control surface requires
 
-See DEVLOG Entry 002 for the full technical breakdown of what building this requires.
+**Cluster heat map.** The top-level view shows clusters, not nodes. Each cluster is a region of strongly connected nodes, rendered as a heat zone whose color encodes mean edge weight within the cluster. A cluster that multiple agents have been reinforcing is bright. A cluster that has been decaying for hours is cool. The operator can see at a glance which knowledge regions are active and which are fading. Drilling into a cluster drops to the node level for that region only.
+
+**Temporal axis.** A time scrubber lets the operator rewind the graph state to any point in the past N hours. Graph weight is a time series: each Physarum tick produces a new weight snapshot. Scrubbing backward shows what the graph looked like when a specific conversation happened, which edges existed before a new agent was seeded, or what the collective state was before a suspicious reinforcement event. Forward playback at accelerated speed shows how the collective dynamics evolved.
+
+**Anomaly layer.** A low-trust agent contributing high flux to a well-established cluster is a MemoryGraft pattern. The anomaly layer flags these events as they occur: the cluster region pulses with a distinct color keyed to the contributing agent's trust score. The operator can see which principal is trying to shift the collective graph and decide whether to raise or revoke trust. Without this layer, MemoryGraft attacks are invisible in aggregate statistics.
+
+**Intent alignment indicator.** When multiple agents are running, their individual retrieval patterns produce subgraph activity regions. If agent A and agent B are frequently activating overlapping clusters, they are working in cognitive alignment. If their active regions are diverging, they are accumulating private knowledge that does not flow into the shared graph. The alignment indicator shows this as a simple convergence metric per agent pair, updated on each simulation tick. A sudden divergence after several hours of alignment is an early signal worth investigating.
+
+**Region-scale intervention controls.** The operator can act at the cluster level without touching individual nodes. Boosting a cluster's base weight tells the collective Physarum to treat that knowledge region as more traversable. Isolating an agent's subgraph suspends its contribution to shared edge weights without deleting its private graph. Pausing decay on a specific region keeps that knowledge available while the rest of the graph continues its natural attenuation. These controls act on the dynamics, not the data, which is the right abstraction for an operator who cannot read millions of individual memory records.
+
+**Multi-agent subgraph layout.** Each agent occupies a distinct spatial region in the Three.js scene. Shared nodes — those appearing in more than one agent's graph partition via the content hash join — are positioned at the boundaries between regions, with edge thickness proportional to the shared weight accumulated by collective reinforcement. The spatial layout makes the topology of collective memory legible: you can see at a glance how much knowledge is shared across agents versus siloed within individual partitions.
+
+#### The file explorer comparison stated precisely
+
+The claim is not that a 3D memory graph replaces a folder hierarchy as a way to browse files. That claim is technically true but practically irrelevant. The claim is that when AI agents operate continuously over days, the artifact they produce is not a set of files but a weighted knowledge graph. The graph has no meaningful folder structure. Navigating it by hierarchy loses the relational structure entirely.
+
+The right interface for that artifact is one that shows the whole graph's state at a glance, flags anomalies automatically, supports temporal inspection, and allows targeted intervention at the cluster level. That is closer to how an SRE monitors a distributed system than how a developer browses a repository. The Three.js surface is the monitoring dashboard for the collective memory system, not a prettier file tree.
+
+The memory graph already built is the data layer for this. The mission control surface is the experience layer. They are the same system at different levels of rendering.
+
+See DEVLOG Entry 010 for the full design reasoning behind this framing, including why the brain globe metaphor fails at scale and what operational questions the cockpit must answer.
 
 ---
 
@@ -259,7 +274,7 @@ This is not an incremental extension of the single-user system. It changes the s
 
 **Cross-agent access grants on ICP.** The canister mediates which agents can read which nodes from another agent's graph. Agent A can grant Agent B read access to a specific node by signing a permission record on the canister. The bipartite access control model from Collaborative Memory (arXiv:2505.18279) provides the formal structure; ICP's msg.caller enforcement makes it cryptographic rather than application-level.
 
-**3D visualization of collective cognitive state.** Each agent's subgraph occupies a region of the Three.js sphere. Nodes shared between agents sit at the boundary between regions. Edge thickness reflects collective flux, not individual access count. Active nodes animate in real-time as each agent's current context loads. MemoryGraft anomalies (a low-trust principal reinforcing a high-weight cluster) are rendered visually as a foreign-colored pulse entering the graph. The collective brain is observable.
+**Mission control surface for collective cognitive state.** Each agent's subgraph occupies a distinct region of the Three.js scene. Nodes shared between agents — identified by content hash join — sit at the boundaries between regions, with edge thickness proportional to accumulated shared weight. The top-level view shows cluster heat maps, not individual nodes: a cluster that multiple agents have reinforced is visually hot; one in decay is cool. MemoryGraft anomalies, where a low-trust principal is driving high flux into an established cluster, appear as distinct-colored pulses tied to the contributing principal's trust score. The operator can inspect the graph's state at any past point via time scrubber, isolate an agent's subgraph contribution, or boost a cluster's base weight without touching individual nodes. See "The Larger Direction" section for the full cockpit specification.
 
 #### What this does not yet implement
 

@@ -16,6 +16,49 @@ The log is append-only. Entries are not edited after the fact.
 
 ---
 
+## Entry 011 — 2026-03-12
+### VISION.md updated: brain globe retired, mission control cockpit adopted as stable design position
+
+#### What changed
+
+VISION.md's "The Larger Direction" section previously described the Three.js interface as a brain globe: individual memory nodes positioned on a sphere, lighting up as the AI reads them, edges wiring in as new memories form. That framing was the natural first instinct. It is also wrong for the actual operating conditions this system will run under.
+
+Entry 010 documented the design questions that exposed the flaw. This entry records the stable position those questions produced, which has now graduated from DEVLOG into VISION.md.
+
+#### Why the brain globe fails
+
+The brain globe metaphor breaks at scale. At a few hundred nodes it is legible. At one hundred thousand nodes — after two or three days of continuous multi-agent operation — it is an unnavigable point cloud. No individual node conveys anything actionable at that density. Watching specific nodes light up tells you nothing about whether the collective Physarum dynamics are working correctly, whether a MemoryGraft attack is underway, or whether two agents that were collaborating have drifted into isolated subgraphs.
+
+The interface was designed for browsing. The actual problem is operational monitoring and intervention.
+
+#### What the cockpit framing requires
+
+Six specific components replace the node-level view:
+
+1. **Cluster heat map** at the top level rather than individual nodes. A cluster that multiple agents have reinforced is visually hot. A cluster in decay is cool. Drilling into a cluster drops to node-level for that region only.
+
+2. **Temporal axis** with a time scrubber. Graph weight is a time series. Rewinding to any point in the past N hours lets the operator see what the collective state looked like before a conversation happened, before an agent was seeded, or before an anomaly first appeared.
+
+3. **Anomaly layer** rendering MemoryGraft patterns in real time. When a low-trust principal contributes high flux to an established cluster, the cluster region pulses with a color keyed to that principal's trust score. The operator sees which principal is trying to shift the collective graph.
+
+4. **Intent alignment indicator** showing convergence or divergence across agent pairs. If two agents are repeatedly activating overlapping clusters they are in cognitive alignment. If their active regions are drifting apart they are accumulating siloed knowledge. A sudden divergence after hours of alignment is an early warning signal.
+
+5. **Region-scale intervention controls** that act on dynamics rather than data. Boost a cluster's base weight, isolate an agent's subgraph contribution to shared edges, or pause decay on a specific region, without touching individual memory records.
+
+6. **Multi-agent subgraph layout** with each agent's partition in a distinct spatial region and shared nodes at partition boundaries, edge thickness proportional to accumulated shared weight.
+
+#### What changed in VISION.md
+
+The "The Larger Direction" section was rewritten to replace the brain globe description with the full mission control cockpit specification. The "3D visualization of collective cognitive state" paragraph in the hivemind direction section was updated to match. The "Next Steps" list had graph-guided retrieval removed, since that work is now implemented.
+
+#### What this is not
+
+This is not a downgrade of the Three.js ambition. The scene complexity is higher in the cockpit design than in the brain globe design. The difference is the abstraction level at which the interface operates. Node-level display is the wrong abstraction for a system that will accumulate millions of memories over days. Cluster-level monitoring with temporal inspection and intervention controls is the right abstraction for the operator who needs to keep the system coherent.
+
+The brain globe would have been a beautiful demo that operators stopped using after the first day of real operation. The mission control surface is what they would actually use.
+
+---
+
 ## Entry 001 — 2026-03-12
 ### The graph memory layer: what we learned building a brain-like memory system
 
@@ -699,6 +742,91 @@ This makes the reinforcement meaningful because the context set is selected by r
 The ICP layer complicates this. `getPublicMemories()` calls the canister or mock cache, not the PostgreSQL graph. The graph-guided retrieval needs to query the graph in PostgreSQL first, then either cross-reference against ICP records or treat the graph nodes themselves as the retrieval source for LLM context. This is a meaningful architectural decision: the graph becomes the primary retrieval index, and ICP becomes the durable ownership record rather than the active recall layer.
 
 That decision should be made deliberately before implementing, because it changes the relationship between the two storage layers.
+
+---
+
+## Entry 010 — 2026-03-12
+### What is this system actually for? The hard questions and what they change about the design
+
+#### Why this entry exists
+
+The simulation feature and the Three.js brain visualization were described as the next steps. Before continuing to build, it is worth recording the questions that were asked at this point — because they exposed a design assumption that was wrong, and correcting it changes what the visualization needs to be.
+
+The questions were: What is the point of all these memories? What is the point of traversing the graph this way? What is the point of interacting with it this way? What is being solved? Are we building a digital clone of our memories?
+
+These are the right questions to ask before building a 3D interface, because the wrong answer produces a beautiful thing that nobody uses.
+
+#### What the memories are actually for
+
+The memories are not a diary. They are a relevance history. When an agent retrieves memories to generate a response, the Physarum model records which memories were retrieved together. After 48 hours of continuous operation, the weight graph is not a log of events — it is a map of which knowledge the agent actually reached for when doing real work. That is different from a log file. A log file records what happened. The weight graph records what the agent considered important, which is the information needed to evaluate and redirect it.
+
+The graph traversal is how the agent's learned judgement gets applied to new situations. Flat retrieval (vector similarity, keyword search) treats all memories as equally important until the moment of query. The Physarum neighbourhood traversal treats memories as important in proportion to how often they have been useful together in practice. The traversal is the agent's accumulated experience, expressed as a retrieval decision.
+
+#### What is being solved
+
+The honest version: most multi-agent frameworks have no coherent memory across runs. Each session starts fresh or pulls from a flat database with no notion of which memories have been useful before. Agents forget. Agents repeat work. Agents do not build on each other's experience even when operating in the same domain for the same owner.
+
+The direction this project is working toward: agents operating over days, accumulating experience that compounds rather than resets, with ownership that persists independently of any application server, and a human who can understand what the collective is doing and redirect it. That combination of properties does not exist in any current system. The individual components (persistent memory, graph retrieval, ICP ownership, Physarum dynamics) exist separately. The integration is the research contribution.
+
+#### What this is not
+
+Not a digital clone of the user's memories. That framing implies fidelity: accurately recording everything experienced. This is not that. The memories are the agents' experience of doing work in the user's domain. The graph is not a copy of anyone's mind. It is an emergent record of what the agent team has found important while operating. The closer comparison is institutional knowledge: what an experienced team knows collectively that any individual joining would need time to learn. This system makes that knowledge persistent, queryable, and steerable.
+
+#### The flaw in the visualization plan
+
+The graph explorer (D3, 2D, node-by-node) and the simulation toggle (tick counter, flash animation) are not the right interaction model for a 48-hour multi-agent run. A user is not going to watch individual nodes flash. The assumption embedded in the current design — that the right unit of human attention is the individual memory node — is wrong at scale.
+
+At millions of memories across ten agents running continuously for two days, the question is not "what is this node?" The questions are:
+
+Which region of the graph is hyperactive right now? Are the agents stuck in a productive focused loop, or are they drifting?
+
+Which region has gone cold? What did they know 24 hours ago that they have stopped using?
+
+Is anything anomalous? A node or cluster that gained weight rapidly from a low-trust principal is a MemoryGraft signal.
+
+Are the agents still working toward the original task? Or has the collective drifted from the user's intent?
+
+Where should the user intervene? Which trust score to lower, which node cluster to prune, which seed memory to inject to redirect agent attention?
+
+These questions cannot be answered by looking at individual nodes. They require a view of the graph at cluster granularity, with time, anomaly signals, and intervention controls. That is not a visualization. It is a monitoring and intervention surface.
+
+#### What Three.js actually needs to be
+
+The correct mental model for the Three.js interface is mission control, not planetarium. The difference: a planetarium is for observation; mission control is for observation with intervention capability.
+
+The specific requirements that follow from the questions above:
+
+**Cluster-level heat map.** The visible unit is a cluster, not a node. Node clusters that are currently hot (high aggregate edge weight, recently reinforced) glow distinctly from clusters that are dormant. The user can see at a glance where the agents are spending their attention without reading individual memory content.
+
+**Temporal axis.** The weight distribution is not static. A time scrubber or replay mode lets the user walk backward through the weight evolution. When did the agents start focusing on this cluster? When did they stop using that one? Identifying drift requires seeing the trajectory, not just the current state.
+
+**Anomaly layer.** Nodes or clusters whose weight grew faster than the organic Physarum rate, or whose weight increase came primarily from low-trust principals, are rendered differently from organically reinforced nodes. This is the MemoryGraft signal made visible. A foreign-colored pulse entering a high-weight cluster warrants attention before it propagates further.
+
+**Intent alignment indicator.** At the point when the user assigns a task to the collective, a snapshot is taken of the hot zone. A running comparison between the current hot zone and the task snapshot answers whether the agents are still working toward the original intent. Divergence is surfaced explicitly rather than requiring the user to intuit it from the visualization.
+
+**Region-scale intervention controls.** The user cannot prune individual nodes in a million-memory graph. The interventions that matter are: lower the trust score of a principal whose contributions appear anomalous; prune a cluster that has grown beyond what the task requires; inject a seed memory into the current hot zone to redirect agent attention. These operations work on clusters and principals, not on individual nodes.
+
+**Multi-agent subgraph layout.** Each agent's graph partition occupies a spatial region of the sphere. Shared nodes sit at the boundaries between regions. The layout makes cross-agent convergence visible: when two agents reinforce the same content, the shared node grows at the boundary, and the edges connecting both agents' subgraphs to it thicken. The user can see the collective signal forming without reading any individual memory.
+
+#### The file explorer comparison, precisely
+
+A file explorer solves: I have many files, where are they and what do I have? The answer is a folder hierarchy that shows structure at the level of abstraction needed to navigate.
+
+The Three.js surface solves: I have many agent experiences accumulated over days, is the collective still working toward my intent and is anything wrong? The answer requires structure at the level of abstraction needed to make an intervention decision: clusters, trajectories, anomalies, and cross-agent convergence. Not individual nodes, not individual edges.
+
+The file explorer does not show every byte. The Three.js surface should not show every memory. The right level of abstraction is the one that lets a human make a steering decision in under ten seconds, which is what mission control requires.
+
+#### The simulation bug that was found building this
+
+The simulation playback feature (Graph.vue) had a correctness problem: at fast speed (350ms intervals), if the server response from one tick took longer than 350ms, the next tick would fire before the previous response arrived. Both ticks would then apply Physarum reinforcement to the same set of nodes, doubling the weight increment on every slow response. Over 100 ticks at fast speed this would corrupt the weight distribution by over-reinforcing the most recently active cluster, which is precisely the bias that the Physarum model is designed to avoid.
+
+The fix guards in-flight ticks so a second tick cannot start until the first completes, and invalidates stale responses by comparing a generation counter at the time of the fetch with the counter at the time the response arrives. If the simulation stopped or the view changed while the request was in flight, the response is discarded. This keeps the weight dynamics correct regardless of server response time.
+
+The same race was possible on the agents page (simulateAll), though the interval there is driven manually rather than automatically. That path is not guarded because the user explicitly triggers each run, and simultaneous manual triggers are unlikely in practice. Automatic guard would be the correct fix if simulateAll is later scheduled rather than manually triggered.
+
+#### Test coverage added
+
+The simulate endpoint had no automated coverage when it was first added. A test was added to `GraphControllerTest` covering: the endpoint only touches the current user's graph (a second user's nodes and edges are present and must not be modified), the response contains the correct active node IDs, the response contains the updated edge weight for the reinforced edge, and the database weight matches the returned value. The test uses two users' data in the same database state to verify the session scoping is correct.
 
 ---
 
