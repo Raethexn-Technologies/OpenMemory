@@ -4,10 +4,14 @@
     <!-- ── Left panel: Explorer / Filters ── -->
     <aside class="w-60 flex-shrink-0 border-r border-slate-800 flex flex-col bg-slate-900">
       <div class="px-4 py-4 border-b border-slate-800">
-        <div class="flex items-center gap-2 mb-1">
+        <div class="flex items-center gap-2 mb-1 flex-wrap">
           <a href="/chat" class="text-slate-500 hover:text-slate-300 text-sm">← Chat</a>
           <span class="text-slate-700">|</span>
-          <a href="/memory" class="text-slate-500 hover:text-slate-300 text-sm">Inspector</a>
+          <a href="/memory" class="text-slate-500 hover:text-slate-300 text-sm">Memory</a>
+          <span class="text-slate-700">|</span>
+          <a href="/agents" class="text-slate-500 hover:text-slate-300 text-sm">Agents</a>
+          <span class="text-slate-700">|</span>
+          <a href="/3d" class="text-slate-500 hover:text-slate-300 text-sm">3D</a>
         </div>
         <h1 class="text-base font-semibold text-sky-400">Memory Graph</h1>
         <p class="text-xs text-slate-500 mt-0.5">Physarum-weighted node explorer</p>
@@ -529,14 +533,32 @@ const initD3 = () => {
 
   svgEl = d3.select(el).attr('width', width).attr('height', height)
 
-  // Arrow marker
-  svgEl.append('defs').append('marker')
+  // Definitions: arrow marker + glow filter
+  const defs = svgEl.append('defs')
+
+  defs.append('marker')
     .attr('id', 'oma-arrow')
     .attr('viewBox', '0 -5 10 10')
     .attr('refX', 22).attr('refY', 0)
     .attr('markerWidth', 5).attr('markerHeight', 5)
     .attr('orient', 'auto')
     .append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', '#475569')
+
+  // Glow filter — outer blur merged with original graphic
+  const glow = defs.append('filter').attr('id', 'node-glow').attr('x', '-50%').attr('y', '-50%').attr('width', '200%').attr('height', '200%')
+  glow.append('feGaussianBlur').attr('in', 'SourceGraphic').attr('stdDeviation', 5).attr('result', 'blur')
+  const merge = glow.append('feMerge')
+  merge.append('feMergeNode').attr('in', 'blur')
+  merge.append('feMergeNode').attr('in', 'blur')
+  merge.append('feMergeNode').attr('in', 'SourceGraphic')
+
+  // Radial gradient for the background
+  const radial = defs.append('radialGradient').attr('id', 'bg-radial').attr('cx', '50%').attr('cy', '50%').attr('r', '65%')
+  radial.append('stop').attr('offset', '0%').attr('stop-color', '#0d1829')
+  radial.append('stop').attr('offset', '100%').attr('stop-color', '#020817')
+
+  // Dark background rect
+  svgEl.append('rect').attr('width', width).attr('height', height).attr('fill', 'url(#bg-radial)')
 
   gRoot = svgEl.append('g').attr('class', 'graph-root')
 
@@ -575,13 +597,19 @@ const renderGraph = (width, height) => {
     .force('center', d3.forceCenter(width / 2, height / 2))
     .force('collide', d3.forceCollide().radius(d => nodeRadius(d, degreeMap) + 10))
 
-  // Edge lines
-  linkSel = gRoot.append('g').attr('opacity', 0.5)
+  // Node id -> type color map for edge tinting
+  const nodeTypeMap = Object.fromEntries(nodes.map(n => [n.id, n.type]))
+
+  // Edge lines — tinted by source node type, weight-scaled width
+  linkSel = gRoot.append('g').attr('opacity', 0.45)
     .selectAll('line')
     .data(edges)
     .join('line')
-    .attr('stroke', '#475569')
-    .attr('stroke-width', d => 0.8 + d.weight * 2)
+    .attr('stroke', d => {
+      const srcId = d.source?.id ?? d.source
+      return typeColor(nodeTypeMap[srcId]) ?? '#475569'
+    })
+    .attr('stroke-width', d => 0.6 + d.weight * 2.2)
     .attr('marker-end', 'url(#oma-arrow)')
 
   // Node groups
@@ -636,13 +664,14 @@ const renderGraph = (width, height) => {
     .attr('opacity', d => selectedNode.value?.id === d.id ? 0.4 : 0)
     .attr('class', 'selection-ring')
 
-  // Main circle
+  // Main circle — with glow filter for neon effect
   node.append('circle')
     .attr('r', d => nodeRadius(d, degreeMap))
     .attr('fill', d => typeColor(d.type))
-    .attr('fill-opacity', 0.85)
+    .attr('fill-opacity', 0.9)
     .attr('stroke', d => typeColor(d.type))
     .attr('stroke-width', 1.5)
+    .attr('filter', 'url(#node-glow)')
 
   // Tooltip
   node.append('title').text(d => `${d.type}: ${d.label}\n${d.content}`)
@@ -709,7 +738,7 @@ const runSimTick = async () => {
       linkSel.transition().duration(600)
         .attr('stroke-width', d => {
           const w = weightMap[d.id] ?? d.weight ?? 0.5
-          return 0.8 + w * 2
+          return 0.6 + w * 2.2
         })
     }
   } catch {

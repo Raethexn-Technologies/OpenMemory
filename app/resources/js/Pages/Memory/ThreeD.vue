@@ -9,6 +9,8 @@
       <div class="flex items-center gap-2">
         <a href="/chat" class="text-slate-500 hover:text-slate-300 text-sm">← Chat</a>
         <span class="text-slate-700">|</span>
+        <a href="/memory" class="text-slate-500 hover:text-slate-300 text-sm">Memory</a>
+        <span class="text-slate-700">|</span>
         <a href="/graph" class="text-slate-500 hover:text-slate-300 text-sm">Graph</a>
         <span class="text-slate-700">|</span>
         <a href="/agents" class="text-slate-500 hover:text-slate-300 text-sm">Agents</a>
@@ -219,8 +221,15 @@ const SIM_SPEEDS = [
 // ── Three.js objects (module-scope, not reactive) ─────────────────────────────
 let renderer, scene, camera, controls, clock
 let instancedMesh = null
+let auraMesh = null      // glow halo layer
+let starField = null     // background star points
 let lineSegments = null
+let particleSystem = null  // traversal particles that travel along edges
 let heatSpheres = [] // {mesh, clusterId}
+let activePulses = []    // expanding wireframe rings spawned on node activation
+let particleSlots = []   // pool of reusable particle slots
+let edgeEndpoints = []   // [{from, to, sourceId, targetId, weight}] for particle spawning
+const MAX_PARTICLES = 400
 let nodePositions = new Map()   // node_uuid -> THREE.Vector3
 let nodeIndexMap = new Map()    // node_uuid -> instancedMesh index
 let nodeScaleMap = new Map()    // node_uuid -> base render scale
@@ -370,11 +379,41 @@ function disposeScene() {
   }
   heatSpheres = []
 
+  if (starField) {
+    scene?.remove(starField)
+    starField.geometry.dispose()
+    starField.material.dispose()
+    starField = null
+  }
+
+  if (particleSystem) {
+    scene?.remove(particleSystem)
+    particleSystem.geometry.dispose()
+    particleSystem.material.dispose()
+    particleSystem = null
+  }
+
+  for (const { mesh } of activePulses) {
+    scene?.remove(mesh)
+    mesh.geometry.dispose()
+    mesh.material.dispose()
+  }
+  activePulses = []
+  particleSlots = []
+  edgeEndpoints = []
+
   if (lineSegments) {
     scene?.remove(lineSegments)
     lineSegments.geometry.dispose()
     lineSegments.material.dispose()
     lineSegments = null
+  }
+
+  if (auraMesh) {
+    scene?.remove(auraMesh)
+    auraMesh.geometry.dispose()
+    auraMesh.material.dispose()
+    auraMesh = null
   }
 
   if (instancedMesh) {
@@ -421,10 +460,13 @@ async function buildScene() {
   renderer.setPixelRatio(window.devicePixelRatio)
   renderer.setSize(window.innerWidth, window.innerHeight)
   renderer.setClearColor(0x020817)
+  renderer.toneMapping = THREE.ACESFilmicToneMapping
+  renderer.toneMappingExposure = 1.4
   canvasContainer.value.appendChild(renderer.domElement)
 
   // Scene + camera
   scene = new THREE.Scene()
+  scene.fog = new THREE.FogExp2(0x020817, 0.0018)
   camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000)
   camera.position.set(0, 60, 160)
   camera.lookAt(0, 0, 0)
@@ -432,13 +474,37 @@ async function buildScene() {
   controls = new OrbitControls(camera, renderer.domElement)
   controls.enableDamping = true
   controls.dampingFactor = 0.08
+  controls.autoRotate = true
+  controls.autoRotateSpeed = 0.4
 
-  scene.add(new THREE.AmbientLight(0x334155, 1.2))
-  const dirLight = new THREE.DirectionalLight(0xffffff, 0.5)
+  scene.add(new THREE.AmbientLight(0x334155, 0.8))
+  const dirLight = new THREE.DirectionalLight(0x94c5ff, 0.3)
   dirLight.position.set(0, 100, 50)
   scene.add(dirLight)
 
   clock = new THREE.Clock()
+
+  // ── Starfield background ──────────────────────────────────────────────────
+  const starCount = 2800
+  const starPos = new Float32Array(starCount * 3)
+  for (let i = 0; i < starCount; i++) {
+    const r = 380 + Math.random() * 280
+    const theta = Math.random() * Math.PI * 2
+    const phi = Math.acos(2 * Math.random() - 1)
+    starPos[i * 3]     = r * Math.sin(phi) * Math.cos(theta)
+    starPos[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta)
+    starPos[i * 3 + 2] = r * Math.cos(phi)
+  }
+  const starGeo = new THREE.BufferGeometry()
+  starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3))
+  starField = new THREE.Points(starGeo, new THREE.PointsMaterial({
+    color: 0xffffff,
+    size: 0.9,
+    sizeAttenuation: true,
+    transparent: true,
+    opacity: 0.65,
+  }))
+  scene.add(starField)
 
   // ── Fetch all partition data ──────────────────────────────────────────────
   const { partitions, contentMap, sharedEdges } = await fetchPartitions()
@@ -515,11 +581,45 @@ async function buildScene() {
   const sortedNodeIds = [...nodePositions.keys()].sort()
   sortedNodeIds.forEach((id, index) => nodeIndexMap.set(id, index))
 
+  // ── Pre-compute degree map for hub-node sizing ────────────────────────────
+  // Degree = number of edges touching a node. Hub nodes (high degree) will be
+  // rendered larger so the scale-free topology is immediately visible.
+  const degreeMap = new Map()
+  for (const [, data] of partitions) {
+    for (const edge of (data.edges ?? [])) {
+      degreeMap.set(edge.source, (degreeMap.get(edge.source) ?? 0) + 1)
+      degreeMap.set(edge.target, (degreeMap.get(edge.target) ?? 0) + 1)
+    }
+  }
+  const maxDegree = Math.max(...degreeMap.values(), 1)
+
   // ── InstancedMesh for all nodes ───────────────────────────────────────────
-  const nodeGeo = new THREE.SphereGeometry(0.8, 10, 10)
-  instancedMesh = new THREE.InstancedMesh(nodeGeo, new THREE.MeshStandardMaterial(), allNodes.length)
+  const nodeGeo = new THREE.SphereGeometry(0.8, 14, 14)
+  instancedMesh = new THREE.InstancedMesh(
+    nodeGeo,
+    new THREE.MeshBasicMaterial({ vertexColors: true }),
+    allNodes.length,
+  )
   instancedMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
   instancedMesh.instanceColor = new THREE.InstancedBufferAttribute(
+    new Float32Array(allNodes.length * 3), 3,
+  )
+
+  // Glow aura — larger transparent sphere behind each node
+  const auraGeo = new THREE.SphereGeometry(0.8, 8, 8)
+  auraMesh = new THREE.InstancedMesh(
+    auraGeo,
+    new THREE.MeshBasicMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.14,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    }),
+    allNodes.length,
+  )
+  auraMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+  auraMesh.instanceColor = new THREE.InstancedBufferAttribute(
     new Float32Array(allNodes.length * 3), 3,
   )
 
@@ -530,20 +630,32 @@ async function buildScene() {
     const idx = nodeIndexMap.get(node.id)
     if (idx === undefined) continue
     const pos = nodePositions.get(node.id)
-    const scale = isShared ? 1.75 : 1.0 // shared nodes are larger
+    // Hub nodes scale up to 4× based on degree — scale-free topology becomes
+    // immediately visible as a few large hubs surrounded by sparse leaf nodes.
+    const nodeDegree = degreeMap.get(node.id) ?? 0
+    const hubScale = 1.0 + (nodeDegree / maxDegree) * 3.2
+    const scale = isShared ? Math.max(2.5, hubScale) : hubScale
     nodeScaleMap.set(node.id, scale)
     matrix.compose(pos, new THREE.Quaternion(), new THREE.Vector3(scale, scale, scale))
     instancedMesh.setMatrixAt(idx, matrix)
+    // Aura is proportional — hub nodes have a larger halo
+    const auraScale = scale * 4.0
+    matrix.compose(pos, new THREE.Quaternion(), new THREE.Vector3(auraScale, auraScale, auraScale))
+    auraMesh.setMatrixAt(idx, matrix)
     if (isShared) {
       color.set('#8b5cf6') // violet for shared nodes
     } else {
       color.setHex(NODE_TYPE_COLORS[node.type] ?? NODE_TYPE_COLORS.memory)
     }
     instancedMesh.setColorAt(idx, color)
+    auraMesh.setColorAt(idx, color)
   }
 
   instancedMesh.instanceMatrix.needsUpdate = true
   instancedMesh.instanceColor.needsUpdate = true
+  auraMesh.instanceMatrix.needsUpdate = true
+  auraMesh.instanceColor.needsUpdate = true
+  scene.add(auraMesh)  // aura first (behind nodes)
   scene.add(instancedMesh)
 
   // ── Collect all edges ─────────────────────────────────────────────────────
@@ -578,16 +690,20 @@ async function buildScene() {
   const edgePositions = new Float32Array(totalEdges * 6)
   const edgeColors = new Float32Array(totalEdges * 6)
 
-  // Intra-partition edges: grey, opacity proportional to weight
+  // Intra-partition edges: cyan tint, weight-scaled brightness, additive blending
+  // Also stored in edgeEndpoints so particles can travel them during simulation.
   intraEdges.forEach((edge, k) => {
     const fromPos = nodePositions.get(edge.source)
     const toPos = nodePositions.get(edge.target)
     edgeIndexMap.set(edge.id, k)
     edgePositions[k * 6 + 0] = fromPos.x; edgePositions[k * 6 + 1] = fromPos.y; edgePositions[k * 6 + 2] = fromPos.z
     edgePositions[k * 6 + 3] = toPos.x;   edgePositions[k * 6 + 4] = toPos.y;   edgePositions[k * 6 + 5] = toPos.z
-    const g = edge.weight * 0.55
-    edgeColors[k * 6 + 0] = g; edgeColors[k * 6 + 1] = g; edgeColors[k * 6 + 2] = g
-    edgeColors[k * 6 + 3] = g; edgeColors[k * 6 + 4] = g; edgeColors[k * 6 + 5] = g
+    // sky-400 (#38bdf8) = R:0.220 G:0.741 B:0.973 — brighter for heavier edges
+    const b = 0.15 + edge.weight * 0.75
+    edgeColors[k * 6 + 0] = 0.220 * b; edgeColors[k * 6 + 1] = 0.741 * b; edgeColors[k * 6 + 2] = 0.973 * b
+    edgeColors[k * 6 + 3] = 0.220 * b; edgeColors[k * 6 + 4] = 0.741 * b; edgeColors[k * 6 + 5] = 0.973 * b
+    // Store for particle traversal
+    edgeEndpoints.push({ from: fromPos.clone(), to: toPos.clone(), sourceId: edge.source, targetId: edge.target, weight: edge.weight })
   })
 
   // Cross-partition shared edges: violet, brighter with higher weight
@@ -614,9 +730,37 @@ async function buildScene() {
 
   lineSegments = new THREE.LineSegments(
     lineGeo,
-    new THREE.LineBasicMaterial({ vertexColors: true }),
+    new THREE.LineBasicMaterial({
+      vertexColors: true,
+      blending: THREE.AdditiveBlending,
+      transparent: true,
+    }),
   )
   scene.add(lineSegments)
+
+  // ── Traversal particle system ─────────────────────────────────────────────
+  // Pre-allocate MAX_PARTICLES slots. During simulation ticks, particles are
+  // plucked from the pool, moved along edge vectors each frame, then released.
+  const particleGeo = new THREE.SphereGeometry(0.32, 5, 5)
+  particleSystem = new THREE.InstancedMesh(
+    particleGeo,
+    new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    }),
+    MAX_PARTICLES,
+  )
+  particleSystem.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+  const hiddenMatrix = new THREE.Matrix4().makeScale(0.001, 0.001, 0.001)
+  for (let i = 0; i < MAX_PARTICLES; i++) particleSystem.setMatrixAt(i, hiddenMatrix)
+  particleSystem.instanceMatrix.needsUpdate = true
+  scene.add(particleSystem)
+
+  particleSlots = Array.from({ length: MAX_PARTICLES }, () => ({
+    active: false, from: null, to: null, progress: 0, speed: 0.014,
+  }))
 
   loading.value = false
   animate()
@@ -765,9 +909,9 @@ function updateEdgeColors(updatedEdges) {
   for (const edge of updatedEdges) {
     const k = edgeIndexMap.get(edge.id)
     if (k === undefined) continue
-    const g = edge.weight * 0.85
-    colors[k * 6 + 0] = g; colors[k * 6 + 1] = g; colors[k * 6 + 2] = g
-    colors[k * 6 + 3] = g; colors[k * 6 + 4] = g; colors[k * 6 + 5] = g
+    const b = 0.08 + edge.weight * 0.55
+    colors[k * 6 + 0] = 0.220 * b; colors[k * 6 + 1] = 0.741 * b; colors[k * 6 + 2] = 0.973 * b
+    colors[k * 6 + 3] = 0.220 * b; colors[k * 6 + 4] = 0.741 * b; colors[k * 6 + 5] = 0.973 * b
   }
 
   colorAttr.needsUpdate = true
@@ -835,6 +979,8 @@ function onScrub(value) {
 // ── Render loop ───────────────────────────────────────────────────────────────
 function animate() {
   animationFrameId = requestAnimationFrame(animate)
+  // Pause the slow orbit while the user is watching the simulation tick
+  if (controls) controls.autoRotate = !simRunning.value
   controls.update()
   renderer.render(scene, camera)
 }
