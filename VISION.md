@@ -366,4 +366,62 @@ See DEVLOG Entry 007 for the full research landscape analysis and the specific p
 
 ---
 
+---
+
+## Portable Sovereign Memory as Infrastructure
+
+The framing that clarifies everything else: OpenMemoryAgent is not an AI feature. It is a memory layer you own and carry, and any AI that speaks the protocol can plug into it.
+
+The current AI memory landscape produces a specific kind of dependency. Your conversation history, preferences, inferred personality, and accumulated context live in the vendor's infrastructure. When you open a new chat with a different model, you start over. When you cancel a subscription, your memory stays behind. When the company changes its data retention policy, the policy applies to your memories whether you agreed or not.
+
+The alternative this project builds is a memory layer with a different ownership model. Your memory graph lives in an ICP canister your keys control. You expose it through an MCP endpoint. Any AI system that speaks MCP can read what is relevant to the current conversation and write new memories back when the conversation ends. When you stop using one AI and switch to another, the memory follows you because you hold the keys.
+
+This changes the product question from "how do we make this AI remember better?" to "how do we make memory infrastructure that any AI can plug into?" The graph, the Physarum dynamics, the decay schedule, the trust weights, and the ICP ownership layer are all infrastructure components, not product features. The chat interface in this codebase is the reference implementation demonstrating that the infrastructure works. The MCP server at `icp/mcp-server/server.js` is the actual deliverable: the protocol endpoint through which any compliant AI gains access to your memory.
+
+What changes when you have this: the next AI you open already knows who you are, what you are working on, what you care about, and what you have learned. Not because you told it, but because it read your graph. And when it learns something new in conversation with you, it writes that back into the same graph, where every future AI you work with can read it. The memory compounds across AI systems rather than resetting at the boundary of each vendor's product.
+
+---
+
+## The Thirty-Year Question
+
+The question that only makes sense when memory is infrastructure rather than a product feature: could someone access their memory graph thirty years from now?
+
+The answer is yes in principle, and building toward yes in practice shapes several architectural decisions that would otherwise seem over-engineered.
+
+ICP canisters persist as long as their cycle balance is maintained. There is no server to shut down, no acquisition to survive, no policy change to endure. The canister runs until you stop funding it. A memory graph seeded today and maintained over decades would accumulate a genuine intellectual autobiography: the projects you worked on, the problems you solved, the concepts that proved durable, the knowledge that decayed because you stopped using it.
+
+At thirty years, the raw graph is not the thing you access directly. A decade of active memory use would produce tens of thousands of nodes and hundreds of thousands of edges, the vast majority of which have decayed to the floor weight. What survives is the structure that has been reinforced consistently across time: the concepts you return to across many contexts, the topics that proved relevant to new problems years after they first appeared. Those are the hub nodes in a mature memory graph. They represent what you actually know, not just what you once encountered.
+
+This changes the design requirement for memory consolidation. If the graph needs to be legible in thirty years, the consolidation process cannot just prune dead edges. It must produce semantic nodes: higher-order abstractions that replace dense clusters of episodic memories with a single consolidated node that carries the essential meaning of the cluster. This is how biological memory works. Episodic memory (the specific conversation, the exact code, the precise problem) decays relatively quickly. Semantic memory (the principle learned from many such conversations) persists. The consolidation process is the mechanism that converts episodic into semantic, and it needs to run regularly on any memory graph intended to remain useful over years rather than weeks.
+
+The thirty-year framing also clarifies what "memory ownership" actually means. Ownership of a database record is a legal category. Ownership of a signed ICP canister is a cryptographic one: you can prove, to anyone, that no one modified your memory history without your private key. If you access your graph in 2056, you can verify that the entries were written by your key and have not been altered since. That provenance guarantee is not available from any vendor-controlled memory system, regardless of their privacy policy language. It is a property of the cryptographic architecture.
+
+---
+
+## The Storage Trigger Problem
+
+The most practical unsolved problem in the system: when should an AI decide that something is worth remembering?
+
+The naive answer is "store everything." Every turn summary, every topic mentioned, every preference stated. This produces a large graph quickly, but the graph becomes noise. A memory of "the user asked what time it is in Tokyo" is not useful six months later. A memory of "the user is building a distributed memory system and cares deeply about cryptographic provenance" is. Storing both treats them as equivalent, which they are not.
+
+The opposite error is equally common: store only what the user explicitly flags as important. This misses the most valuable memories, which are the ones the user does not know they need until they need them. A pattern of interest that shows up repeatedly across many conversations, never explicitly flagged, is often more important than a single explicitly-requested memory note.
+
+The correct approach is a memorability judgment made before storage, not after. The LLM needs to evaluate each potential memory against four criteria before committing it to the graph.
+
+**Novelty.** Is this content already represented in the graph? A memory that duplicates existing node content with high cosine similarity adds noise rather than information. The storage trigger should check graph coverage before writing.
+
+**Significance.** Does this content reflect something the user stated as important, spent extended time on, or expressed strong preference about? Passing references to common topics do not meet this bar. Deep engagement with a specific problem does.
+
+**Durability.** Is this the kind of content the user is likely to need again? Technical decisions, design constraints, long-term goals, and personal working preferences are durable. Transient questions, one-off lookups, and conversational pleasantries are not.
+
+**Connection richness.** Does this content connect meaningfully to existing nodes? A memory that links to five existing high-weight nodes strengthens the graph structure. A memory that connects to nothing is an isolated leaf that will decay to the floor without reinforcement.
+
+The storage trigger is a classification step that runs before the summarization and graph-write pipeline. The LLM evaluates the conversation turn against these four criteria and decides whether to store, to update an existing node, or to skip. This is the difference between a memory system that knows you and a memory system that has accumulated a transcript of everything you ever said.
+
+The second part of this problem is when in the conversation the trigger fires. Firing at the end of every turn is too frequent and too granular. Firing only at the end of a conversation misses important decisions made early in a long session. The right trigger is event-driven: the LLM fires a storage decision when something genuinely new appears in the conversation, not on a fixed schedule.
+
+This is Track 6 in the research agenda, and it is the problem that separates a useful memory system from a large disorganized database.
+
+---
+
 *This document was written to preserve the research thinking behind OpenMemoryAgent. The implementation will change; the questions it's asking are the part worth keeping.*

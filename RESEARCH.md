@@ -164,6 +164,86 @@ The order of work follows from this: build the measurement first, then build the
 
 ---
 
+## Track 6: The storage trigger
+
+### What opened this track
+
+The observation that storing every turn summary produces noise and that storing only what the user explicitly flags misses the most valuable memories. Neither extreme produces a useful long-term memory graph. The system needs a judgment step that runs before the summarization pipeline and decides whether a given conversation turn is worth remembering at all, and what form that memory should take.
+
+### What needs to be built
+
+**Memorability classifier.** Before any memory is written to the graph, the LLM evaluates the candidate content against four criteria: novelty (not already well-represented in the graph), significance (the user engaged with this deeply or stated its importance), durability (likely to be relevant across future contexts), and connection richness (links meaningfully to existing high-weight nodes). The classifier returns one of three decisions: store as a new node, update an existing node with new information, or skip. This runs as a structured prompt call before the summarization step.
+
+**Coverage check against the graph.** The novelty criterion requires a cosine similarity check against the user's existing nodes before storage. If the candidate memory has cosine similarity above a configurable threshold with an existing node, the decision should be to update that node rather than create a new one. This prevents the graph from accumulating duplicate representations of the same knowledge.
+
+**Event-driven trigger.** Rather than firing at the end of every turn, the storage decision fires when specific conditions are met in the conversation: a decision is made, a preference is stated, a problem is solved, a significant piece of information is provided by the user, or a long-running topic concludes. These conditions are evaluated by the LLM at each turn, and the storage pipeline runs only when at least one condition is met. This reduces the storage rate dramatically while preserving high-signal memories.
+
+**Memorability audit panel.** A view within the Memory Inspector that shows, for each stored memory, the memorability score it received at storage time and the criteria it met. This makes the storage trigger's behavior inspectable. If the classifier is storing too much noise or skipping genuinely important content, the panel makes the pattern visible so the criteria can be tuned.
+
+**A/B comparison experiment.** Run two conversation sessions with the same content: one with the current store-everything approach and one with the storage trigger active. Compare the graph density, the ratio of high-weight to low-weight nodes after 100 turns, and the retrieval precision on a held-out evaluation set. The storage trigger is better if retrieval precision improves and graph noise decreases, with the same or higher recall on genuinely important content.
+
+### What this track proves when closed
+
+That a memorability classifier producing four-criteria judgments before storage results in a graph with higher mean edge weight, lower noise, and better retrieval precision than a store-everything baseline, and that the improvement is measurable on a held-out evaluation set. The secondary finding is the identified set of event-driven trigger conditions that best predict whether a conversation turn contains durable information worth keeping.
+
+**Status: open**
+
+---
+
+## Track 7: Long-term memory simulation and visualization
+
+### What opened this track
+
+The question of what a year of memory use looks like, and what it means. The current simulation command (`simulate:day`) produces a single day of memory activity. It is enough to populate the Three.js surface with meaningful structure. It is not enough to answer questions about what happens over months: which knowledge clusters survive decay, which hub nodes emerge from repeated reinforcement, which topic areas rise and fall with the rhythm of real work, and what the graph of a person who has been using this system for a year actually looks like.
+
+The thirty-year question sharpens this further. If the claim is that your memory graph becomes a genuine intellectual autobiography, the research needs to show what an autobiography looks like at different time horizons. That requires a simulation that spans weeks and months, not hours.
+
+### What needs to be built
+
+**`simulate:year` command.** Seeds 52 weekly work episodes with realistic memory creation, Physarum reinforcement, daily decay passes, and periodic consolidation events. Each episode draws from a topic catalog that shifts over time: some topics persist across the full year (the user's core domain), some appear for several weeks and then fade (projects), and some appear briefly and decay completely (one-off problems). The command stores a snapshot at the end of each week so the temporal scrubber has 52 historical states to play back. The full run should complete in under ten seconds.
+
+**Timeline view.** A new surface alongside the Three.js view. The horizontal axis is time (52 weeks). The vertical axis shows cluster count, total edge weight, and mean node degree as three stacked time series. Each cluster is rendered as a colored band that shows when it formed, when it peaked, and when it decayed. Persistent clusters (never decaying below a threshold) appear as solid bands across the full width. Ephemeral clusters appear as short bands that fade. The view makes the lifecycle of knowledge domains legible at a glance.
+
+**Memory biography panel.** Displayed within the Three.js view or as a sidebar. Shows the top ten most-connected hub nodes (what the memory graph identifies as the user's core recurring interests), the oldest surviving memory (what has persisted through all decay cycles), the cluster that peaked and died most dramatically (a finished project), and the decay forecast for the next 30 days (what falls to floor soon unless revisited). This panel answers the practical question "what does my memory graph say about who I am?"
+
+**Consolidation visualization.** When the consolidation job runs (collapsing a dense cluster of episodic nodes into a single semantic node), the Three.js surface should show the event: the cluster contracts visually into a single bright hub node as the episodic nodes fade. This is the episodic-to-semantic transition made visible. It is the mechanism by which thirty years of memory remains navigable rather than becoming an unreadable archive.
+
+### What this track proves when closed
+
+That the memory graph, simulated over one year of realistic use, produces a legible intellectual biography: a small number of persistent hub nodes representing durable knowledge, a larger number of ephemeral clusters tracking completed projects, and a visible decay structure that reflects the recency weighting of the Physarum model. The secondary finding is a baseline for what the graph looks like at different time horizons, which establishes expectations for real users and identifies at what point consolidation becomes necessary.
+
+**Status: open**
+
+---
+
+## Track 8: The thirty-year durability horizon
+
+### What opened this track
+
+The question of whether a memory graph seeded today could be meaningfully accessed thirty years from now. This is not a hypothetical edge case; it is the specific claim that separates memory as infrastructure from memory as a product feature. Infrastructure that your keys control, stored on a decentralized network with no shutdown mechanism, needs to be designed for a time horizon that no current AI product is designed for.
+
+The question has three components: technical durability (will the storage layer still be accessible), structural durability (will the graph still be navigable at that scale), and semantic durability (will the content still be interpretable).
+
+### What needs to be built
+
+**Cycle sustainability model.** A calculation of the ICP cycle cost to maintain a memory canister at different memory graph sizes over different time horizons. The current canister design needs a documented estimate: how many cycles does it cost to store and serve a graph of 10,000 nodes for one year, for ten years, for thirty years? This is the economic precondition for the durability claim. The answer determines whether the thirty-year claim is feasible under current ICP pricing and what the user needs to fund to achieve it.
+
+**Canister upgrade protocol.** ICP canisters can be upgraded without losing stable memory, but the upgrade process needs to be documented and tested. A thirty-year memory graph will require multiple canister upgrades as the Motoko interface evolves. The upgrade protocol needs to guarantee that stable memory is preserved across upgrades and that the graph structure is not corrupted by schema changes. Write and test a migration script that upgrades a canister from version N to version N+1 while preserving all existing memory graph records.
+
+**Consolidation at scale.** A graph with thirty years of memory use, even with aggressive decay, will contain hundreds of thousands of nodes. Raw node retrieval at that scale is not usable without an index. The consolidation pipeline that converts episodic clusters into semantic nodes needs to be designed as a first-class archiving process, not a cleanup job. The design question is: what is the right consolidation schedule so that the oldest memories are always in semantic form while recent memories remain episodic and inspectable?
+
+**Legibility test at scale.** Run `simulate:year` three times in sequence (simulating three years of memory use) without running consolidation between runs. Measure retrieval precision and graph traversal time. Then run consolidation and measure again. The test establishes whether the system remains usable without consolidation at three-year scale and whether consolidation restores usability. The finding quantifies how urgently consolidation is needed at different time horizons and sets the maintenance schedule recommendation.
+
+**Export and import protocol.** If the user wants to move their memory graph from one canister to another (changing their ICP subnet, creating a backup, or migrating to a future storage layer), the export format needs to be stable enough to reimport correctly into a fresh canister. Define the canonical export format (the memory graph serialized as a signed JSON document with all node and edge records) and build the import command. The export format is the thirty-year artifact: the thing that would allow someone to read their memory graph decades from now using tools that do not exist yet.
+
+### What this track proves when closed
+
+That the technical, structural, and semantic components of a thirty-year memory graph are each addressed by a concrete mechanism: cycle sustainability, canister upgrade protocol, consolidation pipeline, and export format. The track closes when a simulated three-year memory graph can be exported, re-imported into a fresh canister, and queried with retrieval precision comparable to the live canister. The finding is either that the infrastructure is genuinely durable at the thirty-year horizon or that specific bottlenecks prevent it and need different solutions.
+
+**Status: open**
+
+---
+
 ## Closed tracks
 
 None yet. This agenda opened on 2026-03-13.

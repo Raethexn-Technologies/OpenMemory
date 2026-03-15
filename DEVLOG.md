@@ -18,6 +18,61 @@ The log is append-only. Entries are not edited after the fact.
 
 ---
 
+## Entry 014 - 2026-03-14
+### The product becomes clear: portable sovereign memory you carry across AI systems
+
+#### What prompted this
+
+A product framing question: what is OpenMemoryAgent actually for, and what problem does it solve that no current AI product addresses? The answer that emerged from working through the architecture, the Physarum model, the ICP ownership layer, and the multi-agent society dynamics is precise enough to state without hedging.
+
+OpenMemoryAgent is portable, sovereign, AI-agnostic long-term memory. You own it. You carry it. Every AI you work with plugs into the same memory graph via MCP. When the conversation ends, what you learned goes back in. The next AI you open already knows who you are.
+
+This is not a feature of a specific AI assistant. It is infrastructure for the way AI use actually works: people move between models, switch providers, use specialized agents for different tasks, and start fresh conversations constantly. The context loss at every boundary is not a preference; it is a structural consequence of memory being stored inside the vendor's product rather than inside infrastructure the user controls.
+
+#### What this changes about the architecture
+
+The chat interface in this codebase is the reference implementation, not the product. The MCP server at `icp/mcp-server/server.js` is the actual deliverable: the protocol endpoint through which any compliant AI gains read and write access to your memory graph. Claude Desktop, GPT with MCP support, any agent built on the Claude API, and any open-source model run locally can all plug into the same graph if they speak MCP and the user has granted access.
+
+This reframes every component. The Physarum dynamics are the algorithm that keeps the memory graph healthy over time, reinforcing what matters and letting what does not matter decay. The ICP canister is the ownership layer that makes the graph yours cryptographically, not contractually. The trust scoring system is the authorization layer that lets you grant different levels of memory access to different AI systems. The graph visualization surfaces are the instrument that lets you understand what your memory has accumulated and how it is organized.
+
+None of those components were designed with the portable memory framing in mind. They were designed to solve specific problems: efficient retrieval, MemoryGraft resistance, multi-agent collective dynamics. The portable memory framing shows that they form a coherent infrastructure stack once you understand what they are collectively building toward.
+
+#### The thirty-year question
+
+The question that follows directly from "you own it and carry it": could you access your memory graph thirty years from now?
+
+The answer is yes, with conditions. ICP canisters persist as long as cycle balances are maintained, independent of any company's continued operation. The cryptographic ownership model means no third party can alter or delete the records without your private key. The graph you build today is yours by a property guarantee that does not depend on a privacy policy.
+
+The condition is usability at scale. Thirty years of active memory use would produce a graph too large to navigate directly. The episodic memories from specific conversations in 2026 are not useful in 2056. What is useful is the semantic structure that emerges from those episodic memories through consolidation: the core concepts you returned to repeatedly, the problems you solved deeply, the knowledge that proved durable across many different contexts. Biological memory works this way: episodic memories from childhood are mostly gone; the skills, preferences, and conceptual frameworks built from those memories persist.
+
+The consolidation pipeline (episodic clusters collapsing into single semantic hub nodes) is not just an efficiency mechanism for large graphs. It is the architectural answer to the thirty-year question. Built correctly, it produces a graph that is navigable at any scale, where the oldest and most durable knowledge is the most accessible, and the recent and less-reinforced content is present but appropriately weighted lower.
+
+This finding is now in VISION.md as "The Thirty-Year Question" and in RESEARCH.md as Track 8.
+
+#### The storage trigger problem
+
+The practical problem that precedes every other memory quality question: when should an AI decide that something is worth remembering?
+
+The current implementation stores a summarized memory at the end of every chat turn where the user sends a message. This is the simplest possible answer to the trigger question and produces the noisiest possible graph. A memory of a transient question sits in the same graph layer as a memory of a major design decision. Both receive the same Physarum treatment on future retrieval. The decay mechanism will eventually sort them: if the transient question is never reinforced, it decays to the floor. But this takes 23 days for a rarely-reinforced node. A graph with hundreds of these low-quality entries degrades retrieval precision for those 23 days.
+
+The better answer is a memorability classification step that runs before storage. The LLM evaluates the candidate memory against four criteria before writing it to the graph: novelty (not already represented in existing nodes), significance (the user engaged with this deeply or stated its importance explicitly), durability (likely to matter in future contexts), and connection richness (links meaningfully to existing high-weight nodes). Content that meets none of these criteria is discarded. Content that meets at least one is stored or used to update an existing node.
+
+The event-driven trigger is the second half of this. Rather than running the storage decision after every turn, the decision fires when specific events occur in the conversation: a decision is made, a significant constraint is stated, a problem is resolved, the user explicitly flags something as important. Between events, turns are held in a rolling buffer and not committed to the graph. This reduces the storage rate by an estimated 60 to 80 percent while preserving all genuinely important memories.
+
+This is now Track 6 in RESEARCH.md and will be implemented alongside the memorability audit panel that makes the classifier's behavior inspectable.
+
+#### What the long-term visualization needs to show
+
+The gap in the current tooling: you can see what the memory graph looks like right now, but you cannot see what it looks like over time. The temporal scrubber in the Three.js surface shows cluster changes across the past 96 snapshots, which covers roughly one day at 15-minute intervals. That time horizon is not long enough to see anything meaningful about memory evolution.
+
+What the long-term visualization needs to show is the lifecycle of knowledge clusters: when they formed, how they grew, when they peaked, and whether they consolidated into semantic nodes or decayed entirely. It needs to show which hub nodes have persisted across everything, because those are the concepts the system has identified as central to this person's accumulated knowledge. It needs to show the difference between what the graph looked like six months ago and what it looks like now, because that difference is the intellectual growth the system has recorded.
+
+The `simulate:year` command will seed this. The timeline view will render it. The memory biography panel will summarize it. Together they make the thirty-year claim concrete rather than theoretical: a person looking at their memory graph after one year can see what it has learned about them and assess whether the graph reflects who they actually are.
+
+These three pieces are now Track 7 in RESEARCH.md.
+
+---
+
 ## Entry 013 - 2026-03-13
 ### The society question: does collective Physarum produce emergent group cognition?
 
