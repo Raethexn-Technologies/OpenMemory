@@ -18,6 +18,51 @@ The log is append-only. Entries are not edited after the fact.
 
 ---
 
+## Entry 020 - 2026-03-16
+### MCP write path: CLI tools can now store memories
+
+#### The problem being solved
+
+The MCP server could read memories but had no write path. CLI tools running in terminals (Claude Code, Gemini in GCP Cloud Shell, Codex in VS Code) had no way to store memories through the MCP server. Browser-signed Ed25519 was the assumed identity model but it is the wrong model for a workflow that has no browser involved.
+
+#### The solution
+
+A portable Ed25519 identity file at `~/.config/openmemorymcp/identity.json`. One key generated once, shared across all CLI tools through the MCP server. The MCP server loads it at startup and signs canister calls with it. All tools using the same MCP server instance carry the same principal, so memories accumulate under one identity regardless of which tool generated them.
+
+#### What was built
+
+**`icp/mcp-server/setup-identity.js`**
+
+Generates a 32-byte random seed via `node:crypto randomBytes`. Constructs `Ed25519KeyIdentity.generate(seed)` to get the full keypair and principal. Writes `{version, created_at, principal, secret_key_hex}` to the identity file with mode `0o600` (owner-only). Idempotent: exits without overwriting if the file already exists. Run once after `npm install`.
+
+**`icp/mcp-server/identity.js`**
+
+Loads the identity file from `OMA_IDENTITY_FILE` or the default path. Reconstructs `Ed25519KeyIdentity.generate(seed)` from the stored 32-byte hex seed. Verifies the reconstructed principal matches the stored principal as a corruption check. Returns `{identity, principal}` or `null` if no file exists.
+
+Key gotcha: `Ed25519KeyIdentity.fromSecretKey()` takes a 64-byte full keypair (seed + public key concatenated). `Ed25519KeyIdentity.generate(seed)` takes a 32-byte seed. The seed is what we store. Using `fromSecretKey` with a 32-byte value silently produces a wrong keypair.
+
+**`icp/mcp-server/server.js` -- store_memory tool**
+
+New tool `store_memory` added. Dispatches to either mock mode (POST to `OMA_MOCK_URL/mcp/store` with `X-OMA-API-Key`) or live ICP mode (authenticated agent + canister update call). Sensitive writes are blocked unconditionally. Private writes require `WRITE_SCOPE=public,private` in env. Default scope is `public` only.
+
+Write scope is intentionally restrictive by default. A CLI tool that only asks to store public facts should not be handed the keys to private memories unless the operator explicitly widens the scope.
+
+**`app/app/Http/Controllers/McpController.php`**
+
+Laravel endpoint for mock-mode writes. Authenticates via `X-OMA-API-Key` header against `MCP_API_KEY` in `.env`. Validates content, sensitivity, user_id, context. Calls `IcpMemoryService::storeMemory()` then `GraphExtractionService::extract()` + `MemoryGraphService::storeNode()`. Returns 201 with `{id, user_id, sensitivity}`. No MemorabilityService, no MemorySummarizationService -- the MCP tool already produced the memory fact; running it through another LLM summarization pass would alter the content the user asked the tool to store.
+
+**CSRF exemption in `bootstrap/app.php`**
+
+`$middleware->validateCsrfTokens(except: ['/mcp/store'])` added. Without this every POST from Node.js returns 419 silently and the store appears to fail with no useful error.
+
+#### Open questions
+
+Whether to migrate from `@dfinity/*` v2 to `@icp-sdk/core` v5. The v2 packages installed cleanly and work, but npm warns they are deprecated. Migration is a separate task and does not affect the write path behavior.
+
+Whether write scope should be per-tool rather than per-server-instance. Currently one MCP server instance has one scope for all connected tools. A future iteration could route different tools to different server instances with different scopes, or add a tool-name-based ACL.
+
+---
+
 ## Entry 019 - 2026-03-16
 ### The memory mess problem solved: storage trigger, consolidation, and pruning
 

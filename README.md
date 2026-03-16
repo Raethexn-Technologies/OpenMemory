@@ -2,9 +2,9 @@
 
 Built because working across Claude, Codex, Gemini CLI, and other AI tools means re-explaining project context from scratch every time you switch. Each AI starts fresh at every session boundary. This is the memory layer that lives outside any single AI so all of them stay in sync.
 
-The MCP server at `icp/mcp-server/server.js` is the protocol endpoint through which any MCP-compatible AI reads and queries the memory graph. Configure it once, and every AI you connect to it already knows what you have been working on. The chat interface in this repository is the reference implementation demonstrating that the infrastructure works end-to-end.
+The MCP server at `icp/mcp-server/server.js` is the protocol endpoint through which any MCP-compatible AI reads and writes memory records. Configure it once, and every AI you connect to it already knows what you have been working on. The chat interface in this repository is the reference implementation demonstrating that the infrastructure works end-to-end.
 
-The user's browser holds an Ed25519 signing key; writes to the ICP canister are authenticated with that key so no server can write memory records under a user's identity. A typed memory graph sits in PostgreSQL alongside the canister records, tracking relationships between memories and applying Physarum conductance dynamics that shift edge weights based on how the LLM actually uses each connection over time.
+Identity works differently depending on the tool. The browser chat UI holds an Ed25519 key in localStorage and signs writes directly to the ICP canister. CLI tools running in terminals (Claude Code, Gemini, Codex) share a portable identity file at `~/.config/openmemorymcp/identity.json`, generated once with `node setup-identity.js`, and write through the MCP server rather than through a browser. A typed memory graph sits in PostgreSQL alongside the canister records, tracking relationships between memories and applying Physarum conductance dynamics that shift edge weights based on how the LLM actually uses each connection over time.
 
 [VISION.md](./VISION.md) covers the design decisions and research questions in depth. [DEVLOG.md](./DEVLOG.md) is the running record of what was discovered building it: implementation findings, security fixes, architectural tensions, and what remains unresolved. [RESEARCH.md](./RESEARCH.md) is the active research agenda: the open scientific claims, what needs to be built to test each one, and how the tracks evolve as discoveries open new questions. [SCIENCE.md](./SCIENCE.md) explains the mathematics and biology behind the graph layer in plain terms, with source citations and references to the tests that verify each formula.
 
@@ -14,7 +14,9 @@ The user's browser holds an Ed25519 signing key; writes to the ICP canister are 
 
 The application is a standard Laravel and Vue web app. The interesting parts are the memory layer and the graph that grows on top of it.
 
-**Memory records.** When a conversation produces something worth remembering, the server summarizes it, classifies it as public, private, or sensitive, and returns it to the browser. If the user approves (required for private and sensitive records), the browser signs the write with an Ed25519 key from localStorage and sends it to the ICP canister directly. The canister records `msg.caller` as the owner of that record. The server is not in that write path and cannot forge a write under the user's principal.
+**Storage trigger.** Before summarizing a conversation turn, the server passes the exchange to `MemorabilityService`, which evaluates novelty, significance, durability, and connection richness against the 20 most recently created nodes. The evaluation returns one of three decisions: store a new node, update an existing node with a specific ID, or skip the turn entirely. This filter prevents ephemeral exchanges (greetings, clarifying questions, transient status updates) from creating nodes, keeping the graph focused on durable knowledge.
+
+**Memory records.** When a turn passes the storage trigger, the server summarizes it, classifies it as public, private, or sensitive, and proceeds down the write path. In the browser chat UI, private and sensitive records require user approval before the browser signs the write with an Ed25519 key from localStorage and sends it directly to the ICP canister. The canister records `msg.caller` as the owner of that record. CLI tools writing through the MCP server POST to the Laravel `/mcp/store` endpoint in mock mode, which handles graph extraction and node storage server-side without a browser session.
 
 **The memory graph.** After every confirmed memory write, a second LLM call extracts a node type (memory, person, project, document, task, event, or concept), a label, semantic tags, named people, and named projects from the memory content. This data creates a typed graph node in PostgreSQL and auto-wires edges to related existing nodes: tag overlap produces `same_topic_as` edges; named people produce `about_person` edges to person anchor nodes; named projects produce `part_of` edges to project anchor nodes.
 
@@ -27,6 +29,10 @@ The application is a standard Laravel and Vue web app. The interesting parts are
 **Graph partition simulation.** Multiple named graph partitions can be created under the same owner at `/agents`. Each partition holds its own subgraph seeded from the owner's public nodes. When two partitions both access nodes derived from the same memory content, a shared edge accumulates weight at `SHARED_ALPHA * trust_score`. The trust score is adjustable per partition, making each one's contribution to the collective graph proportional to its assigned reputation. These partitions model different agent roles or conversation contexts sharing a common memory substrate; actual external AI agents connect via the MCP server rather than through this simulation panel.
 
 **Cluster detection.** Weighted label propagation (Raghavan et al. 2007) partitions the personal or collective graph into communities on demand. Cluster membership and mean internal weight are written to `graph_snapshots` every 15 minutes and feed the temporal axis scrubber in the Three.js surface.
+
+**Consolidation.** A weekly scheduled command runs `ConsolidationService`, which inspects every cluster with a mean internal edge weight above 0.30 and at least five unconsolidated nodes. Qualifying clusters are compressed: the LLM produces a one-sentence summary of the cluster's common theme, a new `concept` node is created from that summary, and all absorbed episodic nodes are stamped with a `consolidated_at` timestamp and excluded from future retrieval and consolidation passes. The concept node is wired to the absorbed nodes via `supersedes` edges, and any edges from outside the cluster that formerly targeted absorbed nodes are re-wired to the concept node. This mirrors hippocampal-to-cortical transfer: many episodic traces consolidate into a single navigable semantic node. The consolidation trigger is also exposed as `POST /api/graph/consolidate` for in-app use.
+
+**Pruning.** A monthly scheduled command runs `PruneMemoryNodes`, which deletes nodes that meet two conditions simultaneously: all of their edges have decayed to floor weight (0.06 or below), and the node has not been accessed in the past 90 days. Nodes with no edges at all that are older than 90 days are also deleted. Pruning removes edges first, then nodes, to avoid foreign-key violations. The pruning trigger is also exposed as `POST /api/graph/prune` for in-app use.
 
 
 ---
@@ -53,7 +59,7 @@ Public memories are the only records the LLM can recall. Private and sensitive r
 | Frontend | Vue 3, Inertia.js, Tailwind CSS |
 | Database | PostgreSQL (Docker) or SQLite (local development) |
 | LLM | OpenRouter, model configurable via `OPENROUTER_MODEL` |
-| Memory records | ICP canister (Motoko), browser-signed writes, Node.js adapter for server reads |
+| Memory records | ICP canister (Motoko), browser-signed writes (chat UI), MCP server writes (CLI tools), Node.js adapter for server reads |
 | Memory graph | PostgreSQL tables (`memory_nodes`, `memory_edges`), Physarum dynamics, D3 force-directed explorer at `/graph` |
 | Graph partition layer | PostgreSQL tables (`agents`, `shared_memory_edges`, `graph_snapshots`), collective Physarum dynamics across named partitions, Three.js mission control surface at `/3d` |
 
@@ -145,15 +151,33 @@ After the command completes, navigate to `/graph` to see the memory graph, `/age
 
 ---
 
-## Edge weight decay
+## Scheduled maintenance commands
 
-A daily Artisan command applies the Physarum decay factor to all edges in the graph:
+**Edge weight decay** runs daily and applies the Physarum decay factor to all edges:
 
 ```bash
 php artisan memory:decay
 ```
 
-This is scheduled to run automatically via `routes/console.php`. The decay constant RHO = 0.97 means edges lose approximately 3% of their weight per day when not reinforced. An edge at weight 0.5 that receives no reinforcement reaches the floor (0.05) after approximately 100 days.
+The decay constant RHO = 0.97 means edges lose approximately 3% of their weight per day when not reinforced. An edge at weight 0.5 that receives no reinforcement reaches the floor (0.05) after approximately 100 days.
+
+**Cluster consolidation** runs weekly and compresses high-density episodic clusters into semantic concept nodes:
+
+```bash
+php artisan memory:consolidate           # all users
+php artisan memory:consolidate --user=X  # specific user
+```
+
+**Node pruning** runs monthly and hard-deletes dormant nodes whose edges have all decayed to floor weight:
+
+```bash
+php artisan memory:prune                 # all users
+php artisan memory:prune --user=X        # specific user
+php artisan memory:prune --dry-run       # report without deleting
+php artisan memory:prune --days=60       # shorter idle threshold
+```
+
+All three commands are scheduled automatically via `routes/console.php`. Both consolidation and pruning are also triggerable from the graph explorer UI at `/graph` without terminal access.
 
 ---
 
@@ -183,6 +207,51 @@ ICP_BROWSER_HOST=http://localhost:4943    # use https://ic0.app for mainnet
 
 ---
 
+## Connecting CLI tools via MCP
+
+Claude Code, Gemini CLI, Codex, and any other MCP-compatible tool can read and write memories through the MCP server. All tools share a single portable Ed25519 identity file, so writes from any tool accumulate under the same principal and appear in the same graph.
+
+```bash
+# 1. Install the MCP server dependencies
+cd icp/mcp-server
+npm install
+
+# 2. Generate the shared identity file (run once)
+node setup-identity.js
+# Prints your principal and the path of the created file.
+# Back the file up. Losing it means losing the ability to reclaim canister-signed records.
+
+# 3. Generate a shared secret for the Laravel endpoint
+openssl rand -hex 32
+# Add this value to app/.env as MCP_API_KEY=<value>
+
+# 4. Add the MCP server to your tool config
+# Example for Claude Code (~/.claude/claude_desktop_config.json):
+```
+
+```json
+{
+  "mcpServers": {
+    "openMemory": {
+      "command": "node",
+      "args": ["/absolute/path/to/icp/mcp-server/server.js"],
+      "env": {
+        "OMA_MOCK_URL": "http://localhost:8080",
+        "OMA_API_KEY": "<value from step 3>",
+        "OMA_USER_ID": "<any stable string identifying you>",
+        "WRITE_SCOPE": "public,private"
+      }
+    }
+  }
+}
+```
+
+The `WRITE_SCOPE` env var controls which sensitivity levels the MCP server will accept. The default is `public` only. Set it to `public,private` to allow private writes. Sensitive writes are always blocked at the MCP layer regardless of scope. Set `WRITE_SCOPE=none` to make the server read-only.
+
+In mock mode (`ICP_MOCK_MODE=true`), the MCP server POSTs to `OMA_MOCK_URL/mcp/store` and memory nodes are created in the local PostgreSQL graph. In live ICP mode (no `OMA_MOCK_URL` set), the server signs canister calls directly with the loaded identity.
+
+---
+
 ## Running tests
 
 ```bash
@@ -190,7 +259,7 @@ cd app
 php artisan test
 ```
 
-The test suite runs against SQLite in-memory and mock mode throughout. No API key or canister is required. Coverage includes graph reinforcement, edge decay, neighborhood traversal, cluster detection determinism, graph snapshot storage and pruning, agent alignment Jaccard calculation, the memory approval flow, the `active_node_ids` response field, and the ThreeD page load with agent scoping.
+The test suite runs against SQLite in-memory and mock mode throughout. No API key or canister is required. Coverage includes the storage trigger (MemorabilityService decisions, hallucinated node ID rejection, consolidated node exclusion), graph reinforcement, edge decay, neighborhood traversal, cluster detection determinism, graph snapshot storage and pruning, agent alignment Jaccard calculation, the memory approval flow, the `active_node_ids` response field, consolidation pipeline (concept node creation, supersedes edges, sensitivity inheritance, re-consolidation prevention), node pruning (floor-weight detection, idle window, edge cascade delete, user scoping, dry-run), the MCP store endpoint (API key auth, graph node creation), and the ThreeD page load with agent scoping.
 
 ---
 
@@ -201,17 +270,22 @@ OpenMemoryAgent/
 ├── app/                          # Laravel application
 │   ├── app/
 │   │   ├── Console/Commands/
-│   │   │   ├── DecayMemoryEdges.php         # php artisan memory:decay
+│   │   │   ├── DecayMemoryEdges.php         # php artisan memory:decay (daily)
+│   │   │   ├── ConsolidateMemory.php        # php artisan memory:consolidate (weekly)
+│   │   │   ├── PruneMemoryNodes.php         # php artisan memory:prune (monthly)
 │   │   │   ├── TakeGraphSnapshot.php        # php artisan graph:snapshot (runs every 15 min)
 │   │   │   └── SimulateDay.php              # php artisan simulate:day (demo seeder)
 │   │   ├── Http/Controllers/
 │   │   │   ├── ChatController.php           # chat, memory store, graph sync endpoints
 │   │   │   ├── GraphController.php          # graph data, neighborhood, clusters, snapshots, /3d
 │   │   │   ├── AgentController.php          # agent CRUD, seed, simulate, alignment, shared edges
+│   │   │   ├── McpController.php            # POST /mcp/store — MCP server write endpoint (mock mode)
 │   │   │   └── MemoryController.php
 │   │   ├── Services/
 │   │   │   ├── IcpMemoryService.php         # fetches public records for LLM context
+│   │   │   ├── MemorabilityService.php      # storage trigger: evaluates novelty/significance before writing
 │   │   │   ├── MemorySummarizationService.php
+│   │   │   ├── ConsolidationService.php     # compresses episodic clusters into concept nodes (weekly)
 │   │   │   ├── GraphExtractionService.php   # LLM extracts node type, label, tags per memory
 │   │   │   ├── MemoryGraphService.php       # stores nodes, wires edges, Physarum dynamics
 │   │   │   ├── ClusterDetectionService.php  # weighted label propagation community detection
@@ -231,6 +305,7 @@ OpenMemoryAgent/
 │   │   ├── ..._create_memory_nodes_table.php
 │   │   ├── ..._create_memory_edges_table.php
 │   │   ├── ..._add_access_tracking_to_memory_graph.php
+│   │   ├── ..._add_consolidated_at_to_memory_nodes.php
 │   │   ├── ..._create_agents_table.php
 │   │   ├── ..._create_shared_memory_edges_table.php
 │   │   └── ..._create_graph_snapshots_table.php
@@ -252,7 +327,9 @@ OpenMemoryAgent/
 │   ├── adapter/
 │   │   └── server.js                        # read-only adapter in live mode; mock store in mock mode
 │   ├── mcp-server/
-│   │   └── server.js                        # MCP protocol endpoint; any MCP-compatible AI connects here
+│   │   ├── server.js                        # MCP protocol endpoint; any MCP-compatible AI connects here
+│   │   ├── identity.js                      # loads portable Ed25519 identity from ~/.config/openmemorymcp/
+│   │   └── setup-identity.js                # one-time identity generation script
 │   └── dfx.json
 ├── docker/
 │   ├── nginx/default.conf
@@ -277,14 +354,17 @@ OpenMemoryAgent/
 | useIcpIdentity.js | Generates an Ed25519 key pair in browser localStorage and derives the ICP principal |
 | useIcpMemory.js | Browser actor for signing store_memory calls and retrieving the owner's full record set |
 | PostgreSQL | Chat transcript, session data, memory graph (nodes, edges, Physarum weights) |
-| GraphExtractionService | Second LLM pass after each confirmed memory write; extracts node type, label, tags, people, projects |
+| MemorabilityService | Pre-write filter evaluating novelty, significance, durability, and connection richness; returns store/update/skip |
+| GraphExtractionService | LLM pass after each confirmed memory write; extracts node type, label, tags, people, projects |
 | MemoryGraphService | Creates nodes, auto-wires edges, applies Hebbian reinforcement, runs Physarum decay |
+| ConsolidationService | Weekly: compresses high-density episodic clusters into semantic concept nodes via LLM summarization |
 | ClusterDetectionService | Weighted label propagation producing community membership and mean weight per cluster |
 | MultiAgentGraphService | Creates and seeds graph partitions, updates shared edges with trust-weighted ALPHA, retrieves collective context |
 | IcpMemoryService | Fetches public memories from the adapter for injection into the LLM system prompt |
+| McpController | Receives write requests from the MCP server (mock mode); authenticates via X-OMA-API-Key |
 | ICP adapter | Translates HTTP JSON from Laravel into Candid query calls; read-only in live mode |
 | ICP canister | Enforces msg.caller as record owner and serves JSON records over the HTTP gateway |
-| MCP server | Exposes public memories as MCP tools so any MCP-compatible AI can read the user's memory graph |
+| MCP server | Exposes memory as MCP tools for any MCP-compatible AI; reads public records and writes new memories via store_memory |
 | OpenRouter | Routes LLM calls to whichever model is set in OPENROUTER_MODEL |
 
 ---
