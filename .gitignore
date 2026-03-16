@@ -13,6 +13,7 @@ app/.env.bak
 # ICP
 icp/.dfx/
 icp/adapter/node_modules/
+icp/mcp-server/node_modules/
 
 # Docker
 .docker-data/
