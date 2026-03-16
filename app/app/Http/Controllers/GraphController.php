@@ -473,23 +473,16 @@ class GraphController extends Controller
         }
 
         // Keep nodes that still have at least one edge above floor weight.
-        $activeIds = MemoryEdge::where('user_id', $userId)
+        $activeEdges = MemoryEdge::where('user_id', $userId)
             ->where(function ($q) use ($candidates) {
                 $q->whereIn('from_node_id', $candidates)
                     ->orWhereIn('to_node_id', $candidates);
             })
             ->where('weight', '>', 0.06)
-            ->selectRaw('from_node_id as node_id')
-            ->union(
-                MemoryEdge::where('user_id', $userId)
-                    ->where(function ($q) use ($candidates) {
-                        $q->whereIn('from_node_id', $candidates)
-                            ->orWhereIn('to_node_id', $candidates);
-                    })
-                    ->where('weight', '>', 0.06)
-                    ->selectRaw('to_node_id as node_id')
-            )
-            ->pluck('node_id')
+            ->get(['from_node_id', 'to_node_id']);
+
+        $activeIds = $activeEdges
+            ->flatMap(fn ($e) => [$e->from_node_id, $e->to_node_id])
             ->unique()
             ->all();
 

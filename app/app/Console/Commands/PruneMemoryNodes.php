@@ -47,19 +47,15 @@ class PruneMemoryNodes extends Command
         $cutoff       = Carbon::now()->subDays($idleDays);
 
         $query = MemoryNode::query()
+            ->when($specificUser, fn ($q) => $q->where('user_id', $specificUser))
             ->where(function ($q) use ($cutoff) {
-                // Nodes that have been accessed but not recently.
-                $q->where('last_accessed_at', '<', $cutoff);
-            })
-            ->orWhere(function ($q) use ($cutoff) {
-                // Nodes that have never been accessed and are old.
-                $q->whereNull('last_accessed_at')
-                    ->where('created_at', '<', $cutoff);
+                $q->where('last_accessed_at', '<', $cutoff)
+                    ->orWhere(function ($inner) use ($cutoff) {
+                        // Nodes never accessed and old enough.
+                        $inner->whereNull('last_accessed_at')
+                            ->where('created_at', '<', $cutoff);
+                    });
             });
-
-        if ($specificUser) {
-            $query->where('user_id', $specificUser);
-        }
 
         $candidates = $query->pluck('id')->all();
 
@@ -71,17 +67,15 @@ class PruneMemoryNodes extends Command
 
         // Of those candidates, keep only nodes where every edge is at floor weight.
         // A node with any edge above floor is still active in the Physarum model.
-        $activeNodes = MemoryEdge::whereIn('from_node_id', $candidates)
-            ->orWhereIn('to_node_id', $candidates)
+        $activeEdges = MemoryEdge::where(function ($q) use ($candidates) {
+            $q->whereIn('from_node_id', $candidates)
+                ->orWhereIn('to_node_id', $candidates);
+        })
             ->where('weight', '>', self::FLOOR_THRESHOLD)
-            ->selectRaw('DISTINCT COALESCE(from_node_id, to_node_id)')
-            ->pluck(0)
-            ->merge(
-                MemoryEdge::whereIn('from_node_id', $candidates)
-                    ->orWhereIn('to_node_id', $candidates)
-                    ->where('weight', '>', self::FLOOR_THRESHOLD)
-                    ->pluck('to_node_id')
-            )
+            ->get(['from_node_id', 'to_node_id']);
+
+        $activeNodes = $activeEdges
+            ->flatMap(fn ($e) => [$e->from_node_id, $e->to_node_id])
             ->unique()
             ->all();
 
