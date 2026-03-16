@@ -1,5 +1,5 @@
 /**
- * OpenMemoryAgent — MCP Server
+ * OpenMemory — MCP Server
  *
  * Exposes the ICP memory canister as a Model Context Protocol (MCP) resource.
  * Any MCP-compatible agent (Claude Desktop, Claude Code, Claude Code CLI,
@@ -12,7 +12,7 @@
  *   Mock mode  — POSTs to OMA_MOCK_URL/mcp/store (Laravel dev server).
  *                Requires OMA_MOCK_URL and OMA_API_KEY.
  *   Live mode  — Signs canister calls with the Ed25519 identity loaded from
- *                OMA_IDENTITY_FILE (default: ~/.config/openmemorymcp/identity.json).
+ *                OMA_IDENTITY_FILE (default: ~/.config/openmemory/identity.json).
  *                Run `node setup-identity.js` once to create the key file.
  *
  * Write scope (WRITE_SCOPE env var):
@@ -28,7 +28,7 @@
  *   OMA_MOCK_URL      — base URL of the Laravel app for mock-mode writes
  *   OMA_API_KEY       — shared secret sent as X-OMA-API-Key header
  *   WRITE_SCOPE       — comma-separated allowed sensitivity levels (default: public)
- *   OMA_IDENTITY_FILE — path to Ed25519 identity JSON (default: ~/.config/openmemorymcp/identity.json)
+ *   OMA_IDENTITY_FILE — path to Ed25519 identity JSON (default: ~/.config/openmemory/identity.json)
  *   OMA_USER_ID       — user_id to tag writes with (required for mock-mode writes)
  *
  * Claude Code / Gemini / Codex config example (~/.claude/claude_desktop_config.json):
@@ -71,7 +71,7 @@ const ALLOW_PRIVATE  = WRITE_SCOPE.includes('private');
 const identityResult = loadIdentity();
 
 const server = new McpServer({
-  name:    'OpenMemoryAgent',
+  name:    'OpenMemory',
   version: '0.1.0',
 });
 
@@ -151,7 +151,7 @@ server.resource(
 //
 server.tool(
   'get_memories',
-  'Retrieve public memory records for an ICP principal from the OpenMemoryAgent canister.',
+  'Retrieve public memory records for an ICP principal from the OpenMemory canister.',
   {
     principal: z.string().optional().describe(
       'ICP principal to look up. Defaults to USER_PRINCIPAL env var if not specified.'
@@ -180,7 +180,7 @@ server.tool(
 
 server.tool(
   'canister_health',
-  'Check the health and record count of the OpenMemoryAgent ICP canister.',
+  'Check the health and record count of the OpenMemory ICP canister.',
   {},
   async () => {
     if (!CANISTER_ID) {
@@ -215,7 +215,7 @@ server.tool(
 //
 server.tool(
   'store_memory',
-  'Save a memory about the user to OpenMemoryAgent. Only call this when the user explicitly asks you to remember something, or when a fact is clearly important and durable enough to be worth storing.',
+  'Save a memory about the user to OpenMemory. Only call this when the user explicitly asks you to remember something, or when a fact is clearly important and durable enough to be worth storing.',
   {
     content: z.string().min(1).max(2000).describe(
       'The memory to store. Write as a clear, self-contained sentence or short paragraph. Third person is fine: "User prefers X." Do not include filler or conversational fragments.'

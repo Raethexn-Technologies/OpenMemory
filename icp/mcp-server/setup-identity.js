@@ -4,7 +4,7 @@
  * Run once from icp/mcp-server/ after npm install:
  *   node setup-identity.js
  *
- * Creates ~/.config/openmemorymcp/identity.json with:
+ * Creates ~/.config/openmemory/identity.json with:
  *   { version: 1, created_at, principal, secret_key_hex }
  *
  * The file is written mode 0o600 (owner read/write only).
@@ -23,7 +23,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
 
-const DEFAULT_PATH = join(homedir(), '.config', 'openmemorymcp', 'identity.json');
+const DEFAULT_PATH = join(homedir(), '.config', 'openmemory', 'identity.json');
 const filePath = process.env.OMA_IDENTITY_FILE || DEFAULT_PATH;
 
 if (existsSync(filePath)) {
