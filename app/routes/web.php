@@ -32,6 +32,8 @@ Route::get('/api/graph/neighborhood/{nodeId}', [GraphController::class, 'neighbo
 Route::post('/api/graph/simulate', [GraphController::class, 'simulate'])->name('api.graph.simulate');
 Route::get('/api/graph/clusters', [GraphController::class, 'clusters'])->name('api.graph.clusters');
 Route::get('/api/graph/topology', [GraphController::class, 'topology'])->name('api.graph.topology');
+Route::post('/api/graph/decay', [GraphController::class, 'decay'])->name('api.graph.decay');
+Route::post('/api/graph/snapshot', [GraphController::class, 'snapshot'])->name('api.graph.snapshot');
 Route::get('/api/graph/snapshots', [GraphController::class, 'snapshotIndex'])->name('api.graph.snapshots');
 Route::get('/api/graph/snapshots/{snapshotId}', [GraphController::class, 'snapshotShow'])->name('api.graph.snapshots.show');
 

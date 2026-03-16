@@ -70,6 +70,71 @@
         </div>
       </div>
 
+      <!-- Graph Topology -->
+      <div class="px-3 py-3 border-b border-slate-800 overflow-y-auto">
+        <p class="text-xs font-medium text-slate-500 mb-2 uppercase tracking-wide">Graph Topology</p>
+
+        <button
+          @click="runTopology"
+          :disabled="topologyLoading"
+          class="w-full px-2 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-300 rounded mb-2"
+        >{{ topologyLoading ? 'Analysing…' : 'Run Analysis' }}</button>
+
+        <div v-if="topologyResult" class="space-y-1 mb-2">
+          <div class="flex justify-between text-xs">
+            <span class="text-slate-500">Nodes</span>
+            <span class="text-slate-300">{{ topologyResult.node_count }}</span>
+          </div>
+          <div class="flex justify-between text-xs">
+            <span class="text-slate-500">Edges</span>
+            <span class="text-slate-300">{{ topologyResult.edge_count }}</span>
+          </div>
+          <div class="flex justify-between text-xs">
+            <span class="text-slate-500">Gamma</span>
+            <span class="text-slate-300">{{ topologyResult.power_law.gamma ?? '—' }}</span>
+          </div>
+          <div class="flex justify-between text-xs">
+            <span class="text-slate-500">R²</span>
+            <span class="text-slate-300">{{ topologyResult.power_law.r_squared ?? '—' }}</span>
+          </div>
+          <div class="flex justify-between text-xs items-center">
+            <span class="text-slate-500">Scale-Free</span>
+            <span
+              :class="[
+                'px-1.5 py-0.5 rounded text-xs',
+                topologyResult.power_law.is_scale_free
+                  ? 'bg-emerald-900/50 text-emerald-400'
+                  : 'bg-slate-700 text-slate-400'
+              ]"
+            >{{ topologyResult.power_law.is_scale_free ? 'Scale-Free' : 'Not Scale-Free' }}</span>
+          </div>
+          <div class="flex justify-between text-xs">
+            <span class="text-slate-500">Clustering</span>
+            <span class="text-slate-300">{{ topologyResult.mean_clustering_coefficient ?? '—' }}</span>
+          </div>
+        </div>
+
+        <div class="flex flex-col gap-1.5">
+          <button
+            @click="runDecay"
+            :disabled="decayLoading"
+            class="w-full px-2 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-300 rounded"
+          >{{ decayLoading ? 'Decaying…' : 'Run Decay' }}</button>
+          <div v-if="decayResult" class="text-xs text-slate-500 text-center">
+            {{ decayResult.edges_decayed }} edge{{ decayResult.edges_decayed === 1 ? '' : 's' }} decayed
+          </div>
+
+          <button
+            @click="runSnapshot"
+            :disabled="snapshotLoading"
+            class="w-full px-2 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-300 rounded"
+          >{{ snapshotLoading ? 'Snapshotting…' : 'Take Snapshot' }}</button>
+          <div v-if="snapshotResult" class="text-xs text-slate-500 text-center">
+            {{ snapshotResult.cluster_count }} cluster{{ snapshotResult.cluster_count === 1 ? '' : 's' }} saved
+          </div>
+        </div>
+      </div>
+
       <!-- Stats -->
       <div class="px-3 py-3 mt-auto border-t border-slate-800">
         <div class="text-xs text-slate-500 space-y-1">
@@ -433,6 +498,14 @@ const SIM_SPEEDS = [
   { label: 'fast', ms: 350  },
 ]
 
+// Topology panel state
+const topologyLoading  = ref(false)
+const topologyResult   = ref(null)
+const decayLoading     = ref(false)
+const decayResult      = ref(null)
+const snapshotLoading  = ref(false)
+const snapshotResult   = ref(null)
+
 // D3 internals
 let simulation = null
 let svgEl      = null
@@ -509,6 +582,54 @@ const expandNeighborhood = async (nodeId) => {
     graphData.value = await res.json()
   } finally {
     loading.value = false
+  }
+}
+
+const runTopology = async () => {
+  topologyLoading.value = true
+  try {
+    const res = await fetch('/api/graph/topology')
+    topologyResult.value = await res.json()
+  } catch {
+    // Network error — leave previous result in place.
+  } finally {
+    topologyLoading.value = false
+  }
+}
+
+const runDecay = async () => {
+  decayLoading.value = true
+  decayResult.value = null
+  try {
+    const res = await fetch('/api/graph/decay', {
+      method: 'POST',
+      headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '' },
+    })
+    decayResult.value = await res.json()
+    await fetchGraph()
+    if (topologyResult.value) {
+      await runTopology()
+    }
+  } catch {
+    // Network error — leave result null.
+  } finally {
+    decayLoading.value = false
+  }
+}
+
+const runSnapshot = async () => {
+  snapshotLoading.value = true
+  snapshotResult.value = null
+  try {
+    const res = await fetch('/api/graph/snapshot', {
+      method: 'POST',
+      headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '' },
+    })
+    snapshotResult.value = await res.json()
+  } catch {
+    // Network error — leave result null.
+  } finally {
+    snapshotLoading.value = false
   }
 }
 

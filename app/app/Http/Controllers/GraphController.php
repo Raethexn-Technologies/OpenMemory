@@ -343,4 +343,82 @@ class GraphController extends Controller
             'note' => 'Degree and clustering are computed over the undirected graph induced by the directed edge set. Power-law fit uses ordinary least squares on log(P(k)) vs log(k) for k >= 1.',
         ]);
     }
+
+    /**
+     * Run the Physarum decay pass for the current user's graph in-browser.
+     *
+     * Applies RHO = 0.97 decay to all edges for the current user, floored at 0.05.
+     * Equivalent to running `php artisan memory:decay` scoped to this user.
+     * Returns the count of edges updated and the new minimum weight after decay.
+     */
+    public function decay(): JsonResponse
+    {
+        $userId = session('chat_user_id', 'anonymous');
+
+        $updated = MemoryEdge::where('user_id', $userId)
+            ->where('weight', '>', 0.05)
+            ->get();
+
+        $count = 0;
+        foreach ($updated as $edge) {
+            $newWeight = max(0.05, round($edge->weight * 0.97, 6));
+            if ($newWeight !== (float) $edge->weight) {
+                $edge->weight = $newWeight;
+                $edge->save();
+                $count++;
+            }
+        }
+
+        $minWeight = MemoryEdge::where('user_id', $userId)->min('weight') ?? 0.05;
+        $maxWeight = MemoryEdge::where('user_id', $userId)->max('weight') ?? 0.05;
+
+        return response()->json([
+            'edges_decayed' => $count,
+            'min_weight' => round((float) $minWeight, 4),
+            'max_weight' => round((float) $maxWeight, 4),
+            'rho' => 0.97,
+            'floor' => 0.05,
+        ]);
+    }
+
+    /**
+     * Take a graph snapshot for the current user's graph in-browser.
+     *
+     * Runs weighted label propagation cluster detection and stores the result
+     * as a graph_snapshot record. Equivalent to running `php artisan graph:snapshot`.
+     * Returns the snapshot ID and cluster count.
+     */
+    public function snapshot(): JsonResponse
+    {
+        $userId = session('chat_user_id', 'anonymous');
+        $now = now();
+
+        $clusters = $this->clusterDetector->detect($userId);
+
+        $snapshot = GraphSnapshot::create([
+            'user_id' => $userId,
+            'snapshot_at' => $now,
+            'payload' => [
+                'clusters' => $clusters,
+                'node_count' => MemoryNode::where('user_id', $userId)->count(),
+                'edge_count' => MemoryEdge::where('user_id', $userId)->count(),
+            ],
+        ]);
+
+        $oldest = GraphSnapshot::where('user_id', $userId)
+            ->orderByDesc('snapshot_at')
+            ->skip(96)
+            ->take(PHP_INT_MAX)
+            ->pluck('id');
+
+        if ($oldest->isNotEmpty()) {
+            GraphSnapshot::whereIn('id', $oldest)->delete();
+        }
+
+        return response()->json([
+            'snapshot_id' => $snapshot->id,
+            'cluster_count' => count($clusters),
+            'snapshot_at' => $snapshot->snapshot_at->toIso8601String(),
+        ]);
+    }
 }
