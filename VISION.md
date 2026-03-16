@@ -8,6 +8,14 @@ For the running implementation log (what was discovered building specific featur
 
 ---
 
+## Where This Came From
+
+The project started as a personal workflow problem. Working across Claude, Codex, Gemini CLI, and other AI tools throughout the day means re-explaining project context from scratch every time you switch. Each AI starts fresh at every session boundary. The context you built with one tool does not carry to the next. The accumulated understanding of your project, your preferences, your current constraints, all of it resets at the tool boundary.
+
+The obvious fix is to store memory somewhere central and let all the tools read from it. The problem is that "somewhere central" in the current ecosystem means a vendor's database. Putting your memory in a central vendor store swaps one dependency for another. The goal is memory infrastructure that is central without being vendor-controlled: a storage layer you own cryptographically, accessible to any tool that speaks a standard protocol.
+
+---
+
 ## The Core Question
 
 Most AI products that remember you store that memory in the operator's infrastructure. Your conversation history, personality profile, preferences, and extracted facts live in Redis, Pinecone, or a managed PostgreSQL instance belonging to the company running the app. When you stop using the product, the memory stays with them. When they get acquired, your memory gets acquired. When they change their privacy policy, your memory is subject to those new terms.
@@ -253,6 +261,8 @@ The correct split is therefore:
 The graph layer currently has no ownership enforcement, which reproduces at the graph level the same trust boundary problem ICP was introduced to solve at the record level. A graph ownership registry on ICP (signing graph fingerprints) is the correct fix, not moving the full graph to ICP.
 
 ## The Society Direction: A Cortex Emerging from Collective Memory
+
+A note on terminology: the `/agents` page in this application models collective Physarum dynamics across named graph partitions. These partitions are not autonomous AI agents. They do not call an LLM, pursue goals, or take any action without a human triggering a simulation tick. The word "agent" here follows the complexity-science usage, meaning an actor in a collective system, rather than the AI usage, meaning an autonomous reasoning entity with tool use. Actual external AI agents, such as Claude Desktop, a local Llama instance, or any custom MCP client, connect to the memory graph through the MCP server at `icp/mcp-server/server.js`, not through the simulation panel.
 
 The multi-agent Physarum layer built in this project is already the substrate for a more specific claim: that a society of agents sharing edge weights over time produces emergent group cognition, not just shared bookkeeping. The distinction matters for the research direction because it changes what you are building toward.
 

@@ -1,8 +1,10 @@
 # OpenMemoryAgent
 
-Portable, sovereign, AI-agnostic long-term memory. You own it. You carry it. Every AI you work with plugs into the same memory graph via MCP. When the conversation ends, what you learned goes back in. The next AI you open already knows who you are.
+Built because working across Claude, Codex, Gemini CLI, and other AI tools means re-explaining project context from scratch every time you switch. Each AI starts fresh at every session boundary. This is the memory layer that lives outside any single AI so all of them stay in sync.
 
-The user's browser holds an Ed25519 signing key; writes to the ICP canister are authenticated with that key so no server can write memory records under a user's identity. A typed memory graph sits in PostgreSQL alongside the canister records, tracking relationships between memories and applying Physarum conductance dynamics that shift edge weights based on how the agent actually uses each connection over time. The MCP server at `icp/mcp-server/server.js` is the protocol endpoint through which any MCP-compatible AI gains access to the memory graph. The chat interface in this repository is the reference implementation showing that the infrastructure works.
+The MCP server at `icp/mcp-server/server.js` is the protocol endpoint through which any MCP-compatible AI reads and queries the memory graph. Configure it once, and every AI you connect to it already knows what you have been working on. The chat interface in this repository is the reference implementation demonstrating that the infrastructure works end-to-end.
+
+The user's browser holds an Ed25519 signing key; writes to the ICP canister are authenticated with that key so no server can write memory records under a user's identity. A typed memory graph sits in PostgreSQL alongside the canister records, tracking relationships between memories and applying Physarum conductance dynamics that shift edge weights based on how the LLM actually uses each connection over time.
 
 [VISION.md](./VISION.md) covers the design decisions and research questions in depth. [DEVLOG.md](./DEVLOG.md) is the running record of what was discovered building it: implementation findings, security fixes, architectural tensions, and what remains unresolved. [RESEARCH.md](./RESEARCH.md) is the active research agenda: the open scientific claims, what needs to be built to test each one, and how the tracks evolve as discoveries open new questions. [SCIENCE.md](./SCIENCE.md) explains the mathematics and biology behind the graph layer in plain terms, with source citations and references to the tests that verify each formula.
 
@@ -22,7 +24,7 @@ The application is a standard Laravel and Vue web app. The interesting parts are
 
 **Active node IDs.** The `/chat/send` response includes an `active_node_ids` field listing the graph nodes loaded into context that turn. The Three.js mission control surface at `/3d` reads this field to highlight which nodes were active on the most recent turn.
 
-**Multi-agent simulation.** Multiple agents can be created under the same owner at `/agents`. Each agent holds its own graph partition. When two agents both access nodes derived from the same memory content, a shared edge accumulates weight at `SHARED_ALPHA * trust_score`. The trust score is adjustable per agent, making each agent's contribution to the collective graph proportional to its established reputation.
+**Graph partition simulation.** Multiple named graph partitions can be created under the same owner at `/agents`. Each partition holds its own subgraph seeded from the owner's public nodes. When two partitions both access nodes derived from the same memory content, a shared edge accumulates weight at `SHARED_ALPHA * trust_score`. The trust score is adjustable per partition, making each one's contribution to the collective graph proportional to its assigned reputation. These partitions model different agent roles or conversation contexts sharing a common memory substrate; actual external AI agents connect via the MCP server rather than through this simulation panel.
 
 **Cluster detection.** Weighted label propagation (Raghavan et al. 2007) partitions the personal or collective graph into communities on demand. Cluster membership and mean internal weight are written to `graph_snapshots` every 15 minutes and feed the temporal axis scrubber in the Three.js surface.
 
@@ -53,7 +55,7 @@ Public memories are the only records the LLM can recall. Private and sensitive r
 | LLM | OpenRouter, model configurable via `OPENROUTER_MODEL` |
 | Memory records | ICP canister (Motoko), browser-signed writes, Node.js adapter for server reads |
 | Memory graph | PostgreSQL tables (`memory_nodes`, `memory_edges`), Physarum dynamics, D3 force-directed explorer at `/graph` |
-| Multi-agent graph | PostgreSQL tables (`agents`, `shared_memory_edges`, `graph_snapshots`), collective Physarum dynamics, Three.js mission control surface at `/3d` |
+| Graph partition layer | PostgreSQL tables (`agents`, `shared_memory_edges`, `graph_snapshots`), collective Physarum dynamics across named partitions, Three.js mission control surface at `/3d` |
 
 ---
 
@@ -238,7 +240,7 @@ OpenMemoryAgent/
 │   │   │   ├── Memory/Index.vue             # flat memory inspector
 │   │   │   ├── Memory/Graph.vue             # D3 force-directed graph explorer
 │   │   │   ├── Memory/ThreeD.vue            # Three.js mission control surface
-│   │   │   └── Agents/Index.vue             # multi-agent simulation panel
+│   │   │   └── Agents/Index.vue             # graph partition simulation panel
 │   │   └── composables/
 │   │       ├── useIcpIdentity.js            # Ed25519 key generation and localStorage persistence
 │   │       └── useIcpMemory.js              # browser-signed writes and owner-authenticated reads
@@ -278,7 +280,7 @@ OpenMemoryAgent/
 | GraphExtractionService | Second LLM pass after each confirmed memory write; extracts node type, label, tags, people, projects |
 | MemoryGraphService | Creates nodes, auto-wires edges, applies Hebbian reinforcement, runs Physarum decay |
 | ClusterDetectionService | Weighted label propagation producing community membership and mean weight per cluster |
-| MultiAgentGraphService | Creates and seeds agent partitions, updates shared edges with trust-weighted ALPHA, retrieves collective context |
+| MultiAgentGraphService | Creates and seeds graph partitions, updates shared edges with trust-weighted ALPHA, retrieves collective context |
 | IcpMemoryService | Fetches public memories from the adapter for injection into the LLM system prompt |
 | ICP adapter | Translates HTTP JSON from Laravel into Candid query calls; read-only in live mode |
 | ICP canister | Enforces msg.caller as record owner and serves JSON records over the HTTP gateway |

@@ -18,6 +18,39 @@ The log is append-only. Entries are not edited after the fact.
 
 ---
 
+## Entry 018 - 2026-03-16
+### Positioning decisions and remaining gaps named
+
+#### The origin story that drives the framing
+
+The project was built to solve a personal daily workflow problem: working across Claude, Codex, Gemini CLI, and other AI tools means re-explaining project context from scratch every time you switch. The technical architecture (ICP canister ownership, Physarum graph, MCP server) is the answer to that problem. This grounding was added to VISION.md as a dedicated "Where This Came From" section and to the README opening paragraph, so the purpose of the infrastructure is legible before the architecture is described.
+
+#### The terminology correction that had to happen
+
+An expert-level review identified that the word "agents" in the simulation panel misleads a technical audience. Practitioners who build agentic systems will interpret "multi-agent simulation" as multiple LLMs running autonomous reasoning loops with tool use. What the simulation panel actually contains is named graph partitions participating in collective Physarum weight dynamics, with simulation ticks triggered manually by button click, no LLM call occurring during any tick. This is a meaningful and interesting research artifact. It is not an agentic system.
+
+The correction was made across the README and VISION.md: "multi-agent simulation" became "graph partition simulation," and a dedicated clarifying paragraph was added to the Society Direction section of VISION.md explaining the distinction between the complexity-science usage of "agent" and the AI usage. The MCP server is named explicitly as the interface through which actual external AI agents connect.
+
+#### The MCP write path gap
+
+The read path is live: any MCP-connected AI reads public memories from the graph. The write path has a gap: external AI agents connected via MCP cannot currently write new memories back. Memories enter the graph through the chat interface or the browser-signed ICP path. An external agent like Claude Desktop or a Gemini CLI plugin can read what is in the graph but cannot contribute new memories to it without going through the chat interface.
+
+This gap is architecturally clear to close: the MCP server needs write tools alongside the read tools, with writes from external agents routed through a trust-gated approval similar to the private memory flow. The design is defined; the implementation is the next track.
+
+#### What was shipped
+
+Three additions were made to improve the in-application experience and remove CLI dependencies from the demo flow:
+
+The `GET /api/graph/topology` endpoint (shipped in Entry 017) returns the degree distribution, power-law gamma, R-squared, and mean clustering coefficient. A topology panel was added to the graph explorer at `/graph` that calls this endpoint and displays the results as a live research instrument, removing the need to curl the endpoint from a terminal during a demo.
+
+`POST /api/graph/decay` wraps the Physarum decay pass for the current user in an HTTP endpoint, applying RHO=0.97 to all edges above the floor. A "Run Decay" button in the graph explorer calls this directly.
+
+`POST /api/graph/snapshot` runs weighted label propagation cluster detection and writes the result to `graph_snapshots`. A "Take Snapshot" button in the graph explorer calls this directly.
+
+These additions remove all remaining CLI dependencies from the demo. Every operation that was previously only available as an Artisan command is now accessible from the browser.
+
+---
+
 ## Entry 017 - 2026-03-15
 ### An expert-level audit identifies eight gaps; all three tiers are addressed in one session
 
