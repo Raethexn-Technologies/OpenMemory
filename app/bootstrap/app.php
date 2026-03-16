@@ -14,6 +14,8 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->web(append: [
             \App\Http\Middleware\HandleInertiaRequests::class,
         ]);
+        // MCP server (Node.js) sends no CSRF token — exempt the write endpoint.
+        $middleware->validateCsrfTokens(except: ['/mcp/store']);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //

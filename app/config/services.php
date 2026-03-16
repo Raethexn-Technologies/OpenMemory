@@ -43,6 +43,11 @@ return [
         'openrouter_site_name'=> env('OPENROUTER_SITE_NAME', 'OpenMemoryAgent'),
     ],
 
+    // MCP server write endpoint — shared secret for X-OMA-API-Key auth
+    'mcp' => [
+        'api_key' => env('MCP_API_KEY', ''),
+    ],
+
     // ICP Memory Canister
     'icp' => [
         'endpoint'     => env('ICP_CANISTER_ENDPOINT', 'http://localhost:4943'),

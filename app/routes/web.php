@@ -3,6 +3,7 @@
 use App\Http\Controllers\AgentController;
 use App\Http\Controllers\ChatController;
 use App\Http\Controllers\GraphController;
+use App\Http\Controllers\McpController;
 use App\Http\Controllers\MemoryController;
 use Illuminate\Support\Facades\Route;
 
@@ -38,6 +39,10 @@ Route::get('/api/graph/snapshots', [GraphController::class, 'snapshotIndex'])->n
 Route::get('/api/graph/snapshots/{snapshotId}', [GraphController::class, 'snapshotShow'])->name('api.graph.snapshots.show');
 Route::post('/api/graph/consolidate', [GraphController::class, 'consolidate'])->name('api.graph.consolidate');
 Route::post('/api/graph/prune', [GraphController::class, 'prune'])->name('api.graph.prune');
+
+// MCP server write endpoint — receives store requests from icp/mcp-server/server.js.
+// Auth via X-OMA-API-Key header (no session required, CSRF exempted in bootstrap/app.php).
+Route::post('/mcp/store', [McpController::class, 'store'])->name('mcp.store');
 
 // Three.js mission control surface
 Route::get('/3d', [GraphController::class, 'threeD'])->name('threed');
