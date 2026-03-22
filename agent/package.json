@@ -1,0 +1,21 @@
+{
+  "name": "openmemory-agent",
+  "version": "0.1.0",
+  "description": "Transport-agnostic autonomous coding agent for OpenMemory",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.37.0",
+    "@octokit/rest": "^21.0.0",
+    "discord.js": "^14.16.0",
+    "dotenv": "^16.4.0",
+    "zod": "^3.22.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "license": "MIT"
+}

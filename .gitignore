@@ -15,6 +15,10 @@ icp/.dfx/
 icp/adapter/node_modules/
 icp/mcp-server/node_modules/
 
+# Agent
+agent/node_modules/
+agent/.env
+
 # Docker
 .docker-data/
 
