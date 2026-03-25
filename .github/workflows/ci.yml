@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-app:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP 8.3
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo, pdo_sqlite, sqlite3, xml, curl
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: app/vendor
+          key: ${{ runner.os }}-composer-${{ hashFiles('app/composer.lock') }}
+          restore-keys: ${{ runner.os }}-composer-
+
+      - name: Install Composer dependencies
+        run: cd app && composer install --no-interaction --prefer-dist
+
+      - name: Copy environment file
+        run: cp app/.env.example app/.env
+
+      - name: Generate application key
+        run: cd app && php artisan key:generate
+
+      - name: Run migrations
+        run: cd app && php artisan migrate --force
+        env:
+          DB_CONNECTION: sqlite
+          DB_DATABASE: ':memory:'
+
+      - name: Run tests
+        run: cd app && php artisan test
+        env:
+          DB_CONNECTION: sqlite
+          DB_DATABASE: ':memory:'
+
+  check-agent:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: agent/package.json
+
+      - name: Install agent dependencies
+        run: cd agent && npm install
+
+      - name: Syntax check agent source files
+        run: |
+          node --check agent/src/index.js
+          node --check agent/src/core/agent.js
+          node --check agent/src/core/tools.js
+          node --check agent/src/core/llm.js
+          node --check agent/src/core/memory.js
+          node --check agent/src/connectors/base.js
+          node --check agent/src/connectors/discord.js
