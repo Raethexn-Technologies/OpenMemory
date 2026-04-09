@@ -36,7 +36,7 @@ class GraphGuidedRetrievalTest extends TestCase
 
     public function test_retrieve_context_returns_empty_when_no_edges_exist(): void
     {
-        // Nodes exist but no edges — findContextSeeds produces seeds but they
+        // Nodes exist but no edges. findContextSeeds produces seeds but they
         // have weight 0 and the BFS finds no neighbours. Seeds are still returned.
         $this->makeNode('user-1', 'Isolated memory A');
         $this->makeNode('user-1', 'Isolated memory B');
@@ -194,6 +194,75 @@ class GraphGuidedRetrievalTest extends TestCase
         $this->assertSame('Test content string', $record['content']);
     }
 
+    // Goal-biased seeding.
+
+    public function test_goal_nodes_are_included_in_seeds_before_weight_ranked_nodes(): void
+    {
+        // A high-weight hub node and a zero-weight goal node. Without goal-biased seeding
+        // the hub would be the only seed. With it, the goal node must appear in context.
+        $hub = $this->makeNode('user-goal', 'High weight hub');
+        $goal = MemoryNode::create([
+            'user_id' => 'user-goal',
+            'type' => 'goal',
+            'sensitivity' => 'public',
+            'label' => 'Ship the second brain feature',
+            'content' => 'Goal: ship the second brain document ingestion and retrieval pipeline.',
+            'tags' => ['goal', 'shipping'],
+            'confidence' => 1.0,
+            'source' => 'chat',
+        ]);
+
+        // Give the hub a strong edge so it wins weight-ranked selection on its own.
+        MemoryEdge::create(['user_id' => 'user-goal', 'from_node_id' => $hub->id, 'to_node_id' => $hub->id, 'relationship' => 'related_to', 'weight' => 0.9]);
+
+        $service = app(MemoryGraphService::class);
+        $result = $service->retrieveContext('user-goal');
+
+        $returnedIds = array_column($result, 'id');
+        $this->assertContains($goal->id, $returnedIds, 'Goal node must appear in context even with zero edge weight.');
+        $this->assertContains($hub->id, $returnedIds, 'High-weight hub must still be included after goal slots fill.');
+    }
+
+    public function test_goal_nodes_are_excluded_from_weight_ranked_candidate_pool(): void
+    {
+        // Verify goal nodes do not appear twice: once as a goal seed and once as a
+        // weight-ranked candidate. The candidate pool must exclude goal IDs.
+        $goal = MemoryNode::create([
+            'user_id' => 'user-dedup',
+            'type' => 'goal',
+            'sensitivity' => 'public',
+            'label' => 'No duplicates in seeds',
+            'content' => 'Goal node that must not appear twice in the seed list.',
+            'tags' => [],
+            'confidence' => 1.0,
+            'source' => 'chat',
+        ]);
+
+        // Give the goal node an edge so it would rank highly in weight selection too.
+        MemoryEdge::create(['user_id' => 'user-dedup', 'from_node_id' => $goal->id, 'to_node_id' => $goal->id, 'relationship' => 'related_to', 'weight' => 0.9]);
+
+        $service = app(MemoryGraphService::class);
+        $result = $service->retrieveContext('user-dedup');
+
+        $goalOccurrences = array_filter(array_column($result, 'id'), fn ($id) => $id === $goal->id);
+        $this->assertCount(1, $goalOccurrences, 'Goal node must appear exactly once in the retrieved context.');
+    }
+
+    public function test_retrieve_context_works_correctly_with_no_goal_nodes(): void
+    {
+        // No goal nodes. Weight-ranked behaviour must remain unchanged.
+        $hub = $this->makeNode('user-nogoal', 'Hub memory');
+        $leaf = $this->makeNode('user-nogoal', 'Leaf memory');
+        MemoryEdge::create(['user_id' => 'user-nogoal', 'from_node_id' => $hub->id, 'to_node_id' => $leaf->id, 'relationship' => 'related_to', 'weight' => 0.7]);
+
+        $service = app(MemoryGraphService::class);
+        $result = $service->retrieveContext('user-nogoal');
+
+        $returnedIds = array_column($result, 'id');
+        $this->assertContains($hub->id, $returnedIds);
+        $this->assertContains($leaf->id, $returnedIds);
+    }
+
     public function test_reinforce_increments_only_edges_between_retrieved_nodes(): void
     {
         $a = $this->makeNode('user-reinforce', 'Node A');
@@ -204,7 +273,7 @@ class GraphGuidedRetrievalTest extends TestCase
         $bcEdge = MemoryEdge::create(['user_id' => 'user-reinforce', 'from_node_id' => $b->id, 'to_node_id' => $c->id, 'relationship' => 'related_to', 'weight' => 0.5]);
 
         $service = app(MemoryGraphService::class);
-        // Reinforce only A and B — the B→C edge should not be incremented.
+        // Reinforce only A and B. The B->C edge should not be incremented.
         $service->reinforce([$a->id, $b->id], 'user-reinforce');
 
         $abEdge->refresh();

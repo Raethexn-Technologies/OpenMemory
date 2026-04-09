@@ -18,6 +18,101 @@ The log is append-only. Entries are not edited after the fact.
 
 ---
 
+## Entry 021 - 2026-04-08
+### Document ingestion becomes the first perception path
+
+#### The problem being solved
+
+The graph could only grow from chat turns and explicit MCP writes. That was enough to prove the storage trigger, the Physarum retrieval loop, and the graph visualization, but it was not enough to approach a second-brain workflow. A system that only remembers what was said in chat has no perception path for project notes, research documents, or long-form context that already exists outside conversation.
+
+The architectural question was whether document knowledge would require a separate retrieval system or whether the existing graph primitives were already general enough to accept a new source type without changing the model.
+
+#### What was built
+
+`DocumentChunkerService` splits raw text or Markdown into paragraph-aware chunks sized for graph extraction. It strips frontmatter and horizontal rules, merges short adjacent paragraphs, and falls back to sentence-boundary splitting for oversized paragraphs. The design goal was not perfect token accounting. It was to preserve semantic units while keeping each extraction call comfortably small.
+
+`DocumentIngestionService` creates one document anchor node first, then runs `GraphExtractionService` on each chunk and stores the result through `MemoryGraphService`. Each chunk is wired back to the anchor with a `part_of` edge. Chunk nodes use `source = 'document'`. Anchor nodes use `source = 'document_anchor'`. This distinction matters because the extractor may classify a chunk itself as `type = 'document'`, and the UI needs a reliable way to list only the anchors.
+
+`DocumentController` adds `POST /api/documents/ingest` and `GET /api/documents`. The HTTP API defaults ingested documents to `public`. That default is not aesthetic. It follows directly from the retrieval model: `MemoryGraphService::findContextSeeds()` and `retrieveContext()` only load public nodes into the LLM context window, so a private default would make the feature look successful in the graph explorer while doing nothing for chat recall.
+
+The controller also mirrors public document ingests into the mock ICP store by writing a short anchor record through `IcpMemoryService::storeMemory()`. That keeps the mock-mode MCP read path aware that a document was ingested. The live ICP path remains open because uploaded documents still need browser-side signing before they can be written to the canister under the user's principal.
+
+`GraphExtractionService` gained a `goal` node type, and the PostgreSQL check constraint on `memory_nodes.type` was updated accordingly. This does not change retrieval yet. It creates the schema and extractor support needed for goal-biased retrieval.
+
+#### What this revealed
+
+The encouraging result is that document ingestion did not require a second graph model. The same extraction and wiring primitives used for chat memory are sufficient for document chunks. That is the right kind of reuse. It suggests that the graph model is source-agnostic in implementation, even if source-agnostic retrieval quality still has to be measured.
+
+The more important finding is that sensitivity defaults are constrained by the retrieval architecture. In this system, `private` is not merely a privacy label. It is also a retrieval exclusion label. Any feature that is meant to improve assistant recall has to confront that directly rather than treating the default as a UI preference.
+
+Another small but consequential finding was that structural tags on anchors create false semantic edges. Early anchor tags such as `document` and `ingested` caused unrelated documents to connect through `same_topic_as`. The correct fix was not another retrieval heuristic. It was to give anchors no semantic tags at all and let cross-document structure emerge from chunk tags only.
+
+#### Verification
+
+Twenty-eight tests were added across `DocumentChunkerServiceTest`, `DocumentIngestionTest`, and `DocumentControllerTest`. They cover chunking behavior, anchor and chunk source markers, `part_of` wiring, metadata capture, sensitivity propagation, mock ICP mirroring, and anchor-only listing. The full suite now passes at 169 tests.
+
+#### What remains open
+
+This is the first perception path, not the second brain finished. Retrieval is still history-weighted rather than task-aware. Goal nodes exist, but `findContextSeeds()` does not bias toward them yet. Live ICP document writes remain unwired for uploaded files. The next meaningful step is not more ingestion formats. It is making retrieval care about what the user is trying to do now.
+
+---
+
+## Entry 023 - 2026-04-09
+### Goal-biased retrieval and SQLite parity
+
+#### The problem being solved
+
+The coherence check in Entry 022 answered the graph-level question. The next blocked question was retrieval: even with `goal` nodes present in the schema, `findContextSeeds()` still chose seeds only by accumulated edge weight. That meant context assembly favored historical hubs rather than the work the user had explicitly declared they were trying to do.
+
+The migration path also had a test-environment gap. PostgreSQL could accept the expanded `memory_nodes.type` constraint, but SQLite required table recreation to enforce the same change. Treating SQLite as a no-op hid a real difference between local tests and production.
+
+#### What changed
+
+`MemoryGraphService::findContextSeeds()` now fills seed slots with all public `goal` nodes first. Any remaining slots are backfilled from the same 60-node bounded public candidate pool, ranked by total connected edge weight. Goal IDs are excluded from the weighted pool so the same node cannot appear twice in the seed list.
+
+Migration `2026_04_08_000001_add_goal_type_to_memory_nodes.php` now recreates `memory_nodes` on SQLite with the expanded `CHECK` constraint and rebuilds the `user_id` and `session_id` indexes after copying the existing rows across. The PostgreSQL path remains a drop-and-recreate of the constraint itself.
+
+Three retrieval tests were added to cover the new behavior: goal nodes must appear even when they have lower weight than non-goal hubs, goal nodes must not be duplicated by the weighted fallback, and a graph with no goal nodes must behave exactly as it did before.
+
+#### What this means
+
+Retrieval is no longer purely history-weighted. It is now goal-biased. A declared goal can pull its neighborhood into context even before the goal node has accumulated much edge weight, which is the right bias for a system trying to act like a second brain rather than a popularity index.
+
+This is still not query-aware retrieval. The current user prompt does not yet alter seed selection. The system now asks "what goals exist?" before "what has been strongest historically?", but it still does not ask "what does the user need in this specific turn?"
+
+#### Verification
+
+The full suite now passes at 172 tests.
+
+---
+
+## Entry 022 - 2026-04-09
+### Cross-source coherence check: wireTagEdges() is source-agnostic
+
+#### The question being answered
+
+RESEARCH.md Track 9 held an open claim: that document-sourced and chat-sourced nodes would form `same_topic_as` edges when they share tags, making the Physarum graph genuinely source-agnostic rather than partitioned by origin. This had not been tested. The graph had 75 chat nodes, 75 seeded nodes, and 9 extracted nodes, but zero document nodes.
+
+The question mattered before implementing goal-biased retrieval because retrieval optimizations built on top of a topologically isolated graph would give the appearance of working without doing anything useful.
+
+#### The method
+
+A command `graph:coherence-check` (artisan) was written to test the wiring layer without introducing the LLM vocabulary variable. Rather than ingesting a real document through `DocumentIngestionService` and `GraphExtractionService`, the command reads the most common tags from existing chat nodes and injects those same tags directly into a synthetic document chunk node through `MemoryGraphService::storeNode()`. If `same_topic_as` edges still fail to form under those conditions, the fault is in graph wiring, not extraction vocabulary. The synthetic nodes are deleted after the check completes.
+
+#### What the check found
+
+The check found one chat node in the graph ("Anthony builds AI tools") with tags `artificial intelligence, software development, tools, engineering`. The synthetic document chunk, given those four tags, formed one `same_topic_as` edge to that node with weight 1.0. The weight is expected: four shared tags produce `min(1.0, 4 * 0.3) = 1.0`.
+
+The exit condition: `COHERENCE CONFIRMED`. The wiring layer is source-agnostic. A document chunk with the same tags as a chat node connects to it as reliably as if both were chat-sourced.
+
+#### What this narrows
+
+The source-agnostic claim at the graph-wiring level is now verified, not asserted. The remaining open question is one level up: does `GraphExtractionService` produce tags for real document content that overlap with the tags it produces for chat turns on the same topic? That is a vocabulary consistency question, not a wiring question. It is testable by ingesting a real document on a topic already in the chat graph and checking whether `same_topic_as` edges form from the extracted chunk nodes. The check command can be extended to compare injected-tag results against real-extraction results on the same content if that measurement is needed.
+
+The path is now clear to implement goal-biased retrieval. The graph connects document and chat nodes when tags match. Goal nodes, once created, will connect to both via the same mechanism.
+
+---
+
 ## Entry 020 - 2026-03-16
 ### MCP write path: CLI tools can now store memories
 

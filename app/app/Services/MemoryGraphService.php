@@ -21,12 +21,16 @@ class MemoryGraphService
      * Store a memory node and auto-wire edges to related existing nodes.
      *
      * @param  array  $extracted  Output from GraphExtractionService::extract()
+     * @param  string  $source  Origin of the memory: 'chat', 'document', 'manual', or 'extracted'
+     * @param  array  $metadata  Arbitrary JSON metadata (e.g. source_document_id, chunk_index)
      */
     public function storeNode(
         string $userId,
         string $content,
         array $extracted,
         ?string $sessionId = null,
+        string $source = 'chat',
+        array $metadata = [],
     ): MemoryNode {
         $node = MemoryNode::create([
             'user_id' => $userId,
@@ -37,7 +41,8 @@ class MemoryGraphService
             'content' => $content,
             'tags' => $extracted['tags'],
             'confidence' => 1.0,
-            'source' => 'chat',
+            'source' => $source,
+            'metadata' => $metadata ?: null,
         ]);
 
         // Auto-wire tag-based similarity edges
@@ -133,6 +138,23 @@ class MemoryGraphService
             'nodes' => $allNodes->map(fn ($n) => $this->nodeToArray($n))->values(),
             'edges' => $allEdges->map(fn ($e) => $this->edgeToArray($e))->values(),
         ];
+    }
+
+    /**
+     * Create a directed relationship edge between two existing nodes.
+     *
+     * Exposed publicly so callers outside this service (e.g. DocumentIngestionService)
+     * can wire specific relationships without accessing private internals. The underlying
+     * createEdgeIfAbsent() call is idempotent: duplicate edges are silently skipped.
+     */
+    public function createRelationship(
+        string $userId,
+        string $fromNodeId,
+        string $toNodeId,
+        string $relationship,
+        float $weight = 0.5,
+    ): void {
+        $this->createEdgeIfAbsent($userId, $fromNodeId, $toNodeId, $relationship, $weight);
     }
 
     // ── Physarum / Hebbian weight dynamics ───────────────────────────────────
@@ -294,25 +316,46 @@ class MemoryGraphService
     /**
      * Find the seed nodes for context retrieval.
      *
-     * Scores each public node by the sum of weights on all its connected edges.
-     * Nodes that have been frequently co-activated accumulate higher total weight
-     * and are selected as seeds, which means BFS starts from the parts of the graph
-     * the Physarum model has found most important.
+     * Goal nodes are always retrieved first, regardless of edge weight.
+     * A goal represents a declared intention the user is actively working toward.
+     * Seeding BFS from goal nodes biases context assembly toward knowledge connected
+     * to those goals, so the LLM receives relevant document chunks and past memories
+     * rather than only historically high-weight hubs that may not be task-relevant.
      *
-     * A bounded candidate pool of the 60 most recently created public nodes prevents
-     * the query from becoming expensive on large graphs.
+     * Remaining seed slots are filled with the highest-weight non-goal public nodes
+     * from a bounded candidate pool (60 most recently created). Goal IDs are excluded
+     * from the weighted pool to prevent duplication. The sort logic is unchanged:
+     * total connected edge weight descending, creation time as a tiebreaker.
      */
     private function findContextSeeds(string $userId, int $count): \Illuminate\Support\Collection
     {
+        // Goal nodes fill first regardless of edge weight.
+        $goalSeeds = MemoryNode::where('user_id', $userId)
+            ->where('type', 'goal')
+            ->where('sensitivity', 'public')
+            ->whereNull('consolidated_at')
+            ->get();
+
+        $remaining = max(0, $count - $goalSeeds->count());
+
+        if ($remaining === 0) {
+            return $goalSeeds->take($count)->values();
+        }
+
+        // Fill remaining slots with the highest-weight public nodes,
+        // excluding any goal nodes already selected.
+        $goalIds = $goalSeeds->pluck('id');
+
         $candidates = MemoryNode::where('user_id', $userId)
             ->where('sensitivity', 'public')
             ->whereNull('consolidated_at')
+            ->when($goalIds->isNotEmpty(), fn ($q) => $q->whereNotIn('id', $goalIds))
             ->latest()
             ->limit(60)
             ->get();
 
         if ($candidates->isEmpty()) {
-            return collect();
+            return $goalSeeds->values();
         }
 
         $candidateIds = $candidates->pluck('id');
@@ -330,7 +373,7 @@ class MemoryGraphService
                 ->sum('weight'),
         ]);
 
-        return $candidates
+        $weightedSeeds = $candidates
             ->sort(function ($left, $right) use ($scores) {
                 $scoreComparison = $scores[$right->id] <=> $scores[$left->id];
                 if ($scoreComparison !== 0) {
@@ -339,8 +382,10 @@ class MemoryGraphService
 
                 return ($right->created_at?->getTimestamp() ?? 0) <=> ($left->created_at?->getTimestamp() ?? 0);
             })
-            ->take($count)
+            ->take($remaining)
             ->values();
+
+        return $goalSeeds->merge($weightedSeeds)->values();
     }
 
     /**

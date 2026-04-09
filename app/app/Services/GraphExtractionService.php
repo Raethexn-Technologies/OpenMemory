@@ -17,7 +17,7 @@ You are a knowledge graph extraction agent building a brain-like memory graph.
 Given a single memory fact, extract structured metadata to classify and connect it.
 
 Respond with EXACTLY this format — no extra text, no explanation:
-NODE_TYPE: <one of: memory|person|project|document|task|event|concept>
+NODE_TYPE: <one of: memory|person|project|document|task|event|concept|goal>
 LABEL: <3-7 word title that names this node>
 TAGS: <3-7 comma-separated lowercase concept keywords>
 PEOPLE: <comma-separated proper names of real people mentioned, or NONE>
@@ -31,6 +31,7 @@ Classification guide:
   task      — the fact is about something to do or in progress
   event     — the fact is about a specific event, meeting, or occurrence
   concept   — an abstract idea, preference, or belief
+  goal      — a declared aspiration, outcome, or intention the user is working toward
 
 Rules:
 - TAGS should be specific and useful for finding related memories
@@ -59,7 +60,7 @@ PROMPT;
         $result = [];
 
         if (preg_match('/^NODE_TYPE:\s*(\w+)/m', $raw, $m)) {
-            $valid = ['memory', 'person', 'project', 'document', 'task', 'event', 'concept'];
+            $valid = ['memory', 'person', 'project', 'document', 'task', 'event', 'concept', 'goal'];
             $result['type'] = in_array($m[1], $valid) ? $m[1] : 'memory';
         } else {
             Log::warning('GraphExtractionService: missing NODE_TYPE', ['raw' => mb_substr($raw, 0, 300)]);
