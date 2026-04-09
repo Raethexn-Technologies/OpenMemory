@@ -95,6 +95,7 @@ PROMPT;
             $unconsolidated = MemoryNode::where('user_id', $userId)
                 ->whereIn('id', $nodeIds)
                 ->whereNull('consolidated_at')
+                ->where('type', '!=', 'goal')
                 ->pluck('id')
                 ->all();
 

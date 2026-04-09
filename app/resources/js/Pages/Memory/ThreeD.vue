@@ -253,6 +253,7 @@ const NODE_TYPE_COLORS = {
   task:     0xfb923c,
   event:    0xf472b6,
   concept:  0x94a3b8,
+  goal:     0x84cc16,
 }
 const AGENT_COLORS = [
   '#38bdf8', '#4ade80', '#fb923c', '#f472b6', '#a78bfa', '#fbbf24',

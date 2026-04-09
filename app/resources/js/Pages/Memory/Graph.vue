@@ -486,6 +486,7 @@ const NODE_TYPES = [
   { key: 'task',     color: '#f97316' },  // orange-500
   { key: 'event',    color: '#ef4444' },  // rose-500
   { key: 'concept',  color: '#94a3b8' },  // slate-400
+  { key: 'goal',     color: '#84cc16' },  // lime-500
 ]
 
 const TYPE_COLOR_MAP = Object.fromEntries(NODE_TYPES.map(t => [t.key, t.color]))
