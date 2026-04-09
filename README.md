@@ -24,7 +24,7 @@ The application is a standard Laravel and Vue web app. The interesting parts are
 
 **Physarum dynamics.** Edge weights are not static. When the LLM retrieves a set of memory nodes to build a response, all edges between those co-accessed nodes receive a conductance increment of ALPHA = 0.10, clamped to 1.0. A daily scheduled command applies a decay factor of RHO = 0.97 to all edges, floored at 0.05. Edges that are traversed together regularly accumulate weight; edges between memories that the agent never retrieves together decay toward the floor. This implements the discrete form of the Tero et al. (2010) slime mold conductance model: paths the organism uses frequently develop higher conductance, and paths that carry no flux thin out.
 
-**LLM recall.** Only public memories are loaded into the LLM context. Private and sensitive records are gated by `msg.caller` on the canister: anonymous callers (the server adapter, the MCP server, and external HTTP clients) receive only public records.
+**LLM recall.** Only public memories are loaded into the LLM context. Within that public set, `findContextSeeds()` seeds public `goal` nodes first and fills the remaining seed slots by total connected edge weight from the same bounded candidate pool. Retrieval is therefore goal-biased, but it is not query-aware yet. Private and sensitive records are gated by `msg.caller` on the canister: anonymous callers (the server adapter, the MCP server, and external HTTP clients) receive only public records.
 
 **Active node IDs.** The `/chat/send` response includes an `active_node_ids` field listing the graph nodes loaded into context that turn. The Three.js mission control surface at `/3d` reads this field to highlight which nodes were active on the most recent turn.
 
@@ -183,6 +183,20 @@ All three commands are scheduled automatically via `routes/console.php`. Both co
 
 ---
 
+## Research diagnostics
+
+**Cross-source coherence check** is an on-demand command that injects a synthetic document chunk with tags copied from existing chat nodes and reports whether `same_topic_as` edges form across sources. The command deletes the synthetic nodes unless `--keep` is passed, so it tests graph wiring without leaving permanent artifacts behind.
+
+```bash
+php artisan graph:coherence-check
+php artisan graph:coherence-check --user=X
+php artisan graph:coherence-check --keep
+```
+
+This command validates the graph wiring layer only. It does not measure whether `GraphExtractionService` produces overlapping tags for real document content and real chat turns on the same topic.
+
+---
+
 ## Connecting a real ICP canister
 
 ```bash
@@ -261,7 +275,7 @@ cd app
 php artisan test
 ```
 
-The test suite runs against SQLite in-memory and mock mode throughout. No API key or canister is required. Coverage includes the storage trigger (MemorabilityService decisions, hallucinated node ID rejection, consolidated node exclusion), document chunking and ingestion, document controller routes, graph reinforcement, edge decay, neighborhood traversal, cluster detection determinism, graph snapshot storage and pruning, agent alignment Jaccard calculation, the memory approval flow, the `active_node_ids` response field, consolidation pipeline (concept node creation, supersedes edges, sensitivity inheritance, re-consolidation prevention), node pruning (floor-weight detection, idle window, edge cascade delete, user scoping, dry-run), the MCP store endpoint (API key auth, graph node creation), and the ThreeD page load with agent scoping.
+The test suite runs against SQLite in-memory and mock mode throughout. No API key or canister is required. Coverage includes the storage trigger (MemorabilityService decisions, hallucinated node ID rejection, consolidated node exclusion), document chunking and ingestion, document controller routes, goal-biased retrieval seed selection, graph reinforcement, edge decay, neighborhood traversal, cluster detection determinism, graph snapshot storage and pruning, agent alignment Jaccard calculation, the memory approval flow, the `active_node_ids` response field, consolidation pipeline (concept node creation, supersedes edges, sensitivity inheritance, re-consolidation prevention), node pruning (floor-weight detection, idle window, edge cascade delete, user scoping, dry-run), the MCP store endpoint (API key auth, graph node creation), and the ThreeD page load with agent scoping.
 
 ---
 

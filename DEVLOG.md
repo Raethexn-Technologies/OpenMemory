@@ -57,6 +57,62 @@ This is the first perception path, not the second brain finished. Retrieval is s
 
 ---
 
+## Entry 023 - 2026-04-09
+### Goal-biased retrieval and SQLite parity
+
+#### The problem being solved
+
+The coherence check in Entry 022 answered the graph-level question. The next blocked question was retrieval: even with `goal` nodes present in the schema, `findContextSeeds()` still chose seeds only by accumulated edge weight. That meant context assembly favored historical hubs rather than the work the user had explicitly declared they were trying to do.
+
+The migration path also had a test-environment gap. PostgreSQL could accept the expanded `memory_nodes.type` constraint, but SQLite required table recreation to enforce the same change. Treating SQLite as a no-op hid a real difference between local tests and production.
+
+#### What changed
+
+`MemoryGraphService::findContextSeeds()` now fills seed slots with all public `goal` nodes first. Any remaining slots are backfilled from the same 60-node bounded public candidate pool, ranked by total connected edge weight. Goal IDs are excluded from the weighted pool so the same node cannot appear twice in the seed list.
+
+Migration `2026_04_08_000001_add_goal_type_to_memory_nodes.php` now recreates `memory_nodes` on SQLite with the expanded `CHECK` constraint and rebuilds the `user_id` and `session_id` indexes after copying the existing rows across. The PostgreSQL path remains a drop-and-recreate of the constraint itself.
+
+Three retrieval tests were added to cover the new behavior: goal nodes must appear even when they have lower weight than non-goal hubs, goal nodes must not be duplicated by the weighted fallback, and a graph with no goal nodes must behave exactly as it did before.
+
+#### What this means
+
+Retrieval is no longer purely history-weighted. It is now goal-biased. A declared goal can pull its neighborhood into context even before the goal node has accumulated much edge weight, which is the right bias for a system trying to act like a second brain rather than a popularity index.
+
+This is still not query-aware retrieval. The current user prompt does not yet alter seed selection. The system now asks "what goals exist?" before "what has been strongest historically?", but it still does not ask "what does the user need in this specific turn?"
+
+#### Verification
+
+The full suite now passes at 172 tests.
+
+---
+
+## Entry 022 - 2026-04-09
+### Cross-source coherence check: wireTagEdges() is source-agnostic
+
+#### The question being answered
+
+RESEARCH.md Track 9 held an open claim: that document-sourced and chat-sourced nodes would form `same_topic_as` edges when they share tags, making the Physarum graph genuinely source-agnostic rather than partitioned by origin. This had not been tested. The graph had 75 chat nodes, 75 seeded nodes, and 9 extracted nodes, but zero document nodes.
+
+The question mattered before implementing goal-biased retrieval because retrieval optimizations built on top of a topologically isolated graph would give the appearance of working without doing anything useful.
+
+#### The method
+
+A command `graph:coherence-check` (artisan) was written to test the wiring layer without introducing the LLM vocabulary variable. Rather than ingesting a real document through `DocumentIngestionService` and `GraphExtractionService`, the command reads the most common tags from existing chat nodes and injects those same tags directly into a synthetic document chunk node through `MemoryGraphService::storeNode()`. If `same_topic_as` edges still fail to form under those conditions, the fault is in graph wiring, not extraction vocabulary. The synthetic nodes are deleted after the check completes.
+
+#### What the check found
+
+The check found one chat node in the graph ("Anthony builds AI tools") with tags `artificial intelligence, software development, tools, engineering`. The synthetic document chunk, given those four tags, formed one `same_topic_as` edge to that node with weight 1.0. The weight is expected: four shared tags produce `min(1.0, 4 * 0.3) = 1.0`.
+
+The exit condition: `COHERENCE CONFIRMED`. The wiring layer is source-agnostic. A document chunk with the same tags as a chat node connects to it as reliably as if both were chat-sourced.
+
+#### What this narrows
+
+The source-agnostic claim at the graph-wiring level is now verified, not asserted. The remaining open question is one level up: does `GraphExtractionService` produce tags for real document content that overlap with the tags it produces for chat turns on the same topic? That is a vocabulary consistency question, not a wiring question. It is testable by ingesting a real document on a topic already in the chat graph and checking whether `same_topic_as` edges form from the extracted chunk nodes. The check command can be extended to compare injected-tag results against real-extraction results on the same content if that measurement is needed.
+
+The path is now clear to implement goal-biased retrieval. The graph connects document and chat nodes when tags match. Goal nodes, once created, will connect to both via the same mechanism.
+
+---
+
 ## Entry 020 - 2026-03-16
 ### MCP write path: CLI tools can now store memories
 
