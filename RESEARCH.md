@@ -272,7 +272,23 @@ The cognitive architecture tradition provides the conceptual precedent. ACT-R (A
 
 That a modular cognitive architecture with OpenMemory as the memory subsystem either outperforms or matches a single-model baseline on long-horizon context tasks, and that the architectural advantage (if present) scales with the duration of the task and the number of distinct knowledge domains involved. The secondary finding is a reference implementation of each agent type with defined MCP interfaces, which other projects can use as components in their own cognitive architectures.
 
-**Status: open**
+**Status: perception agent partially instantiated.**
+
+`DocumentIngestionService` is now a concrete implementation of the perception agent role described above. It accepts raw text or Markdown files, chunks them via `DocumentChunkerService` (~1500 chars per chunk, paragraph-boundary aware), runs `GraphExtractionService` per chunk, and stores each chunk as a typed graph node via `MemoryGraphService::storeNode()` with `source = 'document'`. A document anchor node of type `document` is created first with `source = 'document_anchor'`; all chunk nodes wire to it via `part_of` edges (weight 0.9), making the source traceable in graph traversal while keeping anchor listing distinct from chunk nodes that the LLM may also classify as `document`.
+
+`DocumentController` exposes `POST /api/documents/ingest` (file upload or text paste) and `GET /api/documents` (list ingested document anchors). The HTTP API defaults ingested documents to `public` because `MemoryGraphService::findContextSeeds()` and `retrieveContext()` only load public nodes into the LLM context window. `private` and `sensitive` remain valid when the operator wants graph-only storage without LLM recall.
+
+Public document ingests are mirrored into the mock ICP store through `IcpMemoryService::storeMemory()` after graph ingestion succeeds, which keeps the mock-mode MCP read path aware that a document was ingested. The live ICP path remains incomplete because uploaded documents still need browser-side signing before they can be written to the canister under the user's principal.
+
+**Finding opened by this implementation:** The pipeline reuses `GraphExtractionService` and `MemoryGraphService` without modification, which confirms that the node and edge primitives are source-agnostic at the implementation level. Whether the Physarum dynamics treat document-sourced and chat-sourced nodes equivalently is a separate empirical question. It depends on whether the tag vocabulary produced by the LLM for document chunks overlaps with the tag vocabulary produced for chat turns on the same topics. If the two sources produce consistent tags, document nodes and chat nodes will wire together via `same_topic_as` edges and receive mutual reinforcement when co-accessed. If tag vocabularies diverge by source, edges will only form within same-source clusters and the two sources will remain topologically isolated.
+
+**Testable hypothesis opened:** Ingest a document on a topic already present in the chat memory graph. Check whether `same_topic_as` edges form between document chunk nodes and existing chat-sourced nodes. If yes, source-agnostic Physarum dynamics are confirmed at the edge level. Record the result as a DEVLOG entry and update this status.
+
+The final implementation added explicit `source` and `metadata` handling in `MemoryGraphService::storeNode()`, along with a dedicated `document_anchor` source for anchor nodes. Those changes make provenance explicit without changing the extraction model or the edge-wiring model that document chunks and chat memories both rely on.
+
+**`goal` node type added.** `GraphExtractionService` now classifies content as `goal` when it identifies a declared aspiration or intention the user is working toward. The PostgreSQL check constraint is updated via migration `2026_04_08_000001`. Goal nodes are the prerequisite for the next retrieval step: biasing `MemoryGraphService::findContextSeeds()` to seed BFS from goal nodes, so the LLM receives context relevant to what the user is actively working toward rather than only what is historically highest-weight.
+
+The planning agent and cognitive architecture harness described above remain open. The benchmark comparison task (modular vs. single-model baseline) requires at least the reasoning and consolidation agents to be implemented before a meaningful comparison is possible.
 
 ---
 

@@ -18,6 +18,45 @@ The log is append-only. Entries are not edited after the fact.
 
 ---
 
+## Entry 021 - 2026-04-08
+### Document ingestion becomes the first perception path
+
+#### The problem being solved
+
+The graph could only grow from chat turns and explicit MCP writes. That was enough to prove the storage trigger, the Physarum retrieval loop, and the graph visualization, but it was not enough to approach a second-brain workflow. A system that only remembers what was said in chat has no perception path for project notes, research documents, or long-form context that already exists outside conversation.
+
+The architectural question was whether document knowledge would require a separate retrieval system or whether the existing graph primitives were already general enough to accept a new source type without changing the model.
+
+#### What was built
+
+`DocumentChunkerService` splits raw text or Markdown into paragraph-aware chunks sized for graph extraction. It strips frontmatter and horizontal rules, merges short adjacent paragraphs, and falls back to sentence-boundary splitting for oversized paragraphs. The design goal was not perfect token accounting. It was to preserve semantic units while keeping each extraction call comfortably small.
+
+`DocumentIngestionService` creates one document anchor node first, then runs `GraphExtractionService` on each chunk and stores the result through `MemoryGraphService`. Each chunk is wired back to the anchor with a `part_of` edge. Chunk nodes use `source = 'document'`. Anchor nodes use `source = 'document_anchor'`. This distinction matters because the extractor may classify a chunk itself as `type = 'document'`, and the UI needs a reliable way to list only the anchors.
+
+`DocumentController` adds `POST /api/documents/ingest` and `GET /api/documents`. The HTTP API defaults ingested documents to `public`. That default is not aesthetic. It follows directly from the retrieval model: `MemoryGraphService::findContextSeeds()` and `retrieveContext()` only load public nodes into the LLM context window, so a private default would make the feature look successful in the graph explorer while doing nothing for chat recall.
+
+The controller also mirrors public document ingests into the mock ICP store by writing a short anchor record through `IcpMemoryService::storeMemory()`. That keeps the mock-mode MCP read path aware that a document was ingested. The live ICP path remains open because uploaded documents still need browser-side signing before they can be written to the canister under the user's principal.
+
+`GraphExtractionService` gained a `goal` node type, and the PostgreSQL check constraint on `memory_nodes.type` was updated accordingly. This does not change retrieval yet. It creates the schema and extractor support needed for goal-biased retrieval.
+
+#### What this revealed
+
+The encouraging result is that document ingestion did not require a second graph model. The same extraction and wiring primitives used for chat memory are sufficient for document chunks. That is the right kind of reuse. It suggests that the graph model is source-agnostic in implementation, even if source-agnostic retrieval quality still has to be measured.
+
+The more important finding is that sensitivity defaults are constrained by the retrieval architecture. In this system, `private` is not merely a privacy label. It is also a retrieval exclusion label. Any feature that is meant to improve assistant recall has to confront that directly rather than treating the default as a UI preference.
+
+Another small but consequential finding was that structural tags on anchors create false semantic edges. Early anchor tags such as `document` and `ingested` caused unrelated documents to connect through `same_topic_as`. The correct fix was not another retrieval heuristic. It was to give anchors no semantic tags at all and let cross-document structure emerge from chunk tags only.
+
+#### Verification
+
+Twenty-eight tests were added across `DocumentChunkerServiceTest`, `DocumentIngestionTest`, and `DocumentControllerTest`. They cover chunking behavior, anchor and chunk source markers, `part_of` wiring, metadata capture, sensitivity propagation, mock ICP mirroring, and anchor-only listing. The full suite now passes at 169 tests.
+
+#### What remains open
+
+This is the first perception path, not the second brain finished. Retrieval is still history-weighted rather than task-aware. Goal nodes exist, but `findContextSeeds()` does not bias toward them yet. Live ICP document writes remain unwired for uploaded files. The next meaningful step is not more ingestion formats. It is making retrieval care about what the user is trying to do now.
+
+---
+
 ## Entry 020 - 2026-03-16
 ### MCP write path: CLI tools can now store memories
 

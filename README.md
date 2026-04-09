@@ -18,7 +18,9 @@ The application is a standard Laravel and Vue web app. The interesting parts are
 
 **Memory records.** When a turn passes the storage trigger, the server summarizes it, classifies it as public, private, or sensitive, and proceeds down the write path. In the browser chat UI, private and sensitive records require user approval before the browser signs the write with an Ed25519 key from localStorage and sends it directly to the ICP canister. The canister records `msg.caller` as the owner of that record. CLI tools writing through the MCP server POST to the Laravel `/mcp/store` endpoint in mock mode, which handles graph extraction and node storage server-side without a browser session.
 
-**The memory graph.** After every confirmed memory write, a second LLM call extracts a node type (memory, person, project, document, task, event, or concept), a label, semantic tags, named people, and named projects from the memory content. This data creates a typed graph node in PostgreSQL and auto-wires edges to related existing nodes: tag overlap produces `same_topic_as` edges; named people produce `about_person` edges to person anchor nodes; named projects produce `part_of` edges to project anchor nodes.
+**Document ingestion.** `POST /api/documents/ingest` accepts pasted text or Markdown files, creates a document anchor node, chunks the source with `DocumentChunkerService`, and runs each chunk through the same `GraphExtractionService` used for chat memories. Chunk nodes are stored with `source = 'document'` and connected back to the anchor with `part_of` edges, so uploaded knowledge enters the same graph primitives as chat-derived memory. `GET /api/documents` lists the document anchors for the current user. The HTTP API defaults ingested documents to `public` because graph-guided retrieval only loads public nodes into the LLM context window; `private` remains available when the user wants graph-only storage.
+
+**The memory graph.** After every confirmed memory write or document ingest, an LLM call extracts a node type (memory, person, project, document, task, event, concept, or goal), a label, semantic tags, named people, and named projects from the memory content. This data creates a typed graph node in PostgreSQL and auto-wires edges to related existing nodes: tag overlap produces `same_topic_as` edges; named people produce `about_person` edges to person anchor nodes; named projects produce `part_of` edges to project anchor nodes.
 
 **Physarum dynamics.** Edge weights are not static. When the LLM retrieves a set of memory nodes to build a response, all edges between those co-accessed nodes receive a conductance increment of ALPHA = 0.10, clamped to 1.0. A daily scheduled command applies a decay factor of RHO = 0.97 to all edges, floored at 0.05. Edges that are traversed together regularly accumulate weight; edges between memories that the agent never retrieves together decay toward the floor. This implements the discrete form of the Tero et al. (2010) slime mold conductance model: paths the organism uses frequently develop higher conductance, and paths that carry no flux thin out.
 
@@ -259,7 +261,7 @@ cd app
 php artisan test
 ```
 
-The test suite runs against SQLite in-memory and mock mode throughout. No API key or canister is required. Coverage includes the storage trigger (MemorabilityService decisions, hallucinated node ID rejection, consolidated node exclusion), graph reinforcement, edge decay, neighborhood traversal, cluster detection determinism, graph snapshot storage and pruning, agent alignment Jaccard calculation, the memory approval flow, the `active_node_ids` response field, consolidation pipeline (concept node creation, supersedes edges, sensitivity inheritance, re-consolidation prevention), node pruning (floor-weight detection, idle window, edge cascade delete, user scoping, dry-run), the MCP store endpoint (API key auth, graph node creation), and the ThreeD page load with agent scoping.
+The test suite runs against SQLite in-memory and mock mode throughout. No API key or canister is required. Coverage includes the storage trigger (MemorabilityService decisions, hallucinated node ID rejection, consolidated node exclusion), document chunking and ingestion, document controller routes, graph reinforcement, edge decay, neighborhood traversal, cluster detection determinism, graph snapshot storage and pruning, agent alignment Jaccard calculation, the memory approval flow, the `active_node_ids` response field, consolidation pipeline (concept node creation, supersedes edges, sensitivity inheritance, re-consolidation prevention), node pruning (floor-weight detection, idle window, edge cascade delete, user scoping, dry-run), the MCP store endpoint (API key auth, graph node creation), and the ThreeD page load with agent scoping.
 
 ---
 
@@ -277,16 +279,19 @@ OpenMemory/
 │   │   │   └── SimulateDay.php              # php artisan simulate:day (demo seeder)
 │   │   ├── Http/Controllers/
 │   │   │   ├── ChatController.php           # chat, memory store, graph sync endpoints
+│   │   │   ├── DocumentController.php       # document ingest and document anchor listing
 │   │   │   ├── GraphController.php          # graph data, neighborhood, clusters, snapshots, /3d
 │   │   │   ├── AgentController.php          # agent CRUD, seed, simulate, alignment, shared edges
 │   │   │   ├── McpController.php            # POST /mcp/store — MCP server write endpoint (mock mode)
 │   │   │   └── MemoryController.php
 │   │   ├── Services/
 │   │   │   ├── IcpMemoryService.php         # fetches public records for LLM context
+│   │   │   ├── DocumentChunkerService.php   # paragraph-aware document chunking for graph extraction
+│   │   │   ├── DocumentIngestionService.php # document anchor creation, chunk ingest, part_of wiring
 │   │   │   ├── MemorabilityService.php      # storage trigger: evaluates novelty/significance before writing
 │   │   │   ├── MemorySummarizationService.php
 │   │   │   ├── ConsolidationService.php     # compresses episodic clusters into concept nodes (weekly)
-│   │   │   ├── GraphExtractionService.php   # LLM extracts node type, label, tags per memory
+│   │   │   ├── GraphExtractionService.php   # LLM extracts node type, label, tags per memory or document chunk
 │   │   │   ├── MemoryGraphService.php       # stores nodes, wires edges, Physarum dynamics
 │   │   │   ├── ClusterDetectionService.php  # weighted label propagation community detection
 │   │   │   ├── MultiAgentGraphService.php   # collective Physarum, shared edges, agent seeding
@@ -306,6 +311,7 @@ OpenMemory/
 │   │   ├── ..._create_memory_edges_table.php
 │   │   ├── ..._add_access_tracking_to_memory_graph.php
 │   │   ├── ..._add_consolidated_at_to_memory_nodes.php
+│   │   ├── ..._add_goal_type_to_memory_nodes.php
 │   │   ├── ..._create_agents_table.php
 │   │   ├── ..._create_shared_memory_edges_table.php
 │   │   └── ..._create_graph_snapshots_table.php
@@ -355,7 +361,9 @@ OpenMemory/
 | useIcpMemory.js | Browser actor for signing store_memory calls and retrieving the owner's full record set |
 | PostgreSQL | Chat transcript, session data, memory graph (nodes, edges, Physarum weights) |
 | MemorabilityService | Pre-write filter evaluating novelty, significance, durability, and connection richness; returns store/update/skip |
-| GraphExtractionService | LLM pass after each confirmed memory write; extracts node type, label, tags, people, projects |
+| DocumentChunkerService | Splits pasted text or Markdown into paragraph-aware chunks sized for graph extraction |
+| DocumentIngestionService | Creates document anchor nodes, stores chunk nodes, and wires `part_of` edges back to the source document |
+| GraphExtractionService | LLM pass after each confirmed memory write or document chunk; extracts node type, label, tags, people, projects |
 | MemoryGraphService | Creates nodes, auto-wires edges, applies Hebbian reinforcement, runs Physarum decay |
 | ConsolidationService | Weekly: compresses high-density episodic clusters into semantic concept nodes via LLM summarization |
 | ClusterDetectionService | Weighted label propagation producing community membership and mean weight per cluster |
