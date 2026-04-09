@@ -21,12 +21,16 @@ class MemoryGraphService
      * Store a memory node and auto-wire edges to related existing nodes.
      *
      * @param  array  $extracted  Output from GraphExtractionService::extract()
+     * @param  string  $source  Origin of the memory: 'chat', 'document', 'manual', or 'extracted'
+     * @param  array  $metadata  Arbitrary JSON metadata (e.g. source_document_id, chunk_index)
      */
     public function storeNode(
         string $userId,
         string $content,
         array $extracted,
         ?string $sessionId = null,
+        string $source = 'chat',
+        array $metadata = [],
     ): MemoryNode {
         $node = MemoryNode::create([
             'user_id' => $userId,
@@ -37,7 +41,8 @@ class MemoryGraphService
             'content' => $content,
             'tags' => $extracted['tags'],
             'confidence' => 1.0,
-            'source' => 'chat',
+            'source' => $source,
+            'metadata' => $metadata ?: null,
         ]);
 
         // Auto-wire tag-based similarity edges
@@ -133,6 +138,23 @@ class MemoryGraphService
             'nodes' => $allNodes->map(fn ($n) => $this->nodeToArray($n))->values(),
             'edges' => $allEdges->map(fn ($e) => $this->edgeToArray($e))->values(),
         ];
+    }
+
+    /**
+     * Create a directed relationship edge between two existing nodes.
+     *
+     * Exposed publicly so callers outside this service (e.g. DocumentIngestionService)
+     * can wire specific relationships without accessing private internals. The underlying
+     * createEdgeIfAbsent() call is idempotent: duplicate edges are silently skipped.
+     */
+    public function createRelationship(
+        string $userId,
+        string $fromNodeId,
+        string $toNodeId,
+        string $relationship,
+        float $weight = 0.5,
+    ): void {
+        $this->createEdgeIfAbsent($userId, $fromNodeId, $toNodeId, $relationship, $weight);
     }
 
     // ── Physarum / Hebbian weight dynamics ───────────────────────────────────

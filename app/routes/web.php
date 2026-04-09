@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AgentController;
 use App\Http\Controllers\ChatController;
+use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\GraphController;
 use App\Http\Controllers\McpController;
 use App\Http\Controllers\MemoryController;
@@ -15,7 +16,7 @@ Route::get('/chat', [ChatController::class, 'index'])->name('chat');
 Route::post('/chat/send', [ChatController::class, 'send'])->name('chat.send');
 Route::post('/chat/reset', [ChatController::class, 'reset'])->name('chat.reset');
 // Browser calls this after user approves a Private/Sensitive memory in mock mode.
-// In live ICP mode the browser writes directly to the canister — this endpoint is not used.
+// In live ICP mode the browser writes directly to the canister - this endpoint is not used.
 Route::post('/chat/store-memory', [ChatController::class, 'storeMemory'])->name('chat.storeMemory');
 Route::post('/chat/sync-graph-memory', [ChatController::class, 'syncGraphMemory'])->name('chat.syncGraphMemory');
 
@@ -23,7 +24,7 @@ Route::post('/chat/sync-graph-memory', [ChatController::class, 'syncGraphMemory'
 Route::get('/memory', [MemoryController::class, 'index'])->name('memory.index');
 Route::get('/memory/refresh', [MemoryController::class, 'refresh'])->name('memory.refresh');
 
-// Status API — returns real adapter/canister health for the UI
+// Status API - returns real adapter/canister health for the UI
 Route::get('/api/status', [MemoryController::class, 'status'])->name('api.status');
 
 // Memory graph explorer
@@ -40,7 +41,14 @@ Route::get('/api/graph/snapshots/{snapshotId}', [GraphController::class, 'snapsh
 Route::post('/api/graph/consolidate', [GraphController::class, 'consolidate'])->name('api.graph.consolidate');
 Route::post('/api/graph/prune', [GraphController::class, 'prune'])->name('api.graph.prune');
 
-// MCP server write endpoint — receives store requests from icp/mcp-server/server.js.
+// Document ingestion - second brain feature.
+// POST accepts a file upload (txt, md) or a raw text paste plus a title and sensitivity level.
+// All chunk nodes produced by ingestion are wired into the same Physarum graph as chat memories,
+// so cross-document and chat-to-document connections emerge automatically via shared tags.
+Route::get('/api/documents', [DocumentController::class, 'index'])->name('documents.index');
+Route::post('/api/documents/ingest', [DocumentController::class, 'store'])->name('documents.store');
+
+// MCP server write endpoint - receives store requests from icp/mcp-server/server.js.
 // Auth via X-OMA-API-Key header (no session required, CSRF exempted in bootstrap/app.php).
 Route::post('/mcp/store', [McpController::class, 'store'])->name('mcp.store');
 
