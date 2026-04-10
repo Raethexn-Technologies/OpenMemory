@@ -1,0 +1,195 @@
+{
+  "id": "corpus_02",
+  "description": "Academic researcher writing a paper on privacy-preserving federated learning, approaching a conference deadline",
+  "persona": "PhD student in computer science, 3rd year. Research focus: differential privacy and federated learning. Collaborating with a cryptographer. Submitting to USENIX Security.",
+  "memories": [
+    {
+      "content": "Starting research on differential privacy for federated learning. Reading McMahan et al. (2017) FedAvg paper as the primary baseline.",
+      "type": "memory",
+      "label": "Federated learning research started",
+      "tags": ["federated-learning", "differential-privacy", "research", "fedavg", "mcmahan"],
+      "created_days_ago": 90
+    },
+    {
+      "content": "Advisor meeting: paper topic approved - Privacy Guarantees in Federated Learning Without Centralized Data. Scope confirmed.",
+      "type": "event",
+      "label": "Paper topic approved by advisor",
+      "tags": ["research", "advisor", "paper-topic", "federated-learning", "approval"],
+      "created_days_ago": 85
+    },
+    {
+      "content": "Read Dwork et al. (2006) foundational differential privacy paper. Epsilon-delta formalization is the key theoretical anchor for the threat model.",
+      "type": "memory",
+      "label": "Dwork et al. DP paper read",
+      "tags": ["differential-privacy", "theory", "dwork", "epsilon-delta", "threat-model"],
+      "created_days_ago": 80
+    },
+    {
+      "content": "Cornell arxiv has useful recent work on local DP vs central DP tradeoffs. Saved 12 papers to the reading list for literature review.",
+      "type": "memory",
+      "label": "Local vs central DP reading list",
+      "tags": ["differential-privacy", "local-dp", "arxiv", "reading-list", "literature-review"],
+      "created_days_ago": 75
+    },
+    {
+      "content": "Bonawitz et al. (2017) on Practical Secure Aggregation - clients never share raw gradients with the server. Key paper for the related work section.",
+      "type": "memory",
+      "label": "Bonawitz secure aggregation paper",
+      "tags": ["federated-learning", "secure-aggregation", "related-work", "privacy", "gradients"],
+      "created_days_ago": 70
+    },
+    {
+      "content": "Introduced to Dr. Reyes, a cryptographer who can review the secure aggregation proofs in the paper. Will meet bi-weekly.",
+      "type": "person",
+      "label": "Dr. Reyes - cryptography collaborator",
+      "tags": ["collaborator", "dr-reyes", "cryptography", "research", "meetings"],
+      "created_days_ago": 65
+    },
+    {
+      "content": "Literature review draft complete - 47 papers reviewed, 22 cited in the current draft. Related work section covers DP-SGD, secure aggregation, and non-IID distribution.",
+      "type": "memory",
+      "label": "Literature review draft complete",
+      "tags": ["literature-review", "research", "writing", "progress", "citations"],
+      "created_days_ago": 60
+    },
+    {
+      "content": "Experiment 1 design: compare DP-SGD with varying epsilon values (0.1, 1.0, 10.0) against a non-private baseline on CIFAR-10.",
+      "type": "task",
+      "label": "Experiment 1: DP-SGD epsilon sweep",
+      "tags": ["experiment", "dp-sgd", "epsilon", "cifar-10", "design"],
+      "created_days_ago": 55
+    },
+    {
+      "content": "Dr. Reyes identified a flaw in the threat model - the passive adversary assumption is too strong for real federated deployments where clients may collude.",
+      "type": "event",
+      "label": "Threat model flaw flagged by Dr. Reyes",
+      "tags": ["threat-model", "dr-reyes", "feedback", "revision", "passive-adversary"],
+      "created_days_ago": 50
+    },
+    {
+      "content": "USENIX Security submission deadline is 8 weeks away. The results section must be complete before then to allow revision time.",
+      "type": "event",
+      "label": "USENIX deadline: 8 weeks out",
+      "tags": ["usenix", "deadline", "submission", "pressure", "results"],
+      "created_days_ago": 45
+    },
+    {
+      "content": "DP-SGD experiments running on the university cluster. First results: epsilon=0.1 causes 14% accuracy loss. Epsilon=1.0 causes 4% loss. Acceptable tradeoff.",
+      "type": "memory",
+      "label": "DP-SGD experiment results",
+      "tags": ["experiment", "dp-sgd", "results", "accuracy", "epsilon", "cluster"],
+      "created_days_ago": 40
+    },
+    {
+      "content": "Revised threat model to active adversary who can observe k colluding clients. Dr. Reyes reviewed the revised section and approved the formulation.",
+      "type": "memory",
+      "label": "Threat model revised to active adversary",
+      "tags": ["threat-model", "active-adversary", "revision", "dr-reyes", "approved"],
+      "created_days_ago": 38
+    },
+    {
+      "content": "USENIX deadline extended 2 weeks - now 10 weeks out. Added breathing room to design a second experiment comparing FedAvg vs FedProx on non-IID data.",
+      "type": "event",
+      "label": "USENIX deadline extended 2 weeks",
+      "tags": ["usenix", "deadline", "extension", "experiment", "fedprox"],
+      "created_days_ago": 35
+    },
+    {
+      "content": "Writing the methodology section - struggling to explain the aggregation protocol clearly without equations becoming walls of notation. Need better diagrams.",
+      "type": "memory",
+      "label": "Methodology section writing difficulty",
+      "tags": ["writing", "methodology", "aggregation", "diagrams", "notation"],
+      "created_days_ago": 30
+    },
+    {
+      "content": "Created system diagram for the aggregation protocol. Dr. Reyes reviewed and suggested simplifying step 3 to remove an unnecessary round trip.",
+      "type": "event",
+      "label": "Aggregation diagram reviewed by Dr. Reyes",
+      "tags": ["diagram", "aggregation", "dr-reyes", "methodology", "revision"],
+      "created_days_ago": 22
+    },
+    {
+      "content": "FedProx vs FedAvg results on non-IID splits: FedProx converges 23% faster and achieves 2.1% higher accuracy. Strong enough result to include in the paper.",
+      "type": "memory",
+      "label": "FedProx vs FedAvg experiment results",
+      "tags": ["experiment", "results", "fedprox", "fedavg", "non-iid", "convergence"],
+      "created_days_ago": 18
+    },
+    {
+      "content": "Results section: 4 of 6 subsections complete. Need to write the discussion of accuracy-privacy tradeoffs and the conclusion.",
+      "type": "memory",
+      "label": "Results section 4 of 6 complete",
+      "tags": ["writing", "results", "progress", "discussion", "conclusion"],
+      "created_days_ago": 12
+    },
+    {
+      "content": "A USENIX PC member reached out asking whether we plan to open-source the DP-SGD implementation. Confirmed yes - will release with camera-ready.",
+      "type": "event",
+      "label": "USENIX reviewer: open-source inquiry",
+      "tags": ["usenix", "reviewer", "open-source", "code-release", "camera-ready"],
+      "created_days_ago": 8
+    },
+    {
+      "content": "Discussion section first draft complete. Sent to Dr. Reyes for review of the cryptographic claims - especially the active adversary bound proof.",
+      "type": "event",
+      "label": "Discussion draft sent to Dr. Reyes",
+      "tags": ["writing", "discussion", "dr-reyes", "review", "cryptography"],
+      "created_days_ago": 5
+    },
+    {
+      "content": "Paper is at 14 pages. USENIX page limit is 13. Need to cut one page, targeting the related work section which has redundant citations.",
+      "type": "memory",
+      "label": "Paper over page limit: need to cut",
+      "tags": ["writing", "page-limit", "editing", "usenix", "related-work"],
+      "created_days_ago": 3
+    },
+    {
+      "content": "Trimmed related work section - removed 6 peripheral citations and tightened two paragraphs. Paper now at 13.4 pages. Almost there.",
+      "type": "memory",
+      "label": "Related work trimmed to 13.4 pages",
+      "tags": ["writing", "editing", "progress", "usenix", "related-work"],
+      "created_days_ago": 1
+    }
+  ],
+  "goals": [
+    {
+      "content": "Goal: submit the federated learning privacy paper to USENIX Security on time and in good shape - this is the primary PhD milestone for the year.",
+      "label": "Submit to USENIX Security",
+      "tags": ["usenix", "submission", "goal", "deadline", "phd"],
+      "created_days_ago": 8
+    },
+    {
+      "content": "Goal: open-source the DP-SGD implementation alongside the camera-ready paper submission.",
+      "label": "Open-source code release with paper",
+      "tags": ["open-source", "code-release", "goal", "camera-ready"],
+      "created_days_ago": 8
+    }
+  ],
+  "questions": [
+    {
+      "id": "q1",
+      "question": "What is the current status of the paper and what still needs to be done before submission?",
+      "expected_themes": ["writing", "page-limit", "editing", "usenix", "discussion", "goal"]
+    },
+    {
+      "id": "q2",
+      "question": "What experiments have I run and what were the key results?",
+      "expected_themes": ["dp-sgd", "fedprox", "fedavg", "results", "accuracy", "epsilon", "non-iid"]
+    },
+    {
+      "id": "q3",
+      "question": "What is my collaboration with Dr. Reyes and how has it shaped the paper?",
+      "expected_themes": ["dr-reyes", "threat-model", "cryptography", "review", "aggregation"]
+    },
+    {
+      "id": "q4",
+      "question": "What are the immediate deadlines and what needs to happen before they pass?",
+      "expected_themes": ["usenix", "deadline", "submission", "goal", "page-limit", "dr-reyes"]
+    },
+    {
+      "id": "q5",
+      "question": "What do I know about differential privacy techniques from my research?",
+      "expected_themes": ["differential-privacy", "dp-sgd", "epsilon", "local-dp", "dwork", "threat-model"]
+    }
+  ]
+}

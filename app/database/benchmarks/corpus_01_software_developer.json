@@ -1,0 +1,187 @@
+{
+  "id": "corpus_01",
+  "description": "Software developer managing a personal AI project, a freelance client engagement, and a language learning goal",
+  "persona": "Mid-level full-stack engineer with 5 years experience. Personal project is an open-source AI memory layer. Freelance client is a data analytics company. Also learning Rust on the side.",
+  "memories": [
+    {
+      "content": "Working on OpenMemory, a personal AI memory layer that stores user context in a graph on decentralized infrastructure.",
+      "type": "project",
+      "label": "OpenMemory project",
+      "tags": ["openMemory", "ai", "memory", "graph", "open-source"],
+      "created_days_ago": 60
+    },
+    {
+      "content": "Starting a freelance contract with Veritas Analytics to build a data pipeline for their customer segmentation system.",
+      "type": "project",
+      "label": "Veritas Analytics contract",
+      "tags": ["veritas", "freelance", "data-pipeline", "client", "segmentation"],
+      "created_days_ago": 55
+    },
+    {
+      "content": "Learning Rust from The Book - completed chapters 1 through 4 on ownership and borrowing. Ownership model is clicking.",
+      "type": "memory",
+      "label": "Rust learning: ownership and borrowing",
+      "tags": ["rust", "learning", "programming", "ownership"],
+      "created_days_ago": 50
+    },
+    {
+      "content": "The Veritas project requires integration with their internal Kafka cluster. Need to study Kafka consumer groups and partition lag.",
+      "type": "task",
+      "label": "Kafka integration for Veritas",
+      "tags": ["veritas", "kafka", "data-pipeline", "distributed", "consumer-groups"],
+      "created_days_ago": 45
+    },
+    {
+      "content": "Implemented BFS traversal for OpenMemory graph retrieval. Nodes with more co-activations rank higher as context seeds.",
+      "type": "memory",
+      "label": "OpenMemory BFS retrieval implemented",
+      "tags": ["openMemory", "graph", "algorithm", "bfs", "retrieval"],
+      "created_days_ago": 40
+    },
+    {
+      "content": "Rust lifetimes are still confusing. Watched Jon Gjengset's video twice. Smart pointers (Box, Rc, RefCell) starting to make sense.",
+      "type": "memory",
+      "label": "Rust: lifetimes and smart pointers",
+      "tags": ["rust", "learning", "lifetimes", "smart-pointers"],
+      "created_days_ago": 37
+    },
+    {
+      "content": "Veritas asked for an accelerated timeline - data pipeline needs to be production-ready in 6 weeks instead of 10. Stressful request.",
+      "type": "event",
+      "label": "Veritas deadline accelerated",
+      "tags": ["veritas", "deadline", "freelance", "pressure", "timeline"],
+      "created_days_ago": 35
+    },
+    {
+      "content": "Started implementing document ingestion for OpenMemory. Users can upload PDFs and Markdown files and have them chunked into the memory graph.",
+      "type": "memory",
+      "label": "OpenMemory document ingestion started",
+      "tags": ["openMemory", "document-ingestion", "feature", "chunker"],
+      "created_days_ago": 30
+    },
+    {
+      "content": "Kafka consumer group rebalancing is causing lag spikes in the Veritas pipeline. Added max.poll.interval.ms tuning and increased session timeout.",
+      "type": "memory",
+      "label": "Veritas Kafka lag spike debugging",
+      "tags": ["veritas", "kafka", "debugging", "data-pipeline", "consumer-groups"],
+      "created_days_ago": 27
+    },
+    {
+      "content": "DocumentChunkerService implemented for OpenMemory - splits text into semantic chunks of max 1500 characters at paragraph boundaries.",
+      "type": "memory",
+      "label": "DocumentChunkerService implemented",
+      "tags": ["openMemory", "document-ingestion", "chunker", "feature"],
+      "created_days_ago": 22
+    },
+    {
+      "content": "Difficult conversation with the Veritas client about scope creep - they want real-time dashboards added to the original fixed-price quote.",
+      "type": "event",
+      "label": "Veritas scope creep conversation",
+      "tags": ["veritas", "scope-creep", "client", "freelance", "negotiation"],
+      "created_days_ago": 20
+    },
+    {
+      "content": "Veritas pipeline passing all integration tests against the staging Kafka cluster. Preparing staging deployment next week.",
+      "type": "event",
+      "label": "Veritas integration tests passing",
+      "tags": ["veritas", "freelance", "testing", "deployment", "milestone"],
+      "created_days_ago": 14
+    },
+    {
+      "content": "Designed the OpenMemory benchmark: compare recency-flat, graph-guided, and goal-biased retrieval on synthetic corpora with LLM-as-judge scoring.",
+      "type": "memory",
+      "label": "OpenMemory benchmark design",
+      "tags": ["openMemory", "benchmark", "retrieval", "research", "evaluation"],
+      "created_days_ago": 12
+    },
+    {
+      "content": "Rust async story with Tokio is complex - started the async Rust book. Expect it will take another month before it feels natural.",
+      "type": "memory",
+      "label": "Rust async and Tokio learning",
+      "tags": ["rust", "learning", "async", "tokio", "concurrency"],
+      "created_days_ago": 10
+    },
+    {
+      "content": "Veritas staging deployment succeeded. Client review call scheduled for Thursday. Final invoice submitted after signoff.",
+      "type": "event",
+      "label": "Veritas staging deployment succeeded",
+      "tags": ["veritas", "freelance", "staging", "milestone", "invoice"],
+      "created_days_ago": 7
+    },
+    {
+      "content": "Goal-biased retrieval implemented in OpenMemory. Goal nodes now seed BFS before weight-ranked candidates, biasing context toward active work.",
+      "type": "memory",
+      "label": "OpenMemory goal-biased retrieval shipped",
+      "tags": ["openMemory", "retrieval", "goal", "feature", "bfs"],
+      "created_days_ago": 5
+    },
+    {
+      "content": "Sent Veritas the final invoice draft - 18,400 for the full engagement. Waiting for approval before closing the contract.",
+      "type": "event",
+      "label": "Veritas invoice sent",
+      "tags": ["veritas", "invoice", "freelance", "payment", "closing"],
+      "created_days_ago": 3
+    },
+    {
+      "content": "Reading about actor model concurrency in Rust. Considering Actix-web for a future API project.",
+      "type": "memory",
+      "label": "Rust: actor model and Actix-web",
+      "tags": ["rust", "learning", "actors", "concurrency", "actix"],
+      "created_days_ago": 2
+    },
+    {
+      "content": "OpenMemory benchmark harness implementation started. Synthetic corpora, three retrieval strategies, LLM-as-judge scoring, CSV and Markdown output.",
+      "type": "memory",
+      "label": "OpenMemory benchmark harness started",
+      "tags": ["openMemory", "benchmark", "research", "evaluation", "harness"],
+      "created_days_ago": 1
+    }
+  ],
+  "goals": [
+    {
+      "content": "Goal: ship the OpenMemory benchmark harness and produce a retrieval quality measurement before end of April.",
+      "label": "Ship OpenMemory benchmark",
+      "tags": ["openMemory", "benchmark", "goal", "research"],
+      "created_days_ago": 5
+    },
+    {
+      "content": "Goal: close the Veritas Analytics engagement cleanly - invoice approved, payment received, contract signed off.",
+      "label": "Close Veritas contract",
+      "tags": ["veritas", "freelance", "goal", "closing", "payment"],
+      "created_days_ago": 3
+    },
+    {
+      "content": "Goal: complete The Rust Book and build one working Rust project before summer.",
+      "label": "Rust proficiency by summer",
+      "tags": ["rust", "learning", "goal", "proficiency"],
+      "created_days_ago": 45
+    }
+  ],
+  "questions": [
+    {
+      "id": "q1",
+      "question": "What is the current status of the Veritas Analytics project and what still needs to happen?",
+      "expected_themes": ["veritas", "invoice", "approval", "staging", "closing", "payment"]
+    },
+    {
+      "id": "q2",
+      "question": "What should I focus on for OpenMemory this week?",
+      "expected_themes": ["openMemory", "benchmark", "goal", "research", "harness"]
+    },
+    {
+      "id": "q3",
+      "question": "How is my Rust learning progressing and what am I working on next?",
+      "expected_themes": ["rust", "learning", "async", "tokio", "actors", "goal"]
+    },
+    {
+      "id": "q4",
+      "question": "What are my most time-sensitive items right now?",
+      "expected_themes": ["veritas", "invoice", "goal", "deadline", "closing", "benchmark"]
+    },
+    {
+      "id": "q5",
+      "question": "What do I know about distributed systems from my recent work?",
+      "expected_themes": ["kafka", "consumer-groups", "veritas", "pipeline", "distributed", "debugging"]
+    }
+  ]
+}
