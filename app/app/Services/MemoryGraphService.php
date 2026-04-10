@@ -243,23 +243,32 @@ class MemoryGraphService
     /**
      * Retrieve the Physarum neighbourhood most relevant for the current context window.
      *
-     * Seeds are the public nodes with the highest accumulated edge weight: the nodes
-     * the Physarum model considers most important because they have been co-activated
-     * with many other nodes across many turns. BFS from those seeds collects neighbours
-     * in weight-descending order up to $limit.
+     * Seeds are the public nodes with the highest accumulated edge weight. BFS from
+     * those seeds collects neighbours in weight-descending order up to $limit.
      *
-     * Returns records in the same shape as IcpMemoryService::getPublicMemories() so the
-     * caller can pass the result directly to LlmService::buildSystemPrompt() without
-     * any format conversion.
+     * Three strategies are supported via the $strategy parameter:
+     *   'recency': most recently created public nodes, no graph traversal.
+     *   'graph': BFS from weight-ranked seeds, goal nodes treated as ordinary candidates.
+     *   'goal_graph': BFS from goal-node seeds first, then weight-ranked seeds.
      *
      * Returns an empty array on cold start (no public nodes in the graph yet). The caller
-     * is responsible for falling back to flat ICP recall in that case.
+     * is responsible for falling back to flat ICP recall in that case. Returns records in
+     * the same shape as IcpMemoryService::getPublicMemories().
      *
      * @return array<int, array{id: string, content: string, timestamp: string}>
      */
-    public function retrieveContext(string $userId, int $limit = 12): array
+    public function retrieveContext(string $userId, int $limit = 12, string $strategy = 'goal_graph'): array
     {
-        $seeds = $this->findContextSeeds($userId, 4);
+        if (! in_array($strategy, ['recency', 'graph', 'goal_graph'], true)) {
+            throw new \InvalidArgumentException("Unknown retrieval strategy: {$strategy}");
+        }
+
+        if ($strategy === 'recency') {
+            return $this->retrieveByRecency($userId, $limit);
+        }
+
+        $goalSeeding = $strategy === 'goal_graph';
+        $seeds = $this->findContextSeeds($userId, 4, $goalSeeding);
 
         if ($seeds->isEmpty()) {
             return [];
@@ -327,14 +336,16 @@ class MemoryGraphService
      * from the weighted pool to prevent duplication. The sort logic is unchanged:
      * total connected edge weight descending, creation time as a tiebreaker.
      */
-    private function findContextSeeds(string $userId, int $count): \Illuminate\Support\Collection
+    private function findContextSeeds(string $userId, int $count, bool $goalSeeding = true): \Illuminate\Support\Collection
     {
-        // Goal nodes fill first regardless of edge weight.
-        $goalSeeds = MemoryNode::where('user_id', $userId)
-            ->where('type', 'goal')
-            ->where('sensitivity', 'public')
-            ->whereNull('consolidated_at')
-            ->get();
+        // Goal nodes fill first regardless of edge weight (unless goal seeding is disabled).
+        $goalSeeds = $goalSeeding
+            ? MemoryNode::where('user_id', $userId)
+                ->where('type', 'goal')
+                ->where('sensitivity', 'public')
+                ->whereNull('consolidated_at')
+                ->get()
+            : collect();
 
         $remaining = max(0, $count - $goalSeeds->count());
 
@@ -342,8 +353,8 @@ class MemoryGraphService
             return $goalSeeds->take($count)->values();
         }
 
-        // Fill remaining slots with the highest-weight public nodes,
-        // excluding any goal nodes already selected.
+        // Fill remaining slots with the highest-weight public nodes.
+        // Exclude already-selected goal IDs to prevent duplication.
         $goalIds = $goalSeeds->pluck('id');
 
         $candidates = MemoryNode::where('user_id', $userId)
@@ -415,6 +426,23 @@ class MemoryGraphService
         $this->reinforce($nodeIds, $userId);
 
         return $nodeIds;
+    }
+
+    private function retrieveByRecency(string $userId, int $limit): array
+    {
+        return MemoryNode::where('user_id', $userId)
+            ->where('sensitivity', 'public')
+            ->whereNull('consolidated_at')
+            ->latest()
+            ->limit($limit)
+            ->get()
+            ->map(fn ($n) => [
+                'id' => $n->id,
+                'content' => $n->content,
+                'timestamp' => $n->created_at?->toIso8601String() ?? now()->toIso8601String(),
+            ])
+            ->values()
+            ->all();
     }
 
     // Physarum model constants (Tero et al. 2010, discrete form).

@@ -18,6 +18,43 @@ The log is append-only. Entries are not edited after the fact.
 
 ---
 
+## Entry 024 - 2026-04-09
+### Retrieval benchmark moves Track 10 from argument to measurement
+
+#### The problem being solved
+
+The second-brain direction created a stronger system, but it did not yet create evidence strong enough for an adoption discussion. Document ingestion, cross-source wiring, and goal-biased retrieval showed that OpenMemory could assemble a portable memory graph. They did not show that this graph retrieves better context than a simpler recency baseline.
+
+That distinction matters. A provider evaluating this project does not need another claim that graph memory is interesting. It needs a reproducible measurement that compares retrieval strategies on the same corpus and reports the quality difference.
+
+#### What was built
+
+`php artisan benchmark:retrieval` now runs a retrieval strategy benchmark. The command compares three strategies: `recency`, `graph`, and `goal_graph`. Each strategy retrieves context from the same seeded user partition, then an LLM judge scores the retrieved context against the same question set.
+
+`BenchmarkService` seeds each corpus through `MemoryGraphService::storeNode()`, not through a parallel fixture-only path. That means tag overlap, anchor creation, and edge wiring use the same graph primitives as the application. Timestamps are set after insertion so the recency baseline reflects the intended history of each corpus.
+
+Three corpus files live under `database/benchmarks/`: software developer, academic researcher, and small business owner. Each corpus includes memories, active goals, and five questions with expected answer themes. The command writes full JSON and a Markdown report to `storage/benchmarks/`. The JSON includes the exact context judged for each strategy and question.
+
+The command supports `--strategies`, `--corpus`, `--limit`, and `--keep`. The default path cleans up seeded benchmark nodes after each corpus. `--keep` preserves the isolated benchmark user partition for manual inspection in the graph explorer.
+
+`MemoryGraphService::retrieveContext()` now accepts a retrieval strategy parameter. The production default remains `goal_graph`, so existing callers keep the goal-biased behavior. The `graph` strategy disables goal priority while preserving BFS traversal. The `recency` strategy bypasses graph traversal and returns the newest public, unconsolidated nodes.
+
+#### What this reveals
+
+The research question is now measurable. A benchmark run can produce the sentence Track 10 needs: goal-biased graph retrieval improved judged context quality by a specific percentage over recency retrieval, and improved goal alignment by a specific percentage over weight-only graph retrieval.
+
+The benchmark still has a narrow scope. It judges retrieved context, not the final assistant answer. That is the right first measurement because it isolates the retrieval layer, but it does not prove end-to-end response improvement. A later benchmark should run the full response path and judge the answer itself.
+
+#### Verification
+
+The first live run exposed an environment issue and a report-validity issue. The local SQLite database still needed the `goal` type migration, so the first attempt failed before any judge calls. After migration, the benchmark seeded correctly, but OpenRouter returned 402 insufficient-credit errors after the early judge calls. That produced an incomplete report, not a valid finding.
+
+The command now records expected, completed, and failed judge call counts. It writes partial JSON and Markdown for debugging, but exits non-zero and suppresses headline lift claims when the relevant strategy pairs are incomplete.
+
+Targeted tests cover recency strategy selection, graph-only strategy behavior, invalid strategy rejection, benchmark context limits, default cleanup, retained seed partitions, progress callbacks, and failed judge call accounting. The full suite passes at 179 tests.
+
+---
+
 ## Entry 021 - 2026-04-08
 ### Document ingestion becomes the first perception path
 

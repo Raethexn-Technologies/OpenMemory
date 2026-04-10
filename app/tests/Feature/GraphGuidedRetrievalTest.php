@@ -263,6 +263,84 @@ class GraphGuidedRetrievalTest extends TestCase
         $this->assertContains($leaf->id, $returnedIds);
     }
 
+    public function test_recency_strategy_returns_recent_public_unconsolidated_nodes(): void
+    {
+        $old = $this->makeNode('user-recency', 'Older public memory');
+        $old->created_at = now()->subDays(10);
+        $old->updated_at = now()->subDays(10);
+        $old->saveQuietly();
+
+        $recent = $this->makeNode('user-recency', 'Recent public memory');
+        $recent->created_at = now()->subDay();
+        $recent->updated_at = now()->subDay();
+        $recent->saveQuietly();
+
+        $private = MemoryNode::create([
+            'user_id' => 'user-recency',
+            'type' => 'memory',
+            'sensitivity' => 'private',
+            'label' => 'Private recent memory',
+            'content' => 'Private recent memory',
+            'tags' => [],
+            'confidence' => 1.0,
+            'source' => 'chat',
+        ]);
+        $private->created_at = now();
+        $private->updated_at = now();
+        $private->saveQuietly();
+
+        $consolidated = $this->makeNode('user-recency', 'Consolidated recent memory');
+        $consolidated->created_at = now();
+        $consolidated->updated_at = now();
+        $consolidated->consolidated_at = now();
+        $consolidated->saveQuietly();
+
+        $service = app(MemoryGraphService::class);
+        $result = $service->retrieveContext('user-recency', 2, 'recency');
+
+        $this->assertSame([$recent->id, $old->id], array_column($result, 'id'));
+    }
+
+    public function test_graph_strategy_does_not_prioritize_goals(): void
+    {
+        for ($i = 1; $i <= 4; $i++) {
+            $node = $this->makeNode('user-graph-strategy', "Weighted hub {$i}");
+            MemoryEdge::create([
+                'user_id' => 'user-graph-strategy',
+                'from_node_id' => $node->id,
+                'to_node_id' => $node->id,
+                'relationship' => 'related_to',
+                'weight' => 1.0 - ($i * 0.1),
+            ]);
+        }
+
+        $goal = MemoryNode::create([
+            'user_id' => 'user-graph-strategy',
+            'type' => 'goal',
+            'sensitivity' => 'public',
+            'label' => 'Low weight goal',
+            'content' => 'Goal: this should only be guaranteed by goal_graph retrieval.',
+            'tags' => [],
+            'confidence' => 1.0,
+            'source' => 'chat',
+        ]);
+
+        $service = app(MemoryGraphService::class);
+
+        $graphOnly = $service->retrieveContext('user-graph-strategy', 4, 'graph');
+        $goalGraph = $service->retrieveContext('user-graph-strategy', 4, 'goal_graph');
+
+        $this->assertNotContains($goal->id, array_column($graphOnly, 'id'));
+        $this->assertContains($goal->id, array_column($goalGraph, 'id'));
+    }
+
+    public function test_retrieve_context_rejects_unknown_strategy(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+
+        app(MemoryGraphService::class)->retrieveContext('user-invalid', 12, 'unknown');
+    }
+
     public function test_reinforce_increments_only_edges_between_retrieved_nodes(): void
     {
         $a = $this->makeNode('user-reinforce', 'Node A');

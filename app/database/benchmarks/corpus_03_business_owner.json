@@ -1,0 +1,195 @@
+{
+  "id": "corpus_03",
+  "description": "Owner of a small software consultancy managing multiple active client projects, a sales pipeline, and a team of four",
+  "persona": "Founder and managing director of a 4-person software consultancy. Active clients on retainer and fixed-price projects. Growing the business while keeping the current team healthy.",
+  "memories": [
+    {
+      "content": "Current clients: Meridian Health on a monthly retainer at 8k per month, Orion Startup on a fixed-price project at 45k, and Brightfield Co newly signed last week.",
+      "type": "memory",
+      "label": "Active client roster",
+      "tags": ["clients", "meridian", "orion", "brightfield", "revenue", "retainer"],
+      "created_days_ago": 45
+    },
+    {
+      "content": "Employee review: senior developer James is excellent but expressed interest in more remote work flexibility. Need to discuss a hybrid arrangement.",
+      "type": "event",
+      "label": "James requests remote flexibility",
+      "tags": ["employee", "james", "remote-work", "retention", "flexibility"],
+      "created_days_ago": 42
+    },
+    {
+      "content": "Orion Startup project is 3 weeks behind schedule. Root cause: unclear requirements from their product team. No scope freeze yet.",
+      "type": "event",
+      "label": "Orion project behind schedule",
+      "tags": ["orion", "project", "schedule", "delay", "requirements"],
+      "created_days_ago": 40
+    },
+    {
+      "content": "Meridian Health renewed their retainer for another 12 months. Stable revenue secured through next year.",
+      "type": "event",
+      "label": "Meridian retainer renewed 12 months",
+      "tags": ["meridian", "retainer", "renewal", "revenue", "stable"],
+      "created_days_ago": 38
+    },
+    {
+      "content": "Identified a potential enterprise client: Foxhaven Insurance. They need a compliance automation tool for regulatory change tracking and audit reporting.",
+      "type": "memory",
+      "label": "Foxhaven Insurance prospect identified",
+      "tags": ["foxhaven", "enterprise", "sales", "prospect", "compliance", "insurance"],
+      "created_days_ago": 35
+    },
+    {
+      "content": "Difficult conversation with the Orion product team about the delay. They agreed to freeze scope and deliver a requirements document within 5 business days.",
+      "type": "event",
+      "label": "Orion scope freeze agreed",
+      "tags": ["orion", "scope-freeze", "requirements", "progress", "recovery"],
+      "created_days_ago": 32
+    },
+    {
+      "content": "James accepted a hybrid remote arrangement - 3 days remote, 2 days in office per week. Retention issue resolved.",
+      "type": "event",
+      "label": "James hybrid arrangement agreed",
+      "tags": ["james", "remote-work", "retention", "employee", "arrangement"],
+      "created_days_ago": 30
+    },
+    {
+      "content": "Brightfield Co kickoff meeting went well. Project: rebuild their internal reporting dashboard. Timeline is 10 weeks. Team assigned: Maria as lead.",
+      "type": "event",
+      "label": "Brightfield kickoff complete",
+      "tags": ["brightfield", "kickoff", "dashboard", "project", "maria", "timeline"],
+      "created_days_ago": 28
+    },
+    {
+      "content": "Foxhaven Insurance first meeting scheduled. They are evaluating 3 vendors. Our key differentiator is compliance domain expertise from the Meridian engagement.",
+      "type": "event",
+      "label": "Foxhaven vendor evaluation meeting",
+      "tags": ["foxhaven", "sales", "evaluation", "compliance", "differentiator"],
+      "created_days_ago": 25
+    },
+    {
+      "content": "Revenue this month: 103k. Highest revenue month in company history. Both Orion and Brightfield invoiced in the same month.",
+      "type": "event",
+      "label": "103k revenue - record month",
+      "tags": ["revenue", "milestone", "invoicing", "growth", "record"],
+      "created_days_ago": 22
+    },
+    {
+      "content": "Foxhaven meeting outcome: went well. They want a detailed proposal covering regulatory change tracking, automated audit reports, and a compliance dashboard. Deadline: end of month.",
+      "type": "event",
+      "label": "Foxhaven proposal requested",
+      "tags": ["foxhaven", "proposal", "sales", "deadline", "compliance"],
+      "created_days_ago": 20
+    },
+    {
+      "content": "Writing the Foxhaven proposal. Scope: regulatory change tracking system, quarterly audit report generation, and a live compliance status dashboard. Estimating 8 months.",
+      "type": "memory",
+      "label": "Foxhaven proposal in progress",
+      "tags": ["foxhaven", "proposal", "compliance", "automation", "scope", "writing"],
+      "created_days_ago": 18
+    },
+    {
+      "content": "Junior developer Maria is handling the Brightfield dashboard independently and showing strong growth. Consider a promotion to mid-level next review cycle.",
+      "type": "memory",
+      "label": "Maria showing strong growth",
+      "tags": ["maria", "promotion", "employee", "growth", "brightfield"],
+      "created_days_ago": 15
+    },
+    {
+      "content": "Orion project back on track - requirements document received and scope is frozen. New delivery estimate is 1 week late instead of 3.",
+      "type": "event",
+      "label": "Orion recovery: 1 week late now",
+      "tags": ["orion", "progress", "requirements", "delivery", "recovery"],
+      "created_days_ago": 12
+    },
+    {
+      "content": "Foxhaven proposal submitted - 220k fixed price, 8-month engagement. This would be the largest single contract in company history.",
+      "type": "event",
+      "label": "Foxhaven proposal submitted: 220k",
+      "tags": ["foxhaven", "proposal", "submitted", "price", "contract", "milestone"],
+      "created_days_ago": 10
+    },
+    {
+      "content": "Capacity analysis: at current growth rate the team will be overloaded by Q3. Need to hire a second senior developer by then.",
+      "type": "memory",
+      "label": "Capacity analysis: hire needed by Q3",
+      "tags": ["hiring", "capacity", "growth", "planning", "q3", "senior-developer"],
+      "created_days_ago": 8
+    },
+    {
+      "content": "Maria promoted to mid-level developer. Salary increase from 85k to 95k effective next month. The team reacted positively.",
+      "type": "event",
+      "label": "Maria promoted to mid-level",
+      "tags": ["maria", "promotion", "salary", "employee", "team"],
+      "created_days_ago": 6
+    },
+    {
+      "content": "Foxhaven requested a reference call with Meridian Health. Coordinated with our Meridian contact, who agreed to take the call.",
+      "type": "event",
+      "label": "Foxhaven reference call with Meridian",
+      "tags": ["foxhaven", "reference", "meridian", "sales", "procurement"],
+      "created_days_ago": 4
+    },
+    {
+      "content": "Orion project final deliverables being prepared. Sign-off call scheduled for next Tuesday. Project will close approximately 1 week late.",
+      "type": "event",
+      "label": "Orion sign-off scheduled",
+      "tags": ["orion", "delivery", "sign-off", "completion", "close"],
+      "created_days_ago": 3
+    },
+    {
+      "content": "Brightfield dashboard sprint 4 of 8 complete. On track for delivery in 6 weeks. Maria leading without issues.",
+      "type": "event",
+      "label": "Brightfield sprint 4 complete",
+      "tags": ["brightfield", "progress", "sprint", "on-track", "maria"],
+      "created_days_ago": 2
+    },
+    {
+      "content": "Still waiting on Foxhaven decision. Their procurement cycle is typically 2 to 3 weeks. Reference call completed successfully per Meridian contact.",
+      "type": "memory",
+      "label": "Foxhaven: waiting on decision",
+      "tags": ["foxhaven", "waiting", "procurement", "sales", "decision"],
+      "created_days_ago": 1
+    }
+  ],
+  "goals": [
+    {
+      "content": "Goal: win the Foxhaven Insurance contract - at 220k it would be the largest single engagement in company history and would validate our compliance expertise.",
+      "label": "Win Foxhaven contract",
+      "tags": ["foxhaven", "goal", "sales", "contract", "growth"],
+      "created_days_ago": 10
+    },
+    {
+      "content": "Goal: hire a second senior developer by Q3 to support the growth trajectory without burning out the current team.",
+      "label": "Hire second senior dev by Q3",
+      "tags": ["hiring", "goal", "q3", "senior-developer", "growth"],
+      "created_days_ago": 8
+    }
+  ],
+  "questions": [
+    {
+      "id": "q1",
+      "question": "What is the current status of each active client project?",
+      "expected_themes": ["meridian", "orion", "brightfield", "clients", "progress", "sign-off"]
+    },
+    {
+      "id": "q2",
+      "question": "What is the status of the Foxhaven opportunity and what happens next?",
+      "expected_themes": ["foxhaven", "proposal", "waiting", "procurement", "goal", "decision"]
+    },
+    {
+      "id": "q3",
+      "question": "What is the current state of the team - any issues, wins, or open situations?",
+      "expected_themes": ["james", "maria", "retention", "promotion", "hiring", "capacity"]
+    },
+    {
+      "id": "q4",
+      "question": "What are my most important priorities this week?",
+      "expected_themes": ["foxhaven", "goal", "orion", "sign-off", "hiring", "decision"]
+    },
+    {
+      "id": "q5",
+      "question": "What does the revenue and growth trajectory look like right now?",
+      "expected_themes": ["revenue", "growth", "milestone", "capacity", "hiring", "foxhaven"]
+    }
+  ]
+}

@@ -294,6 +294,78 @@ The planning agent and cognitive architecture harness described above remain ope
 
 ---
 
+## Track 10: Value verification
+
+### What opened this track
+
+The prior tracks establish implementation feasibility: the graph exists, the dynamics run, the retrieval is goal-biased, and documents wire into the same graph as conversation turns. That is sufficient to claim the system works as designed. It is not sufficient to claim it works better than a simpler alternative, and that claim is the one a provider or adopter needs to see.
+
+The central research question for this track is:
+
+Can user-owned, provider-portable memory improve long-horizon assistant quality without requiring the model provider to own the user's memory store?
+
+This question has three components, organized as three testable claims.
+
+### Claim 1: Better retrieval
+
+Graph-guided, goal-biased retrieval produces more useful context than flat recency retrieval.
+
+The hypothesis is specific: when a user has active goals, the goal-seeded BFS retrieves memory content that is more relevant, more complete, and better aligned with current priorities than a recency-ordered slice of the same corpus.
+
+The experiment compares three strategies against the same memory corpus and the same question set:
+- recency: most recently created public nodes, no graph traversal
+- graph: BFS from weight-ranked seeds, goal nodes treated as ordinary candidates
+- goal_graph: BFS from goal-node seeds first, then weight-ranked seeds
+
+Scoring uses an LLM-as-judge protocol on four dimensions (1-5 each): relevance, completeness, goal alignment, noise ratio. Composite score is the mean of the four. Token efficiency is composite divided by context token count.
+
+The benchmark harness (`php artisan benchmark:retrieval`) runs all three strategies against three synthetic but realistic corpora (software developer, academic researcher, small business owner), each with 20-22 memories, 2-3 goal nodes, and 5 questions. Results are written as JSON and a Markdown report to `storage/benchmarks/`. The JSON includes the retrieved context that was judged, so each score can be audited against the exact records shown to the judge.
+
+The finding this experiment targets: a specific percentage improvement in composite score for goal_graph over recency, and a specific percentage improvement in goal alignment for goal_graph over the weight-only graph strategy.
+
+**Status: benchmark harness implemented (2026-04-09).** `php artisan benchmark:retrieval` is live. `MemoryGraphService::retrieveContext()` now accepts a `$strategy` parameter (`recency`, `graph`, `goal_graph`) with `goal_graph` as the default. Three synthetic corpora are seeded in `database/benchmarks/`. The command supports `--limit`, `--corpus`, `--strategies`, and `--keep` for manual inspection. Failed judge calls are counted explicitly, partial reports exit non-zero, and headline comparisons are suppressed unless the relevant strategy pair has complete scores. The measurement is ready to run. Results not yet recorded.
+
+The benchmark measures retrieved context quality, not final answer quality. A later experiment should run the full assistant response path and judge the answer itself after the retrieval context has been injected.
+
+### Claim 2: Safer memory ownership
+
+A provider can use high-quality memory without storing or owning the memory corpus.
+
+The experiment is architectural rather than quantitative. It documents the threat model: what the provider can and cannot access in the current design, and what the guarantees are for each sensitivity level.
+
+Artifacts needed:
+- A threat model document describing what provider-side code receives (scoped context records, not raw memory), what it never receives (private or sensitive records, the full memory graph, canister contents), and the cryptographic basis for those guarantees in live ICP mode.
+- A demonstration that browser-signed writes prevent server-side forgery: the provider's Laravel backend cannot write to the canister under the user's principal.
+- A demonstration that MCP-based reads expose only the public memory slice, and that private and sensitive records are never transmitted regardless of what the MCP client requests.
+- A calculation of provider liability reduction: if a user's memory graph is stored in a canister they control, not on a provider's servers, what compliance obligations does the provider avoid?
+
+This claim matters because user life context is high-liability data. A provider may prefer a design where the user owns memory and the assistant receives only scoped context records, rather than being the custodian of memory they cannot fully audit or delete.
+
+**Status: open.** The architecture supports the claim. The threat model document and the demonstrations listed above are not yet written.
+
+### Claim 3: Better goal continuity
+
+Explicit goal nodes improve response alignment across sessions and across different types of knowledge in the graph.
+
+The experiment runs the same memory graph and the same prompt set twice: once with goal nodes included in retrieval, once with goal nodes removed. The expected finding is that responses in the goal-included condition stay closer to the user's stated projects, priorities, and constraints, and that this effect is measurable by LLM-as-judge evaluation of whether responses address the user's actual situation rather than just the immediate question.
+
+This is the "second brain" component of the system. Remembering facts is necessary but not sufficient. The system also needs to remember what the user is trying to do, and surface that knowledge when the user asks a question that does not explicitly mention their goals.
+
+**Status: open.** The experiment requires the Claim 1 benchmark harness to be extended with a goal-ablation condition: run `goal_graph` retrieval with goal nodes present in the corpus, then run again with goal nodes excluded, and compare judge scores. This is a parameter change to the benchmark, not a new system.
+
+### Terminology for adoption-facing documentation
+
+The biology-inspired terminology used elsewhere in this research agenda is not load-bearing in this track. Adoption-facing documentation and the benchmark reports should use systems language:
+
+- "reinforced graph retrieval with decay" instead of "Physarum dynamics"
+- "co-access reinforcement" instead of "Hebbian paths"
+- "usage-weighted graph recall" instead of "slime mold memory"
+- "provider-portable user memory layer" instead of "second brain"
+
+The biology framing remains in SCIENCE.md and DEVLOG. This track's outputs (the benchmark report, the threat model document, and any external-facing writeups) use systems language throughout.
+
+---
+
 ## Closed tracks
 
 None yet. This agenda opened on 2026-03-13.

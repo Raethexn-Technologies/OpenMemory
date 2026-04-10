@@ -7,6 +7,7 @@ app/storage/logs/
 app/storage/framework/sessions/
 app/storage/framework/views/
 app/storage/framework/cache/
+app/storage/benchmarks/
 app/database/database.sqlite
 app/.env.bak
 

@@ -185,6 +185,17 @@ All three commands are scheduled automatically via `routes/console.php`. Both co
 
 ## Research diagnostics
 
+**Retrieval benchmark** compares three context selection strategies against synthetic user-memory corpora: flat recency, weight-only graph retrieval, and goal-biased graph retrieval. Each corpus is seeded into an isolated benchmark user partition, judged with an LLM-as-judge rubric, then deleted unless `--keep` is passed. Reports are written to `storage/benchmarks/`.
+
+```bash
+php artisan benchmark:retrieval
+php artisan benchmark:retrieval --strategies=recency,goal_graph
+php artisan benchmark:retrieval --corpus=database/benchmarks/corpus_01_software_developer.json
+php artisan benchmark:retrieval --keep
+```
+
+The benchmark measures retrieval quality only. It does not answer whether the final assistant response improves, because the judged artifact is the retrieved context set rather than the generated answer. If any judge call fails, the command still writes the partial report but exits non-zero and suppresses headline comparison claims.
+
 **Cross-source coherence check** is an on-demand command that injects a synthetic document chunk with tags copied from existing chat nodes and reports whether `same_topic_as` edges form across sources. The command deletes the synthetic nodes unless `--keep` is passed, so it tests graph wiring without leaving permanent artifacts behind.
 
 ```bash
@@ -275,7 +286,7 @@ cd app
 php artisan test
 ```
 
-The test suite runs against SQLite in-memory and mock mode throughout. No API key or canister is required. Coverage includes the storage trigger (MemorabilityService decisions, hallucinated node ID rejection, consolidated node exclusion), document chunking and ingestion, document controller routes, goal-biased retrieval seed selection, graph reinforcement, edge decay, neighborhood traversal, cluster detection determinism, graph snapshot storage and pruning, agent alignment Jaccard calculation, the memory approval flow, the `active_node_ids` response field, consolidation pipeline (concept node creation, supersedes edges, sensitivity inheritance, re-consolidation prevention), node pruning (floor-weight detection, idle window, edge cascade delete, user scoping, dry-run), the MCP store endpoint (API key auth, graph node creation), and the ThreeD page load with agent scoping.
+The test suite runs against SQLite in-memory and mock mode throughout. No API key or canister is required. Coverage includes the storage trigger (MemorabilityService decisions, hallucinated node ID rejection, consolidated node exclusion), document chunking and ingestion, document controller routes, goal-biased retrieval seed selection, graph and recency retrieval strategy selection, benchmark cleanup behavior, graph reinforcement, edge decay, neighborhood traversal, cluster detection determinism, graph snapshot storage and pruning, agent alignment Jaccard calculation, the memory approval flow, the `active_node_ids` response field, consolidation pipeline (concept node creation, supersedes edges, sensitivity inheritance, re-consolidation prevention), node pruning (floor-weight detection, idle window, edge cascade delete, user scoping, dry-run), the MCP store endpoint (API key auth, graph node creation), and the ThreeD page load with agent scoping.
 
 ---
 
@@ -290,6 +301,8 @@ OpenMemory/
 │   │   │   ├── ConsolidateMemory.php        # php artisan memory:consolidate (weekly)
 │   │   │   ├── PruneMemoryNodes.php         # php artisan memory:prune (monthly)
 │   │   │   ├── TakeGraphSnapshot.php        # php artisan graph:snapshot (runs every 15 min)
+│   │   │   ├── GraphCoherenceCheck.php      # php artisan graph:coherence-check
+│   │   │   ├── BenchmarkRetrieval.php       # php artisan benchmark:retrieval
 │   │   │   └── SimulateDay.php              # php artisan simulate:day (demo seeder)
 │   │   ├── Http/Controllers/
 │   │   │   ├── ChatController.php           # chat, memory store, graph sync endpoints
@@ -309,6 +322,7 @@ OpenMemory/
 │   │   │   ├── MemoryGraphService.php       # stores nodes, wires edges, Physarum dynamics
 │   │   │   ├── ClusterDetectionService.php  # weighted label propagation community detection
 │   │   │   ├── MultiAgentGraphService.php   # collective Physarum, shared edges, agent seeding
+│   │   │   ├── BenchmarkService.php         # retrieval strategy benchmark harness
 │   │   │   └── LLM/
 │   │   │       ├── LlmProviderInterface.php
 │   │   │       ├── LlmService.php
@@ -329,6 +343,10 @@ OpenMemory/
 │   │   ├── ..._create_agents_table.php
 │   │   ├── ..._create_shared_memory_edges_table.php
 │   │   └── ..._create_graph_snapshots_table.php
+│   ├── database/benchmarks/
+│   │   ├── corpus_01_software_developer.json
+│   │   ├── corpus_02_researcher.json
+│   │   └── corpus_03_business_owner.json
 │   ├── resources/js/
 │   │   ├── Pages/
 │   │   │   ├── Chat/Index.vue               # chat interface and My Memories panel
@@ -379,6 +397,7 @@ OpenMemory/
 | DocumentIngestionService | Creates document anchor nodes, stores chunk nodes, and wires `part_of` edges back to the source document |
 | GraphExtractionService | LLM pass after each confirmed memory write or document chunk; extracts node type, label, tags, people, projects |
 | MemoryGraphService | Creates nodes, auto-wires edges, applies Hebbian reinforcement, runs Physarum decay |
+| BenchmarkService | Seeds isolated corpora and scores retrieval strategies with an LLM-as-judge rubric |
 | ConsolidationService | Weekly: compresses high-density episodic clusters into semantic concept nodes via LLM summarization |
 | ClusterDetectionService | Weighted label propagation producing community membership and mean weight per cluster |
 | MultiAgentGraphService | Creates and seeds graph partitions, updates shared edges with trust-weighted ALPHA, retrieves collective context |
