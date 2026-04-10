@@ -112,7 +112,8 @@ class BenchmarkRetrieval extends Command
         }
 
         $aggregated = $this->aggregateResults($allCorpusResults, $strategies);
-        $this->printAggregateSummary($aggregated, $strategies);
+        $judgeCalls = $this->aggregateJudgeCalls($allCorpusResults);
+        $this->printAggregateSummary($allCorpusResults, $aggregated, $strategies);
 
         $outputDir = storage_path('benchmarks');
         File::ensureDirectoryExists($outputDir);
@@ -126,16 +127,23 @@ class BenchmarkRetrieval extends Command
             'strategies' => $strategies,
             'context_limit' => $contextLimit,
             'kept_seed_data' => $keep,
+            'judge_calls' => $judgeCalls,
             'corpora'    => $allCorpusResults,
             'aggregate'  => $aggregated,
         ], JSON_PRETTY_PRINT));
 
-        File::put($mdPath, $this->buildMarkdownReport($allCorpusResults, $aggregated, $strategies, $contextLimit));
+        File::put($mdPath, $this->buildMarkdownReport($allCorpusResults, $aggregated, $strategies, $contextLimit, $judgeCalls));
 
         $this->newLine();
         $this->info('Results written to:');
         $this->line("  JSON   : {$jsonPath}");
         $this->line("  Report : {$mdPath}");
+
+        if (! $judgeCalls['complete']) {
+            $this->newLine();
+            $this->warn("Benchmark completed with {$judgeCalls['failed']} failed judge calls. Treat the report as incomplete.");
+            return self::FAILURE;
+        }
 
         return self::SUCCESS;
     }
@@ -181,7 +189,7 @@ class BenchmarkRetrieval extends Command
         }
     }
 
-    private function printAggregateSummary(array $aggregated, array $strategies): void
+    private function printAggregateSummary(array $corpusResults, array $aggregated, array $strategies): void
     {
         $this->info('Aggregate across all corpora:');
         $this->printCorpusSummary($aggregated, $strategies);
@@ -191,15 +199,20 @@ class BenchmarkRetrieval extends Command
         $recency   = $aggregated['recency'] ?? null;
         $graph     = $aggregated['graph'] ?? null;
 
-        if ($goalGraph && $recency && $recency['composite'] > 0) {
+        if ($goalGraph && $recency && $recency['composite'] > 0 && $this->comparisonComplete($corpusResults, ['goal_graph', 'recency'])) {
             $lift = round(($goalGraph['composite'] - $recency['composite']) / $recency['composite'] * 100, 1);
             $this->newLine();
             $this->line("  goal_graph vs recency: composite lift = {$lift}%");
+        } elseif (in_array('goal_graph', $strategies, true) && in_array('recency', $strategies, true)) {
+            $this->newLine();
+            $this->line('  goal_graph vs recency: unavailable; judge results are incomplete.');
         }
 
-        if ($goalGraph && $graph && $graph['goal_alignment'] > 0) {
+        if ($goalGraph && $graph && $graph['goal_alignment'] > 0 && $this->comparisonComplete($corpusResults, ['goal_graph', 'graph'])) {
             $gaLift = round(($goalGraph['goal_alignment'] - $graph['goal_alignment']) / $graph['goal_alignment'] * 100, 1);
             $this->line("  goal_graph vs graph: goal_alignment lift = {$gaLift}%");
+        } elseif (in_array('goal_graph', $strategies, true) && in_array('graph', $strategies, true)) {
+            $this->line('  goal_graph vs graph: unavailable; judge results are incomplete.');
         }
     }
 
@@ -257,9 +270,41 @@ class BenchmarkRetrieval extends Command
         return $aggregated;
     }
 
+    private function aggregateJudgeCalls(array $corpusResults): array
+    {
+        $totals = ['expected' => 0, 'completed' => 0, 'failed' => 0];
+
+        foreach ($corpusResults as $corpusResult) {
+            $calls = $corpusResult['judge_calls'] ?? ['expected' => 0, 'completed' => 0, 'failed' => 0];
+            $totals['expected'] += $calls['expected'];
+            $totals['completed'] += $calls['completed'];
+            $totals['failed'] += $calls['failed'];
+        }
+
+        $totals['complete'] = $totals['failed'] === 0;
+
+        return $totals;
+    }
+
+    private function comparisonComplete(array $corpusResults, array $strategies): bool
+    {
+        foreach ($corpusResults as $corpusResult) {
+            foreach ($corpusResult['results'] as $q) {
+                foreach ($strategies as $strategy) {
+                    $scores = $q['strategies'][$strategy]['scores'] ?? null;
+                    if ($scores === null) {
+                        return false;
+                    }
+                }
+            }
+        }
+
+        return true;
+    }
+
     // Markdown report.
 
-    private function buildMarkdownReport(array $corpusResults, array $aggregated, array $strategies, int $contextLimit): string
+    private function buildMarkdownReport(array $corpusResults, array $aggregated, array $strategies, int $contextLimit, array $judgeCalls): string
     {
         $runAt = Carbon::now()->toIso8601String();
         $totalQuestions = array_sum(array_column($corpusResults, 'question_count'));
@@ -269,7 +314,14 @@ class BenchmarkRetrieval extends Command
         $lines[] = "";
         $lines[] = "Run at: {$runAt}";
         $lines[] = "Corpora: " . count($corpusResults) . " | Questions: {$totalQuestions} | Strategies: " . implode(', ', $strategies);
+        $lines[] = "Judge calls: {$judgeCalls['completed']}/{$judgeCalls['expected']} completed";
         $lines[] = "";
+
+        if (! $judgeCalls['complete']) {
+            $lines[] = "**Incomplete run.** {$judgeCalls['failed']} judge calls failed. Do not treat aggregate comparisons as valid findings.";
+            $lines[] = "";
+        }
+
         $lines[] = "---";
         $lines[] = "";
         $lines[] = "## Aggregate Results";
@@ -282,13 +334,13 @@ class BenchmarkRetrieval extends Command
         $recency   = $aggregated['recency'] ?? null;
         $graph     = $aggregated['graph'] ?? null;
 
-        if ($goalGraph && $recency && $recency['composite'] > 0) {
+        if ($goalGraph && $recency && $recency['composite'] > 0 && $this->comparisonComplete($corpusResults, ['goal_graph', 'recency'])) {
             $lift   = round(($goalGraph['composite'] - $recency['composite']) / $recency['composite'] * 100, 1);
             $lines[] = "Goal-biased graph retrieval improved composite score by **{$lift}%** over the recency baseline.";
             $lines[] = "";
         }
 
-        if ($goalGraph && $graph && $graph['goal_alignment'] > 0) {
+        if ($goalGraph && $graph && $graph['goal_alignment'] > 0 && $this->comparisonComplete($corpusResults, ['goal_graph', 'graph'])) {
             $gaLift = round(($goalGraph['goal_alignment'] - $graph['goal_alignment']) / $graph['goal_alignment'] * 100, 1);
             $lines[] = "Goal alignment improved by **{$gaLift}%** over weight-only graph retrieval.";
             $lines[] = "";

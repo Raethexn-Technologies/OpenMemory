@@ -150,6 +150,7 @@ TEMPLATE;
             }
 
             $summary = $this->summariseCorpus($results, $strategies);
+            $judgeCalls = $this->summariseJudgeCalls($results, $strategies);
 
             return [
                 'corpus_id' => $corpusId,
@@ -158,6 +159,7 @@ TEMPLATE;
                 'description' => $corpus['description'] ?? '',
                 'question_count' => count($corpus['questions']),
                 'memory_count' => count($corpus['memories']) + count($corpus['goals']),
+                'judge_calls' => $judgeCalls,
                 'results' => $results,
                 'summary' => $summary,
             ];
@@ -336,6 +338,36 @@ TEMPLATE;
         }
 
         return $summary;
+    }
+
+    /**
+     * Count completed and failed judge calls for report validity checks.
+     *
+     * @param  string[]  $strategies
+     * @return array{expected: int, completed: int, failed: int, complete: bool}
+     */
+    private function summariseJudgeCalls(array $results, array $strategies): array
+    {
+        $expected = count($results) * count($strategies);
+        $completed = 0;
+
+        foreach ($results as $q) {
+            foreach ($strategies as $s) {
+                $r = $q['strategies'][$s] ?? null;
+                if ($r !== null && $r['scores'] !== null) {
+                    $completed++;
+                }
+            }
+        }
+
+        $failed = $expected - $completed;
+
+        return [
+            'expected' => $expected,
+            'completed' => $completed,
+            'failed' => $failed,
+            'complete' => $failed === 0,
+        ];
     }
 
     // JSON parsing.

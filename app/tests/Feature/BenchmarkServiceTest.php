@@ -25,6 +25,7 @@ class BenchmarkServiceTest extends TestCase
         $strategy = $result['results'][0]['strategies']['recency'];
         $this->assertSame(1, $strategy['retrieved_count']);
         $this->assertCount(1, $strategy['context']);
+        $this->assertSame(['expected' => 1, 'completed' => 1, 'failed' => 0, 'complete' => true], $result['judge_calls']);
         $this->assertFalse($result['kept_seed_data']);
         $this->assertSame(0, MemoryNode::where('user_id', $result['user_id'])->count());
     }
@@ -55,6 +56,25 @@ class BenchmarkServiceTest extends TestCase
         );
 
         $this->assertSame(2, $calls);
+    }
+
+    public function test_run_corpus_marks_failed_judge_calls_as_incomplete(): void
+    {
+        $llm = Mockery::mock(LlmService::class);
+        $llm->shouldReceive('chat')->andThrow(new \RuntimeException('quota exhausted'));
+
+        $service = new BenchmarkService(app(MemoryGraphService::class), $llm);
+
+        $result = $service->runCorpus($this->corpus(), ['recency', 'goal_graph'], 2);
+
+        $this->assertSame([
+            'expected' => 2,
+            'completed' => 0,
+            'failed' => 2,
+            'complete' => false,
+        ], $result['judge_calls']);
+        $this->assertNull($result['results'][0]['strategies']['recency']['scores']);
+        $this->assertNull($result['results'][0]['strategies']['goal_graph']['scores']);
     }
 
     private function makeService(): BenchmarkService

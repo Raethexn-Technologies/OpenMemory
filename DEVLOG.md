@@ -47,7 +47,11 @@ The benchmark still has a narrow scope. It judges retrieved context, not the fin
 
 #### Verification
 
-Targeted tests cover recency strategy selection, graph-only strategy behavior, invalid strategy rejection, benchmark context limits, default cleanup, retained seed partitions, and progress callbacks. The full suite passes at 178 tests.
+The first live run exposed an environment issue and a report-validity issue. The local SQLite database still needed the `goal` type migration, so the first attempt failed before any judge calls. After migration, the benchmark seeded correctly, but OpenRouter returned 402 insufficient-credit errors after the early judge calls. That produced an incomplete report, not a valid finding.
+
+The command now records expected, completed, and failed judge call counts. It writes partial JSON and Markdown for debugging, but exits non-zero and suppresses headline lift claims when the relevant strategy pairs are incomplete.
+
+Targeted tests cover recency strategy selection, graph-only strategy behavior, invalid strategy rejection, benchmark context limits, default cleanup, retained seed partitions, progress callbacks, and failed judge call accounting. The full suite passes at 179 tests.
 
 ---
 

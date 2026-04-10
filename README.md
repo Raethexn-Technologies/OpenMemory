@@ -194,7 +194,7 @@ php artisan benchmark:retrieval --corpus=database/benchmarks/corpus_01_software_
 php artisan benchmark:retrieval --keep
 ```
 
-The benchmark measures retrieval quality only. It does not answer whether the final assistant response improves, because the judged artifact is the retrieved context set rather than the generated answer.
+The benchmark measures retrieval quality only. It does not answer whether the final assistant response improves, because the judged artifact is the retrieved context set rather than the generated answer. If any judge call fails, the command still writes the partial report but exits non-zero and suppresses headline comparison claims.
 
 **Cross-source coherence check** is an on-demand command that injects a synthetic document chunk with tags copied from existing chat nodes and reports whether `same_topic_as` edges form across sources. The command deletes the synthetic nodes unless `--keep` is passed, so it tests graph wiring without leaving permanent artifacts behind.
 
