@@ -18,6 +18,55 @@ The log is append-only. Entries are not edited after the fact.
 
 ---
 
+## Entry 026 - 2026-04-22
+### Harder corpus and goal ablation: recency gap narrows, goal contribution measured
+
+#### What was built
+
+Two additions to the benchmark infrastructure, implemented together in one changeset:
+
+`--ablate-goals` flag on `benchmark:retrieval`. When set, the command runs a second pass of each corpus with goal nodes excluded from seeding. `BenchmarkService::seedCorpus()` accepts `bool $excludeGoals = false` and skips the goal loop when true. The report gains a "Goal Ablation Analysis" section with a per-corpus and aggregate comparison table showing goal_graph scores with and without goal nodes: goal_alignment delta, composite delta. JSON output gains an `ablation` key with the full second-pass results. Four new tests cover goal exclusion, default inclusion, and the `goals_excluded` return flag.
+
+`corpus_04_longhorizon_engineer.json`. Forty memories spanning a 12-month horizon, three goals. Questions designed to require nodes from 1 to 12 months ago, including a database decision at day 360, SAML lessons at days 110-125, a caching evolution question spanning days 350 and 142, and a technical debt status question requiring both a day-55 audit and a day-12 merge event. Recency's top-12 window contains only current-sprint content and cannot answer the knowledge-history questions directly.
+
+#### The corpus_04 results
+
+| Strategy | Composite | Goal Alignment |
+|---|---|---|
+| recency | 2.30 | 2.40 |
+| graph | 2.25 | 2.60 |
+| goal_graph | 2.25 | 2.80 |
+
+All scores are lower than corpora 01-03. That is the expected result. The corpus is genuinely harder: the judge correctly identifies that 12 retrieved nodes from a 43-node corpus spanning 12 months cannot fully answer questions about decisions made at day 360 or incident lessons from months ago. The low scores confirm the corpus is doing what it was designed to do.
+
+The recency gap has narrowed. On corpora 01-03, recency beat goal_graph by 5.3% composite. On corpus_04, the gap is 2.2%. The harder time horizon reduces recency's advantage without eliminating it.
+
+Goal alignment lift increased. goal_graph beats plain graph by 7.7% on goal_alignment for corpus_04, versus 5.4% on the original three corpora. Goal nodes are more differentiating on longer-horizon corpora.
+
+#### The ablation finding
+
+| Condition | Goal Alignment | Composite |
+|---|---|---|
+| goal_graph with goals | 2.80 | 2.25 |
+| goal_graph without goals | 2.40 | 2.45 |
+| Delta | +0.40 | -0.20 |
+
+Goal nodes contribute +0.40 to goal_alignment. That is the Claim 3 finding: explicit goal nodes improve the system's ability to surface content relevant to the user's active priorities, measurably, by a specific margin.
+
+The composite delta is -0.20 when goals are present. Goal nodes occupy retrieval slots. On corpus_04, those slots would otherwise be filled by weight-ranked nodes, and for knowledge-retrieval questions (q1 architecture, q2 SAML lessons, q4 caching evolution), weight-ranked nodes are more directly relevant than goal content. Goal nodes improve goal alignment by pulling in priority context; they reduce completeness on questions that require factual synthesis from historical nodes.
+
+This is the design tension that the corpus reveals: goal seeding is a good default for "what should I work on?" and "what are my priorities?" questions. It is a net cost for "what was the decision about X?" questions where the answer is a historical fact unrelated to current goals.
+
+#### What this means
+
+Claim 1 (better retrieval) remains unconfirmed. Recency is competitive even at 12-month time horizons with 40-node corpora. The gap is narrowing (5.3% down to 2.2%) but has not flipped. A larger corpus or a smaller context window relative to corpus size would push the advantage further toward graph traversal. At CONTEXT_LIMIT=12 and 43 nodes, recency still reaches a meaningful fraction of the corpus.
+
+Claim 3 (goal continuity) has a number: goal nodes contribute +0.40 to goal_alignment. They are not free. The tradeoff is real and the ablation makes it quantifiable.
+
+Results archived at `storage/benchmarks/results-2026-04-22_024941.json` and `storage/benchmarks/report-2026-04-22_024941.md`.
+
+---
+
 ## Entry 025 - 2026-04-22
 ### First complete benchmark run: recency holds, goal alignment confirmed, hypothesis partially falsified
 

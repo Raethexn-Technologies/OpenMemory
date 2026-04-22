@@ -1,0 +1,334 @@
+{
+  "id": "corpus_04",
+  "description": "Full-stack engineer at a startup tracking a year of architectural decisions, incidents, and team growth",
+  "persona": "Lead backend engineer at a 4-person startup. Has been keeping memory notes for a year covering database choices, performance incidents, enterprise client onboarding, hiring, and ongoing technical debt. Currently planning Q2.",
+  "memories": [
+    {
+      "content": "Chose PostgreSQL over MongoDB for the main data store. Key reasons: complex reporting queries that require JOINs, existing team SQL familiarity, and better ACID guarantees for transactional user data. MongoDB rejected because aggregation pipelines are harder to maintain than SQL views.",
+      "type": "memory",
+      "label": "Database choice: PostgreSQL over MongoDB",
+      "tags": ["postgresql", "mongodb", "database", "architecture", "decision", "reporting", "acid"],
+      "created_days_ago": 360
+    },
+    {
+      "content": "Decided on monorepo structure over microservices. Team of three, deployment simplicity, and a single shared data model outweigh isolation benefits at current scale. Will revisit if team grows past ten engineers.",
+      "type": "memory",
+      "label": "Monorepo over microservices",
+      "tags": ["architecture", "decision", "monorepo", "microservices", "team"],
+      "created_days_ago": 355
+    },
+    {
+      "content": "Evaluated Redis, Memcached, and in-process LRU for API caching. Chose Redis with a 5-minute TTL for user session data and a 1-hour TTL for report aggregates. Memcached rejected because Redis is already in the stack for queues.",
+      "type": "memory",
+      "label": "Caching strategy: Redis with tiered TTL",
+      "tags": ["redis", "caching", "architecture", "decision", "ttl", "session", "memcached"],
+      "created_days_ago": 350
+    },
+    {
+      "content": "GitHub Actions CI/CD pipeline configured. Test suite runs on every PR. Staging deploys automatically on merge to main. Production requires manual approval gate to prevent accidental deploys.",
+      "type": "memory",
+      "label": "CI/CD with GitHub Actions and manual production gate",
+      "tags": ["ci-cd", "github-actions", "deployment", "staging", "infrastructure"],
+      "created_days_ago": 340
+    },
+    {
+      "content": "First major production bug: race condition in the user signup flow caused duplicate accounts under rapid concurrent requests. Fixed with a database-level unique constraint on the email column. Lesson: application-level validation is not a substitute for database constraints.",
+      "type": "event",
+      "label": "Signup race condition fixed with DB unique constraint",
+      "tags": ["bug", "race-condition", "postgresql", "signup", "constraint", "lesson"],
+      "created_days_ago": 320
+    },
+    {
+      "content": "Onboarded Sarah (first hire). Strong backend background with Rails, new to TypeScript and our Laravel stack. She will take ownership of the reporting module once ramped up, roughly 6 weeks in.",
+      "type": "memory",
+      "label": "Onboarded Sarah - backend engineer",
+      "tags": ["team", "onboarding", "sarah", "hiring", "backend", "reporting"],
+      "created_days_ago": 310
+    },
+    {
+      "content": "Zero-downtime migration from MySQL to PostgreSQL completed after three weeks. Used blue-green deployment with a 48-hour dual-write period to validate data integrity. No data loss, 2-minute maintenance window.",
+      "type": "event",
+      "label": "MySQL to PostgreSQL migration completed zero-downtime",
+      "tags": ["postgresql", "mysql", "migration", "deployment", "database", "blue-green"],
+      "created_days_ago": 180
+    },
+    {
+      "content": "Major performance incident: API response times hit 8-second average under normal load. Traced to an N+1 query in the user dashboard endpoint - loading each user's projects in a separate query inside a loop over 200 users.",
+      "type": "event",
+      "label": "Performance incident: N+1 query in dashboard endpoint",
+      "tags": ["performance", "incident", "n+1", "query", "dashboard", "postgresql", "debugging"],
+      "created_days_ago": 170
+    },
+    {
+      "content": "N+1 query fixed with eager loading and a covering index on (user_id, project_id). Also added query time logging middleware that triggers a warning log when any query exceeds 500ms. Post-fix p99 API response time dropped from 8s to 180ms.",
+      "type": "memory",
+      "label": "N+1 fix: eager loading, index, and query logging",
+      "tags": ["performance", "fix", "eager-loading", "query-logging", "postgresql", "incident", "index"],
+      "created_days_ago": 165
+    },
+    {
+      "content": "Onboarded Marcus (second hire). Strong frontend background with React and Next.js. New to our Vue/Inertia stack but learning fast. Will own the dashboard UI and all frontend performance work.",
+      "type": "memory",
+      "label": "Onboarded Marcus - frontend engineer",
+      "tags": ["team", "onboarding", "marcus", "hiring", "frontend", "vue", "dashboard"],
+      "created_days_ago": 160
+    },
+    {
+      "content": "Cache invalidation bug caused stale data in production for 4 hours. Root cause: the model soft-delete handler did not call the cache invalidation method. Users saw deleted records until the TTL expired naturally.",
+      "type": "event",
+      "label": "Cache invalidation bug on soft deletes - 4 hour stale data",
+      "tags": ["redis", "caching", "bug", "invalidation", "soft-delete", "incident", "stale-data"],
+      "created_days_ago": 145
+    },
+    {
+      "content": "Wrote a cache invalidation runbook after the incident. Core rule: every model mutation (create, update, delete, soft-delete) must call the corresponding cache invalidation method. Added a PHP-CS-Fixer rule to flag mutation methods missing the invalidation call.",
+      "type": "memory",
+      "label": "Cache invalidation runbook and static analysis rule",
+      "tags": ["redis", "caching", "runbook", "invalidation", "process", "lesson", "soft-delete"],
+      "created_days_ago": 142
+    },
+    {
+      "content": "First enterprise client signed: Brightfield Corp. Contract requires SAML 2.0 SSO and a full audit log covering all data access and mutations. Estimated 2 weeks for SSO, 1 week for the audit log.",
+      "type": "event",
+      "label": "Brightfield Corp signed - first enterprise client",
+      "tags": ["brightfield", "enterprise", "client", "saml", "sso", "audit-log"],
+      "created_days_ago": 130
+    },
+    {
+      "content": "SAML 2.0 SSO implementation using the php-saml library. SAML is significantly more complex than OAuth: SP metadata exchange, IdP metadata validation, assertion signing, attribute mapping, and session lifecycle all require explicit configuration. IdP-initiated SSO is a separate code path from SP-initiated.",
+      "type": "memory",
+      "label": "SAML 2.0 implementation details and complexity notes",
+      "tags": ["saml", "sso", "php-saml", "enterprise", "authentication", "brightfield", "complexity"],
+      "created_days_ago": 125
+    },
+    {
+      "content": "SSO shipped to Brightfield. Took 6 weeks instead of the estimated 2. SAML spec is large, php-saml documentation is incomplete for edge cases, and IdP-initiated SSO required an undocumented workaround. Key lesson: multiply SAML time estimates by 3x.",
+      "type": "event",
+      "label": "SSO shipped to Brightfield - 3x over estimate",
+      "tags": ["saml", "sso", "brightfield", "estimation", "lesson", "enterprise", "3x-multiplier"],
+      "created_days_ago": 120
+    },
+    {
+      "content": "Decided to use event sourcing for the audit log rather than a simple append-only log table. Events are immutable and versioned, allowing replay to reconstruct any past system state. Adds implementation complexity but gives Brightfield the compliance guarantees they need for their SOC 2 audit.",
+      "type": "memory",
+      "label": "Audit log: event sourcing over append-only log table",
+      "tags": ["audit-log", "event-sourcing", "brightfield", "compliance", "decision", "architecture", "soc2"],
+      "created_days_ago": 115
+    },
+    {
+      "content": "Retrospective on SAML integration: estimation failed because we had no prior experience with SAML. The 3x multiplier applies to any integration with a spec-heavy enterprise protocol (SAML, SCIM, AS2). The php-saml library works but document the workarounds for IdP-initiated flows.",
+      "type": "memory",
+      "label": "SAML retrospective: 3x multiplier for spec-heavy protocols",
+      "tags": ["saml", "estimation", "retrospective", "lesson", "enterprise", "3x-multiplier", "scim"],
+      "created_days_ago": 110
+    },
+    {
+      "content": "Sarah given formal ownership of the reporting module. Fully ramped after 6 weeks. She is now the primary contact for all analytics queries, report generation logic, and the query builder layer. She identified and fixed 3 slow queries in her first week of ownership.",
+      "type": "event",
+      "label": "Sarah owns reporting module - fully ramped",
+      "tags": ["sarah", "team", "ownership", "reporting", "analytics", "queries"],
+      "created_days_ago": 105
+    },
+    {
+      "content": "Load test with k6: API sustains 800 req/s at p99 under 200ms on current infrastructure (2 app servers behind a load balancer, Redis on a separate host, PostgreSQL on a dedicated instance). No bottlenecks identified at current traffic levels.",
+      "type": "memory",
+      "label": "k6 load test: 800 req/s at p99 <200ms",
+      "tags": ["performance", "k6", "load-testing", "infrastructure", "postgresql", "redis", "scaling"],
+      "created_days_ago": 100
+    },
+    {
+      "content": "Notification system implementation started. Will support email via Mailgun, in-app notifications with a polling endpoint, and eventually webhooks for enterprise clients who want push delivery.",
+      "type": "memory",
+      "label": "Notification system: email, in-app, future webhooks",
+      "tags": ["notifications", "email", "mailgun", "webhooks", "feature", "in-app"],
+      "created_days_ago": 90
+    },
+    {
+      "content": "Chose Bull queue over AWS SQS for notification jobs. Reasoning: Redis is already running in the stack, Bull has a better local development experience than SQS, and adding AWS would introduce a cloud dependency we do not currently have.",
+      "type": "memory",
+      "label": "Notification queue: Bull over AWS SQS",
+      "tags": ["bull", "queue", "redis", "sqs", "decision", "notifications", "aws"],
+      "created_days_ago": 85
+    },
+    {
+      "content": "Notification emails landing in spam for several users. Fixed by adding SPF and DKIM records to DNS and warming up the Mailgun sending domain over 2 weeks with gradually increasing volume.",
+      "type": "event",
+      "label": "Email deliverability fixed: SPF/DKIM and domain warmup",
+      "tags": ["email", "mailgun", "deliverability", "spf", "dkim", "notifications", "dns"],
+      "created_days_ago": 80
+    },
+    {
+      "content": "Second enterprise client signed: TerraLoop. Similar SSO and audit log requirements to Brightfield. The SAML module and event sourcing audit log can be reused with IdP metadata swap and attribute mapping updates.",
+      "type": "event",
+      "label": "TerraLoop signed - second enterprise client",
+      "tags": ["terraloop", "enterprise", "client", "saml", "sso", "audit-log", "reuse"],
+      "created_days_ago": 75
+    },
+    {
+      "content": "TerraLoop SSO and audit log completed in 2 weeks. Reusing the Brightfield SAML module required only IdP metadata configuration and attribute mapping. The 3x time savings versus the original Brightfield implementation confirms the value of the reusable module.",
+      "type": "event",
+      "label": "TerraLoop SSO in 2 weeks vs 6 - reuse confirmed",
+      "tags": ["terraloop", "saml", "sso", "reuse", "enterprise", "lesson", "brightfield"],
+      "created_days_ago": 72
+    },
+    {
+      "content": "Marcus shipped the redesigned dashboard UI. Rebuilt from server-rendered HTML table to Vue components with virtual scrolling. Page load time dropped from 4.2 seconds to 640ms for the largest customer accounts.",
+      "type": "event",
+      "label": "Marcus ships new dashboard: 85% faster load time",
+      "tags": ["marcus", "dashboard", "performance", "frontend", "vue", "virtual-scrolling"],
+      "created_days_ago": 65
+    },
+    {
+      "content": "Q1 quarterly review: MRR at $42k against a $38k target. Brightfield and TerraLoop contributing $18k combined. Hiring plan approved for one senior fullstack engineer. Target: $60k MRR by end of year.",
+      "type": "event",
+      "label": "Q1 review: $42k MRR, senior hire approved, $60k target",
+      "tags": ["revenue", "mrr", "hiring", "growth", "enterprise", "quarterly", "brightfield", "terraloop"],
+      "created_days_ago": 60
+    },
+    {
+      "content": "Technical debt audit completed. Three modules flagged: (1) legacy user auth - no tests, 2000 lines of tangled logic grown over 18 months; (2) reporting query builder - no query time limits, risky on large datasets; (3) notification retry logic - retry count inconsistent across job types due to missing config defaults.",
+      "type": "memory",
+      "label": "Technical debt audit: auth, reporting queries, notification retry",
+      "tags": ["technical-debt", "auth", "reporting", "notifications", "audit", "retry"],
+      "created_days_ago": 55
+    },
+    {
+      "content": "Auth module rewrite started. Old code has zero tests and grew to 2000 lines over 18 months through incremental patches. New implementation will use Laravel Sanctum and require 100% branch coverage before merge.",
+      "type": "memory",
+      "label": "Auth rewrite started: Sanctum, 100% coverage target",
+      "tags": ["auth", "rewrite", "sanctum", "technical-debt", "testing", "coverage"],
+      "created_days_ago": 50
+    },
+    {
+      "content": "Decision: use Laravel Sanctum for the auth rewrite rather than continuing the custom token implementation. Sanctum handles token hashing, expiry, rotation, and revocation natively. The custom code will be deleted entirely, not refactored.",
+      "type": "memory",
+      "label": "Auth rewrite: Laravel Sanctum replaces custom tokens",
+      "tags": ["auth", "sanctum", "decision", "rewrite", "tokens", "security"],
+      "created_days_ago": 48
+    },
+    {
+      "content": "David accepted the senior fullstack offer. Starts in two weeks. Strong background with Node and Laravel. Will take primary ownership of the notification webhook feature and help close out the auth rewrite.",
+      "type": "event",
+      "label": "David hired - senior fullstack, owns notification webhooks",
+      "tags": ["david", "hiring", "team", "webhooks", "notifications", "auth"],
+      "created_days_ago": 42
+    },
+    {
+      "content": "David started. First week: full codebase walkthrough, reading the architecture docs, running the complete test suite locally. Good early questions about the event sourcing audit log design and why we chose it over a simpler log table.",
+      "type": "event",
+      "label": "David week one: onboarding and codebase review",
+      "tags": ["david", "onboarding", "team", "event-sourcing", "audit-log"],
+      "created_days_ago": 14
+    },
+    {
+      "content": "Auth module rewrite merged. 95% branch coverage achieved, 1200 lines of legacy code removed. Laravel Sanctum handling all token operations. Full regression suite passes including the 14 auth-specific edge case tests added during the rewrite.",
+      "type": "event",
+      "label": "Auth rewrite merged: 1200 lines removed, 95% coverage",
+      "tags": ["auth", "sanctum", "rewrite", "technical-debt", "testing", "merged", "coverage"],
+      "created_days_ago": 12
+    },
+    {
+      "content": "Brightfield requested a bulk export feature: ability to export all their account data as CSV or JSON on demand. Initial scoping suggests a background job using Bull queue, output written to S3, with a signed download URL sent by email when ready.",
+      "type": "event",
+      "label": "Brightfield bulk export request - scoping started",
+      "tags": ["brightfield", "bulk-export", "feature", "enterprise", "client", "s3", "bull"],
+      "created_days_ago": 10
+    },
+    {
+      "content": "Q2 planning session. Main tracks: (1) bulk export for Brightfield due mid-Q2, (2) notification webhooks for enterprise clients due end-Q2, (3) hiring one more senior engineer, (4) north star: reach $60k MRR. Sarah taking reporting query limits from the debt audit. Marcus on a new settings UI.",
+      "type": "event",
+      "label": "Q2 planning: export, webhooks, hiring, $60k MRR",
+      "tags": ["q2", "planning", "bulk-export", "webhooks", "hiring", "mrr", "sarah", "marcus"],
+      "created_days_ago": 8
+    },
+    {
+      "content": "Discovered a bug in notification retry logic: jobs are retrying 10 times instead of the documented 3. Root cause: a config typo in the queue worker settings file set 'attempts' to 10.",
+      "type": "event",
+      "label": "Notification retry bug: 10x instead of 3x",
+      "tags": ["notifications", "bug", "retry", "queue", "bull", "config"],
+      "created_days_ago": 6
+    },
+    {
+      "content": "Notification retry bug fixed. Corrected the 'attempts' config typo and added a startup validation check that reads the retry config and asserts it matches the expected values. This class of config typo cannot recur silently.",
+      "type": "event",
+      "label": "Retry bug fixed and config validation added",
+      "tags": ["notifications", "bug", "fix", "queue", "bull", "testing", "config", "validation"],
+      "created_days_ago": 5
+    },
+    {
+      "content": "David taking ownership of the notification webhook feature. Briefed him on the Bull queue architecture, the email and in-app notification handlers, and the retry bug that was just fixed. He reviewed the existing job classes and has a design proposal ready.",
+      "type": "event",
+      "label": "David owns notification webhooks - design proposal ready",
+      "tags": ["david", "webhooks", "notifications", "bull", "team", "ownership"],
+      "created_days_ago": 4
+    },
+    {
+      "content": "Bulk export scoped: background Bull job writes paginated results to S3 in chunks, sends a signed download URL by email when complete. Two-week estimate. Follows the same background job pattern as notification email delivery.",
+      "type": "memory",
+      "label": "Bulk export scoped: Bull + S3 + signed URL, 2-week estimate",
+      "tags": ["bulk-export", "bull", "s3", "feature", "brightfield", "scoping", "email"],
+      "created_days_ago": 3
+    },
+    {
+      "content": "Team weekly sync. Q2 tracks confirmed and assigned: David on notification webhooks, Sarah on reporting query time limits (from the debt audit), Marcus on the new settings UI. Bulk export starting next sprint, owned by me.",
+      "type": "event",
+      "label": "Q2 sync: David webhooks, Sarah reporting limits, Marcus settings",
+      "tags": ["team", "q2", "planning", "david", "sarah", "marcus", "webhooks", "reporting"],
+      "created_days_ago": 2
+    },
+    {
+      "content": "TerraLoop asking about multi-tenancy: they want to resell the product to their own clients under a white-label domain. Not on the roadmap. Requires significant architectural changes to the data isolation model. Will respond that it is not planned for this year.",
+      "type": "event",
+      "label": "TerraLoop multi-tenancy inquiry - not in 2026 roadmap",
+      "tags": ["terraloop", "multi-tenancy", "roadmap", "enterprise", "client", "architecture"],
+      "created_days_ago": 1
+    }
+  ],
+  "goals": [
+    {
+      "content": "Goal: Ship the bulk export feature for Brightfield and notification webhooks for enterprise clients before end of Q2.",
+      "label": "Ship bulk export and webhooks in Q2",
+      "tags": ["bulk-export", "webhooks", "q2", "goal", "brightfield", "enterprise"],
+      "created_days_ago": 3
+    },
+    {
+      "content": "Goal: Grow MRR from $42k to $60k by end of year by converting pipeline prospects and expanding Brightfield and TerraLoop contracts.",
+      "label": "Grow MRR to $60k by year end",
+      "tags": ["mrr", "revenue", "goal", "growth", "brightfield", "terraloop"],
+      "created_days_ago": 60
+    },
+    {
+      "content": "Goal: Clear the technical debt backlog in auth and notifications before taking on major new feature work.",
+      "label": "Clear auth and notification debt before new features",
+      "tags": ["technical-debt", "auth", "notifications", "goal", "quality"],
+      "created_days_ago": 55
+    }
+  ],
+  "questions": [
+    {
+      "id": "q1",
+      "question": "Why did we choose PostgreSQL as the main database, and what alternatives did we evaluate?",
+      "expected_themes": ["postgresql", "mongodb", "reporting", "joins", "acid", "sql", "decision", "team-familiarity"]
+    },
+    {
+      "id": "q2",
+      "question": "What did we learn from the SAML SSO work, and what should we remember for future SAML integrations?",
+      "expected_themes": ["saml", "3x-multiplier", "php-saml", "idp-initiated", "estimation", "brightfield", "terraloop", "reuse", "complexity"]
+    },
+    {
+      "id": "q3",
+      "question": "What are the current Q2 priorities and who owns each one?",
+      "expected_themes": ["bulk-export", "webhooks", "q2", "david", "sarah", "marcus", "reporting", "hiring", "mrr"]
+    },
+    {
+      "id": "q4",
+      "question": "How has our caching strategy evolved and what failure modes have we encountered?",
+      "expected_themes": ["redis", "ttl", "tiered-ttl", "invalidation", "soft-delete", "stale-data", "runbook", "lint-rule", "incident"]
+    },
+    {
+      "id": "q5",
+      "question": "What is the current status of our technical debt and which items are still open?",
+      "expected_themes": ["auth", "sanctum", "merged", "coverage", "reporting-query-limits", "sarah", "notification-retry", "fixed", "debt-audit"]
+    }
+  ]
+}

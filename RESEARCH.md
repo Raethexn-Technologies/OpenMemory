@@ -323,9 +323,9 @@ The benchmark harness (`php artisan benchmark:retrieval`) runs all three strateg
 
 The finding this experiment targets: a specific percentage improvement in composite score for goal_graph over recency, and a specific percentage improvement in goal alignment for goal_graph over the weight-only graph strategy.
 
-**Status: first complete run recorded (2026-04-22).** 45/45 judge calls completed across three corpora. Full results in `storage/benchmarks/results-2026-04-22_022137.json`. See DEVLOG Entry 025 for the full analysis.
+**Status: two complete runs recorded (2026-04-22).** Corpora 01-03 (45/45 calls): recency leads at composite 3.40, goal_graph -5.3% behind. Corpus 04 long-horizon (30/30 calls including ablation): recency gap narrows to -2.2%, goal alignment lift increases to +7.7% over plain graph. See DEVLOG Entries 025 and 026.
 
-The finding does not confirm the hypothesis. goal_graph composite score is -5.3% vs recency. The one confirmed win is goal alignment: goal_graph matches recency (both 3.87) and beats weight-only graph by +5.4%. The current corpora are too recency-friendly to distinguish graph retrieval from a simpler strategy. The next step is a harder corpus with longer time horizons and questions that require assembling knowledge from non-recent nodes.
+Claim 1 (better retrieval) is not yet confirmed. The recency advantage shrinks on harder corpora but has not flipped at CONTEXT_LIMIT=12. A corpus with more nodes or a smaller context-to-corpus ratio is the next test.
 
 The benchmark measures retrieved context quality, not final answer quality. A later experiment should run the full assistant response path and judge the answer itself after the retrieval context has been injected.
 
@@ -353,7 +353,7 @@ The experiment runs the same memory graph and the same prompt set twice: once wi
 
 This is the "second brain" component of the system. Remembering facts is necessary but not sufficient. The system also needs to remember what the user is trying to do, and surface that knowledge when the user asks a question that does not explicitly mention their goals.
 
-**Status: open.** The experiment requires the Claim 1 benchmark harness to be extended with a goal-ablation condition: run `goal_graph` retrieval with goal nodes present in the corpus, then run again with goal nodes excluded, and compare judge scores. This is a parameter change to the benchmark, not a new system.
+**Status: measured (2026-04-22).** `--ablate-goals` flag implemented on `benchmark:retrieval`. On corpus_04 (long-horizon, 40 nodes): goal nodes contribute **+0.40 to goal_alignment** for goal_graph retrieval. They cost **-0.20 composite** because goal nodes occupy retrieval slots that would otherwise hold weight-ranked content more directly relevant to knowledge-retrieval questions. The tradeoff is real and quantified. Goal seeding helps "what should I work on?" questions; it is a net cost on "what was the decision about X?" questions. See DEVLOG Entry 026.
 
 ### Terminology for adoption-facing documentation
 
