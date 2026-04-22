@@ -323,7 +323,9 @@ The benchmark harness (`php artisan benchmark:retrieval`) runs all three strateg
 
 The finding this experiment targets: a specific percentage improvement in composite score for goal_graph over recency, and a specific percentage improvement in goal alignment for goal_graph over the weight-only graph strategy.
 
-**Status: benchmark harness implemented (2026-04-09).** `php artisan benchmark:retrieval` is live. `MemoryGraphService::retrieveContext()` now accepts a `$strategy` parameter (`recency`, `graph`, `goal_graph`) with `goal_graph` as the default. Three synthetic corpora are seeded in `database/benchmarks/`. The command supports `--limit`, `--corpus`, `--strategies`, and `--keep` for manual inspection. Failed judge calls are counted explicitly, partial reports exit non-zero, and headline comparisons are suppressed unless the relevant strategy pair has complete scores. The measurement is ready to run. Results not yet recorded.
+**Status: first complete run recorded (2026-04-22).** 45/45 judge calls completed across three corpora. Full results in `storage/benchmarks/results-2026-04-22_022137.json`. See DEVLOG Entry 025 for the full analysis.
+
+The finding does not confirm the hypothesis. goal_graph composite score is -5.3% vs recency. The one confirmed win is goal alignment: goal_graph matches recency (both 3.87) and beats weight-only graph by +5.4%. The current corpora are too recency-friendly to distinguish graph retrieval from a simpler strategy. The next step is a harder corpus with longer time horizons and questions that require assembling knowledge from non-recent nodes.
 
 The benchmark measures retrieved context quality, not final answer quality. A later experiment should run the full assistant response path and judge the answer itself after the retrieval context has been injected.
 
