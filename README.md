@@ -185,14 +185,17 @@ All three commands are scheduled automatically via `routes/console.php`. Both co
 
 ## Research diagnostics
 
-**Retrieval benchmark** compares three context selection strategies against synthetic user-memory corpora: flat recency, weight-only graph retrieval, and goal-biased graph retrieval. Each corpus is seeded into an isolated benchmark user partition, judged with an LLM-as-judge rubric, then deleted unless `--keep` is passed. Reports are written to `storage/benchmarks/`.
+**Retrieval benchmark** compares three context selection strategies against synthetic user-memory corpora: flat recency, weight-only graph retrieval, and goal-biased graph retrieval. Each corpus is seeded into an isolated benchmark user partition, judged with an LLM-as-judge rubric, then deleted unless `--keep` is passed. Reports are written to `storage/benchmarks/`. `--ablate-goals` runs a second pass with goal nodes excluded and adds a with-goals vs without-goals comparison table to the report.
 
 ```bash
 php artisan benchmark:retrieval
 php artisan benchmark:retrieval --strategies=recency,goal_graph
-php artisan benchmark:retrieval --corpus=database/benchmarks/corpus_01_software_developer.json
+php artisan benchmark:retrieval --corpus=database/benchmarks/corpus_04_longhorizon_engineer.json
+php artisan benchmark:retrieval --corpus=database/benchmarks/corpus_04_longhorizon_engineer.json --ablate-goals
 php artisan benchmark:retrieval --keep
 ```
+
+As of the 2026-04-22 benchmark runs, recency still leads on composite score. On the harder long-horizon corpus, the gap narrows to 2.2%, and goal ablation shows that explicit goal nodes add +0.40 goal alignment while costing -0.20 composite for `goal_graph`. The current claim is goal-coherent retrieval, not universal retrieval superiority.
 
 The benchmark measures retrieval quality only. It does not answer whether the final assistant response improves, because the judged artifact is the retrieved context set rather than the generated answer. If any judge call fails, the command still writes the partial report but exits non-zero and suppresses headline comparison claims.
 
@@ -286,7 +289,7 @@ cd app
 php artisan test
 ```
 
-The test suite runs against SQLite in-memory and mock mode throughout. No API key or canister is required. Coverage includes the storage trigger (MemorabilityService decisions, hallucinated node ID rejection, consolidated node exclusion), document chunking and ingestion, document controller routes, goal-biased retrieval seed selection, graph and recency retrieval strategy selection, benchmark cleanup behavior, graph reinforcement, edge decay, neighborhood traversal, cluster detection determinism, graph snapshot storage and pruning, agent alignment Jaccard calculation, the memory approval flow, the `active_node_ids` response field, consolidation pipeline (concept node creation, supersedes edges, sensitivity inheritance, re-consolidation prevention), node pruning (floor-weight detection, idle window, edge cascade delete, user scoping, dry-run), the MCP store endpoint (API key auth, graph node creation), and the ThreeD page load with agent scoping.
+The test suite runs against SQLite in-memory and mock mode throughout. No API key or canister is required. Coverage includes the storage trigger (MemorabilityService decisions, hallucinated node ID rejection, consolidated node exclusion), document chunking and ingestion, document controller routes, goal-biased retrieval seed selection, graph and recency retrieval strategy selection, benchmark cleanup behavior, goal ablation and `goals_excluded` metadata, graph reinforcement, edge decay, neighborhood traversal, cluster detection determinism, graph snapshot storage and pruning, agent alignment Jaccard calculation, the memory approval flow, the `active_node_ids` response field, consolidation pipeline (concept node creation, supersedes edges, sensitivity inheritance, re-consolidation prevention), node pruning (floor-weight detection, idle window, edge cascade delete, user scoping, dry-run), the MCP store endpoint (API key auth, graph node creation), and the ThreeD page load with agent scoping.
 
 ---
 
@@ -380,6 +383,8 @@ OpenMemory/
 ├── RESEARCH.md                              # active research agenda: open scientific claims and what needs to be built to test them
 └── SCIENCE.md                               # plain-language explanations of the mathematics and biology behind the graph layer
 ```
+
+The benchmark corpora live in `app/database/benchmarks/`. Corpora 01-03 are the compact persona sets used in the first complete run. `corpus_04_longhorizon_engineer.json` is the harder 12-month retrieval challenge added for the long-horizon pass. `BenchmarkService` and `benchmark:retrieval` also support goal ablation, so the same corpus can be rerun with goal nodes excluded when measuring Claim 3.
 
 ---
 

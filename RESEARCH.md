@@ -319,7 +319,7 @@ The experiment compares three strategies against the same memory corpus and the 
 
 Scoring uses an LLM-as-judge protocol on four dimensions (1-5 each): relevance, completeness, goal alignment, noise ratio. Composite score is the mean of the four. Token efficiency is composite divided by context token count.
 
-The benchmark harness (`php artisan benchmark:retrieval`) runs all three strategies against three synthetic but realistic corpora (software developer, academic researcher, small business owner), each with 20-22 memories, 2-3 goal nodes, and 5 questions. Results are written as JSON and a Markdown report to `storage/benchmarks/`. The JSON includes the retrieved context that was judged, so each score can be audited against the exact records shown to the judge.
+The benchmark harness (`php artisan benchmark:retrieval`) runs all three strategies against four synthetic but realistic corpora. Corpora 01-03 are compact personas (20-22 memories, 2-3 goals, 5 questions each). Corpus 04 is a long-horizon engineer corpus (40 memories, 3 goals, 5 questions) designed to force retrieval across up to 12 months of history. `--ablate-goals` reruns the same corpus with goal nodes excluded from seeding so goal contribution can be measured directly. Results are written as JSON and a Markdown report to `storage/benchmarks/`. The JSON includes the retrieved context that was judged, so each score can be audited against the exact records shown to the judge.
 
 The finding this experiment targets: a specific percentage improvement in composite score for goal_graph over recency, and a specific percentage improvement in goal alignment for goal_graph over the weight-only graph strategy.
 
@@ -349,7 +349,7 @@ This claim matters because user life context is high-liability data. A provider 
 
 Explicit goal nodes improve response alignment across sessions and across different types of knowledge in the graph.
 
-The experiment runs the same memory graph and the same prompt set twice: once with goal nodes included in retrieval, once with goal nodes removed. The expected finding is that responses in the goal-included condition stay closer to the user's stated projects, priorities, and constraints, and that this effect is measurable by LLM-as-judge evaluation of whether responses address the user's actual situation rather than just the immediate question.
+The experiment runs the same memory graph and the same prompt set twice: once with goal nodes included in retrieval, once with goal nodes removed. The question it answers is whether the goal-included condition stays closer to the user's stated projects, priorities, and constraints, and whether that effect is measurable by LLM-as-judge evaluation of whether responses address the user's actual situation rather than just the immediate question.
 
 This is the "second brain" component of the system. Remembering facts is necessary but not sufficient. The system also needs to remember what the user is trying to do, and surface that knowledge when the user asks a question that does not explicitly mention their goals.
 
