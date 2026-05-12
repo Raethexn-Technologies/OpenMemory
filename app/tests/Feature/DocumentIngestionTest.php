@@ -8,6 +8,7 @@ use App\Services\DocumentChunkerService;
 use App\Services\DocumentIngestionService;
 use App\Services\GraphExtractionService;
 use App\Services\MemoryGraphService;
+use App\Services\RedactionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Mockery;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
@@ -21,7 +22,7 @@ class DocumentIngestionTest extends TestCase
     public function test_ingest_creates_anchor_node_with_document_anchor_source(): void
     {
         $extractor = $this->mockExtractor('concept');
-        $service = new DocumentIngestionService(new DocumentChunkerService(), $extractor, new MemoryGraphService());
+        $service = $this->service($extractor);
 
         $result = $service->ingest('user-1', 'My Goals', $this->multiParagraphText(), 'public');
 
@@ -37,7 +38,7 @@ class DocumentIngestionTest extends TestCase
     public function test_anchor_node_has_empty_tags_to_prevent_false_edges(): void
     {
         $extractor = $this->mockExtractor('concept');
-        $service = new DocumentIngestionService(new DocumentChunkerService(), $extractor, new MemoryGraphService());
+        $service = $this->service($extractor);
 
         $result = $service->ingest('user-1', 'My Goals', $this->multiParagraphText(), 'public');
 
@@ -48,7 +49,7 @@ class DocumentIngestionTest extends TestCase
     public function test_ingest_creates_chunk_nodes_with_document_source(): void
     {
         $extractor = $this->mockExtractor('concept');
-        $service = new DocumentIngestionService(new DocumentChunkerService(), $extractor, new MemoryGraphService());
+        $service = $this->service($extractor);
 
         $result = $service->ingest('user-1', 'My Goals', $this->multiParagraphText(), 'public');
 
@@ -64,7 +65,7 @@ class DocumentIngestionTest extends TestCase
     public function test_chunk_nodes_have_part_of_edges_to_anchor(): void
     {
         $extractor = $this->mockExtractor('concept');
-        $service = new DocumentIngestionService(new DocumentChunkerService(), $extractor, new MemoryGraphService());
+        $service = $this->service($extractor);
 
         $result = $service->ingest('user-1', 'My Goals', $this->multiParagraphText(), 'public');
 
@@ -85,7 +86,7 @@ class DocumentIngestionTest extends TestCase
     public function test_chunk_metadata_records_source_document_id_and_index(): void
     {
         $extractor = $this->mockExtractor('concept');
-        $service = new DocumentIngestionService(new DocumentChunkerService(), $extractor, new MemoryGraphService());
+        $service = $this->service($extractor);
 
         $result = $service->ingest('user-1', 'My Goals', $this->multiParagraphText(), 'public');
 
@@ -104,7 +105,7 @@ class DocumentIngestionTest extends TestCase
         // Extractor returns null for every chunk — simulates unparseable LLM response.
         $extractor->shouldReceive('extract')->andReturn(null);
 
-        $service = new DocumentIngestionService(new DocumentChunkerService(), $extractor, new MemoryGraphService());
+        $service = $this->service($extractor);
 
         $result = $service->ingest('user-1', 'Bad Doc', $this->multiParagraphText(), 'public');
 
@@ -117,7 +118,7 @@ class DocumentIngestionTest extends TestCase
     public function test_sensitivity_is_applied_to_all_nodes(): void
     {
         $extractor = $this->mockExtractor('concept');
-        $service = new DocumentIngestionService(new DocumentChunkerService(), $extractor, new MemoryGraphService());
+        $service = $this->service($extractor);
 
         $service->ingest('user-1', 'Private Doc', $this->multiParagraphText(), 'private');
 
@@ -127,10 +128,45 @@ class DocumentIngestionTest extends TestCase
         }
     }
 
+    public function test_ingest_redacts_floor_values_before_graph_extraction_and_storage(): void
+    {
+        $extractor = Mockery::mock(GraphExtractionService::class);
+        $extractor->shouldReceive('extract')
+            ->once()
+            ->with(
+                Mockery::on(fn (string $content) => ! str_contains($content, '4111') && str_contains($content, 'PAYMENT_CARD#')),
+                'sensitive',
+            )
+            ->andReturn([
+                'type' => 'memory',
+                'label' => 'Billing card placeholder',
+                'tags' => ['billing'],
+                'people' => [],
+                'projects' => [],
+                'sensitivity' => 'sensitive',
+            ]);
+
+        $service = $this->service($extractor);
+
+        $result = $service->ingest(
+            'user-1',
+            'Billing',
+            'This billing document says the card 4111 1111 1111 1111 should be used for testing invoices and should never be exposed to model providers.',
+            'public',
+        );
+
+        $this->assertSame('sensitive', $result['effective_sensitivity']);
+        $this->assertTrue($result['redaction']['applied']);
+
+        foreach (MemoryNode::where('user_id', 'user-1')->get() as $node) {
+            $this->assertStringNotContainsString('4111', $node->content);
+        }
+    }
+
     public function test_chunks_total_matches_actual_chunk_count(): void
     {
         $extractor = $this->mockExtractor('memory');
-        $service = new DocumentIngestionService(new DocumentChunkerService(), $extractor, new MemoryGraphService());
+        $service = $this->service($extractor);
 
         $result = $service->ingest('user-1', 'Multi', $this->multiParagraphText(), 'public');
 
@@ -138,6 +174,16 @@ class DocumentIngestionTest extends TestCase
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private function service(GraphExtractionService $extractor): DocumentIngestionService
+    {
+        return new DocumentIngestionService(
+            new DocumentChunkerService(),
+            $extractor,
+            new MemoryGraphService(),
+            new RedactionService(),
+        );
+    }
 
     private function mockExtractor(string $type): GraphExtractionService
     {

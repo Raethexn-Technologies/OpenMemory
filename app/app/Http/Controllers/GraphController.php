@@ -107,6 +107,86 @@ class GraphController extends Controller
     }
 
     /**
+     * Ambient background feed for the chat page.
+     *
+     * Returns an anonymized snapshot of recent public memory nodes from every
+     * user, with edges between them, plus a `mine` flag indicating whether each
+     * node belongs to the session user. The endpoint is the public-facing
+     * "hive mind" surface: the response strips user_id, session_id, and the raw
+     * content body, keeping only what an ambient renderer needs (type, label,
+     * tags, created_at). Private and sensitive memories never appear here.
+     *
+     * Per-user fairness: the session user contributes up to MINE_CAP of their
+     * own nodes; every other user is capped at OTHER_CAP most-recent so a
+     * single prolific account cannot dominate the canvas. The combined set is
+     * sorted most-recent-first and truncated to NODE_LIMIT.
+     *
+     * Edge list is restricted to edges whose endpoints both appear in the
+     * final node set, so the renderer never sees a dangling edge.
+     */
+    public function ambient(): JsonResponse
+    {
+        $sessionUserId = session('chat_user_id', 'anonymous');
+
+        $MINE_CAP = 50;
+        $OTHER_CAP = 8;
+        $NODE_LIMIT = 120;
+        $OTHERS_FETCH = 500;
+        $EDGE_LIMIT = 300;
+
+        $mine = MemoryNode::where('user_id', $sessionUserId)
+            ->where('sensitivity', 'public')
+            ->whereNull('consolidated_at')
+            ->latest()
+            ->limit($MINE_CAP)
+            ->get();
+
+        // Pull a generous slice of others' nodes, then group-and-cap in-memory.
+        // This keeps the implementation portable across SQLite and Postgres
+        // (avoiding vendor-specific PARTITION BY window queries).
+        $othersRaw = MemoryNode::where('user_id', '!=', $sessionUserId)
+            ->where('sensitivity', 'public')
+            ->whereNull('consolidated_at')
+            ->latest()
+            ->limit($OTHERS_FETCH)
+            ->get();
+
+        $others = $othersRaw
+            ->groupBy('user_id')
+            ->map(fn ($group) => $group->take($OTHER_CAP))
+            ->flatten();
+
+        $combined = $mine
+            ->concat($others)
+            ->sortByDesc(fn ($n) => $n->created_at?->getTimestamp() ?? 0)
+            ->take($NODE_LIMIT)
+            ->values();
+
+        $nodeIds = $combined->pluck('id');
+
+        $edges = MemoryEdge::whereIn('from_node_id', $nodeIds)
+            ->whereIn('to_node_id', $nodeIds)
+            ->limit($EDGE_LIMIT)
+            ->get();
+
+        return response()->json([
+            'nodes' => $combined->map(fn ($n) => [
+                'id' => $n->id,
+                'type' => $n->type,
+                'label' => $n->label,
+                'tags' => $n->tags ?? [],
+                'created_at' => $n->created_at?->toIso8601String(),
+                'mine' => $n->user_id === $sessionUserId,
+            ])->values(),
+            'edges' => $edges->map(fn ($e) => [
+                'source' => $e->from_node_id,
+                'target' => $e->to_node_id,
+                'weight' => $e->weight,
+            ])->values(),
+        ]);
+    }
+
+    /**
      * Return the full graph for the current user as JSON.
      * Supports ?types[]=memory&types[]=person and ?sensitivity[]=public filters.
      */
@@ -131,9 +211,41 @@ class GraphController extends Controller
      * which nodes were active and to update edge widths without re-rendering
      * the full graph.
      */
-    public function simulate(): JsonResponse
+    public function simulate(Request $request): JsonResponse
     {
         $userId = session('chat_user_id', 'anonymous');
+        $trace = $request->boolean('trace');
+
+        if ($trace) {
+            // Faithful mode: emit phase-by-phase trace, then apply the real
+            // reinforcement so the persisted state matches what the user just
+            // watched the system do.
+            $traced = $this->graph->traceRetrieveContext($userId);
+            $nodeIds = $traced['active_node_ids'];
+
+            if (! empty($nodeIds)) {
+                $this->graph->reinforce($nodeIds, $userId);
+            }
+
+            $updatedEdges = empty($nodeIds) ? [] : MemoryEdge::where('user_id', $userId)
+                ->whereIn('from_node_id', $nodeIds)
+                ->whereIn('to_node_id', $nodeIds)
+                ->get()
+                ->map(fn ($e) => [
+                    'id' => $e->id,
+                    'source' => $e->from_node_id,
+                    'target' => $e->to_node_id,
+                    'weight' => $e->weight,
+                ])
+                ->values()
+                ->all();
+
+            return response()->json([
+                'active_node_ids' => $nodeIds,
+                'updated_edges' => $updatedEdges,
+                'phases' => $traced['phases'],
+            ]);
+        }
 
         $context = $this->graph->retrieveContext($userId);
         $nodeIds = array_column($context, 'id');

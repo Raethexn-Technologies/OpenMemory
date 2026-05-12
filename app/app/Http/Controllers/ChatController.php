@@ -9,6 +9,8 @@ use App\Services\LLM\LlmService;
 use App\Services\MemorabilityService;
 use App\Services\MemoryGraphService;
 use App\Services\MemorySummarizationService;
+use App\Services\RedactionResult;
+use App\Services\RedactionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
@@ -23,6 +25,7 @@ class ChatController extends Controller
         private readonly MemorySummarizationService $summarizer,
         private readonly GraphExtractionService $graphExtractor,
         private readonly MemoryGraphService $graphService,
+        private readonly RedactionService $redactor,
     ) {}
 
     /**
@@ -105,11 +108,17 @@ class ChatController extends Controller
             return response()->json(['error' => 'No user identity. Please refresh.'], 422);
         }
 
+        // Redact before the message is persisted or sent to any LLM call. This
+        // keeps hard-floor secrets out of the transcript, prompt history, memory
+        // summarizer, graph extractor, and downstream storage paths.
+        $userRedaction = $this->redactor->redact($validated['message'], $userId);
+        $safeUserMessage = $userRedaction->text;
+
         // Persist user message
         Message::create([
             'session_id' => $sessionId,
             'role' => 'user',
-            'content' => $validated['message'],
+            'content' => $safeUserMessage,
         ]);
 
         // Graph-guided retrieval: use the Physarum neighbourhood seeded from the
@@ -124,10 +133,11 @@ class ChatController extends Controller
         if (! empty($graphContext)) {
             $loadedNodeIds = array_column($graphContext, 'id');
             $this->graphService->reinforce($loadedNodeIds, $userId);
+            $graphContext = $this->redactMemoryRecords($graphContext, $userId);
             $systemPrompt = $this->llm->buildSystemPrompt($graphContext);
         } else {
             // Cold start: graph is empty; fall back to flat ICP recall.
-            $memories = $this->icp->getPublicMemories($userId);
+            $memories = $this->redactMemoryRecords($this->icp->getPublicMemories($userId), $userId);
             $loadedNodeIds = $this->graphService->reinforceFromMemories($memories, $userId);
             $systemPrompt = $this->llm->buildSystemPrompt($memories);
         }
@@ -136,34 +146,53 @@ class ChatController extends Controller
         $history = Message::where('session_id', $sessionId)
             ->orderBy('created_at')
             ->get(['role', 'content'])
-            ->map(fn ($m) => ['role' => $m->role, 'content' => $m->content])
+            ->map(fn ($m) => [
+                'role' => $m->role,
+                'content' => $this->redactor->redact($m->content, $userId)->text,
+            ])
             ->toArray();
 
         // Generate AI response
         $aiResponse = $this->llm->chat($systemPrompt, $history);
+        $assistantRedaction = $this->redactor->redact($aiResponse, $userId);
+        $safeAiResponse = $assistantRedaction->text;
 
         // Persist assistant message
         Message::create([
             'session_id' => $sessionId,
             'role' => 'assistant',
-            'content' => $aiResponse,
+            'content' => $safeAiResponse,
         ]);
 
         // Storage trigger: evaluate whether this turn contains a fact worth storing.
         // MemorabilityService filters out small talk, repetition, and transient data
         // before the summarization LLM call, preventing low-value node accumulation.
-        $memorability = $this->memorability->evaluate($validated['message'], $aiResponse, $userId);
+        $memorability = $this->memorability->evaluate($safeUserMessage, $safeAiResponse, $userId);
 
         // Summarize the exchange into a durable fact with a sensitivity classification.
         // Returns ['content' => '...', 'type' => 'public'|'private'|'sensitive'] or null.
         // Skipped entirely when the memorability filter returns 'skip'.
         $memory = $memorability['decision'] !== 'skip'
-            ? $this->summarizer->extract($validated['message'], $aiResponse)
+            ? $this->summarizer->extract($safeUserMessage, $safeAiResponse)
             : null;
         $memoryId = null;
-        $metadata = json_encode(['source' => 'chat', 'provider' => $this->llm->provider()]);
+        $memoryRedaction = null;
 
         if ($memory) {
+            $memoryRedaction = $this->redactor->redact($memory['content'], $userId);
+            $memory['content'] = $memoryRedaction->text;
+            $memory['type'] = $this->redactor->enforceSensitivity(
+                $memory['type'] ?? 'public',
+                $userRedaction,
+                $assistantRedaction,
+                $memoryRedaction,
+            );
+
+            $metadata = $this->memoryMetadata($userRedaction, $assistantRedaction, $memoryRedaction);
+            $graphMetadata = ($redactionMetadata = $this->combinedRedaction($userRedaction, $assistantRedaction, $memoryRedaction))
+                ? ['redaction' => $redactionMetadata]
+                : [];
+
             if ($this->icp->isMockMode() && ($memory['type'] ?? 'public') === 'public') {
                 // Mock mode, public only: safe to write server-side without consent.
                 $memoryId = $this->icp->storeMemory(
@@ -173,19 +202,29 @@ class ChatController extends Controller
                     metadata: $metadata,
                     memoryType: 'public',
                 );
-                $this->syncMemoryGraph($userId, $memory['content'], 'public', $sessionId);
+                $this->syncMemoryGraph(
+                    userId: $userId,
+                    content: $memory['content'],
+                    memoryType: 'public',
+                    sessionId: $sessionId,
+                    metadata: $graphMetadata,
+                );
             }
             // Private / Sensitive (both modes) and all types in live ICP mode:
             //   The browser shows an approval UI and POSTs to /chat/store-memory (mock)
             //   or signs directly to the canister (live). The graph sync runs after that store succeeds.
         }
 
+        $metadata ??= $this->memoryMetadata($userRedaction, $assistantRedaction, $memoryRedaction);
+
         return response()->json([
-            'message' => $aiResponse,
+            'message' => $safeAiResponse,
             'memory_id' => $memoryId,
             'memory' => $memory['content'] ?? null,
             'memory_type' => $memory['type'] ?? null,
             'memory_metadata' => $metadata,
+            'redacted_message' => $safeUserMessage,
+            'redaction' => $this->combinedRedaction($userRedaction, $assistantRedaction, $memoryRedaction) ?? ['applied' => false],
             'identity_source' => $identitySource,
             'user_id' => $userId,
             'provider' => $this->llm->provider(),
@@ -224,16 +263,31 @@ class ChatController extends Controller
             return response()->json(['error' => 'Session not found. Please refresh.'], 422);
         }
 
+        $contentRedaction = $this->redactor->redact($validated['content'], $userId);
+        $content = $contentRedaction->text;
+        $memoryType = $this->redactor->enforceSensitivity($validated['memory_type'], $contentRedaction);
+        $metadata = $this->appendRedactionMetadata($validated['metadata'] ?? null, $contentRedaction);
+
         $id = $this->icp->mockStoreApproved(
             userId: $userId,
             sessionId: $sessionId,
-            content: $validated['content'],
-            metadata: $validated['metadata'] ?? null,
-            memoryType: $validated['memory_type'],
+            content: $content,
+            metadata: $metadata,
+            memoryType: $memoryType,
         );
-        $this->syncMemoryGraph($userId, $validated['content'], $validated['memory_type'], $sessionId);
+        $this->syncMemoryGraph(
+            userId: $userId,
+            content: $content,
+            memoryType: $memoryType,
+            sessionId: $sessionId,
+            metadata: $contentRedaction->applied() ? ['redaction' => $contentRedaction->toMetadata()] : [],
+        );
 
-        return response()->json(['id' => $id]);
+        return response()->json([
+            'id' => $id,
+            'memory_type' => $memoryType,
+            'redaction' => $contentRedaction->applied() ? $contentRedaction->toMetadata() : ['applied' => false],
+        ]);
     }
 
     /**
@@ -253,9 +307,16 @@ class ChatController extends Controller
             return response()->json(['error' => 'Session not found. Please refresh.'], 422);
         }
 
-        $this->syncMemoryGraph($userId, $validated['content'], $validated['memory_type'], $sessionId);
+        $contentRedaction = $this->redactor->redact($validated['content'], $userId);
+        $memoryType = $this->redactor->enforceSensitivity($validated['memory_type'], $contentRedaction);
 
-        return response()->json(['ok' => true]);
+        $this->syncMemoryGraph($userId, $contentRedaction->text, $memoryType, $sessionId);
+
+        return response()->json([
+            'ok' => true,
+            'memory_type' => $memoryType,
+            'redaction' => $contentRedaction->applied() ? $contentRedaction->toMetadata() : ['applied' => false],
+        ]);
     }
 
     /**
@@ -277,11 +338,118 @@ class ChatController extends Controller
         return redirect()->route('chat');
     }
 
-    private function syncMemoryGraph(string $userId, string $content, string $memoryType, ?string $sessionId = null): void
+    /**
+     * @param  array<string, mixed>  $metadata
+     */
+    private function syncMemoryGraph(
+        string $userId,
+        string $content,
+        string $memoryType,
+        ?string $sessionId = null,
+        array $metadata = [],
+    ): void
     {
+        $contentRedaction = $this->redactor->redact($content, $userId);
+        $content = $contentRedaction->text;
+        $memoryType = $this->redactor->enforceSensitivity($memoryType, $contentRedaction);
+
+        if ($redaction = $this->combinedRedaction($contentRedaction)) {
+            $metadata['redaction'] = $redaction;
+        }
+
         $extracted = $this->graphExtractor->extract($content, $memoryType);
         if ($extracted) {
-            $this->graphService->storeNode($userId, $content, $extracted, $sessionId);
+            $this->graphService->storeNode(
+                userId: $userId,
+                content: $content,
+                extracted: $this->sanitizeExtractedMetadata($extracted, $userId),
+                sessionId: $sessionId,
+                source: 'chat',
+                metadata: $metadata,
+            );
         }
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $records
+     * @return array<int, array<string, mixed>>
+     */
+    private function redactMemoryRecords(array $records, string $userId): array
+    {
+        return array_map(function (array $record) use ($userId) {
+            if (isset($record['content']) && is_string($record['content'])) {
+                $record['content'] = $this->redactor->redact($record['content'], $userId)->text;
+            }
+
+            return $record;
+        }, $records);
+    }
+
+    private function memoryMetadata(?RedactionResult ...$results): string
+    {
+        $payload = ['source' => 'chat', 'provider' => $this->llm->provider()];
+
+        if ($redaction = $this->combinedRedaction(...$results)) {
+            $payload['redaction'] = $redaction;
+        }
+
+        return json_encode($payload);
+    }
+
+    private function appendRedactionMetadata(?string $metadata, RedactionResult ...$results): ?string
+    {
+        $payload = [];
+
+        if ($metadata) {
+            $decoded = json_decode($metadata, true);
+            $payload = is_array($decoded) ? $decoded : ['metadata' => $metadata];
+        }
+
+        if ($redaction = $this->combinedRedaction(...$results)) {
+            $payload['redaction'] = $redaction;
+        }
+
+        return $payload === [] ? null : json_encode($payload);
+    }
+
+    /**
+     * @return array{applied: bool, policy: string, categories: array<int, string>, counts: array<string, int>, minimum_sensitivity: string}|null
+     */
+    private function combinedRedaction(?RedactionResult ...$results): ?array
+    {
+        $results = array_values(array_filter($results));
+
+        return $results === [] ? null : $this->redactor->metadata(...$results);
+    }
+
+    /**
+     * @param  array<string, mixed>  $extracted
+     * @return array<string, mixed>
+     */
+    private function sanitizeExtractedMetadata(array $extracted, string $userId): array
+    {
+        if (isset($extracted['label']) && is_string($extracted['label'])) {
+            $extracted['label'] = $this->redactor->redact($extracted['label'], $userId)->text;
+        }
+
+        foreach (['tags', 'people', 'projects'] as $field) {
+            $values = $extracted[$field] ?? [];
+            if (! is_array($values)) {
+                $extracted[$field] = [];
+                continue;
+            }
+
+            $redactedValues = array_map(
+                fn ($value) => is_string($value) ? trim($this->redactor->redact($value, $userId)->text) : '',
+                $values,
+            );
+
+            $extracted[$field] = array_values(array_unique(array_filter(
+                $redactedValues,
+                static fn (string $value) => $value !== '' && ! str_contains($value, '['),
+            )));
+        }
+
+        return $extracted;
     }
 }

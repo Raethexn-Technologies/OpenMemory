@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\MemoryNode;
 use App\Services\DocumentIngestionService;
 use App\Services\IcpMemoryService;
+use App\Services\RedactionService;
 use Illuminate\Http\Request;
 
 class DocumentController extends Controller
@@ -12,6 +13,7 @@ class DocumentController extends Controller
     public function __construct(
         private readonly DocumentIngestionService $ingestion,
         private readonly IcpMemoryService $icp,
+        private readonly RedactionService $redactor,
     ) {}
 
     /**
@@ -89,6 +91,7 @@ class DocumentController extends Controller
         $text = $request->hasFile('file')
             ? $request->file('file')->get()
             : $validated['text'];
+        $textRedaction = $this->redactor->redact($text, $userId);
 
         $sensitivity = $validated['sensitivity'] ?? 'public';
 
@@ -99,20 +102,23 @@ class DocumentController extends Controller
             sensitivity: $sensitivity,
         );
 
+        $effectiveSensitivity = $result['effective_sensitivity'] ?? $sensitivity;
+
         // Mirror the mock-mode public write path from ChatController:
         // store the anchor node content in the ICP canister so MCP clients
         // see the ingested document alongside chat-derived memories.
         // Private and sensitive documents are not auto-written; the user would
         // need to explicitly approve those writes (not yet implemented for ingestion).
-        if ($this->icp->isMockMode() && $sensitivity === 'public') {
+        if ($this->icp->isMockMode() && $effectiveSensitivity === 'public') {
             $sessionId = session()->get('chat_session_id', 'document_ingest');
             $this->icp->storeMemory(
                 userId:     $userId,
                 sessionId:  $sessionId,
-                content:    "Document ingested: {$validated['title']}. " . mb_substr($text, 0, 200),
+                content:    "Document ingested: {$validated['title']}. " . mb_substr($textRedaction->text, 0, 200),
                 metadata:   json_encode([
                     'source'           => 'document_ingest',
                     'document_node_id' => $result['document_node_id'],
+                    ...($textRedaction->applied() ? ['redaction' => $textRedaction->toMetadata()] : []),
                 ]),
                 memoryType: 'public',
             );

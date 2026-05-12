@@ -118,6 +118,51 @@ class DocumentControllerTest extends TestCase
         $response->assertStatus(201);
     }
 
+    public function test_ingest_skips_public_icp_store_when_redaction_escalates_sensitivity(): void
+    {
+        $icp = Mockery::mock(IcpMemoryService::class);
+        $icp->shouldIgnoreMissing();
+        $icp->shouldReceive('isMockMode')->andReturn(true);
+        $icp->shouldNotReceive('storeMemory');
+        $this->app->instance(IcpMemoryService::class, $icp);
+
+        $extractor = Mockery::mock(GraphExtractionService::class);
+        $extractor->shouldReceive('extract')
+            ->once()
+            ->with(
+                Mockery::on(fn (string $content) => ! str_contains($content, '4111') && str_contains($content, 'PAYMENT_CARD#')),
+                'sensitive',
+            )
+            ->andReturn([
+                'type' => 'concept',
+                'label' => 'Redacted billing document',
+                'tags' => ['billing'],
+                'people' => [],
+                'projects' => [],
+                'sensitivity' => 'sensitive',
+            ]);
+        $this->app->instance(GraphExtractionService::class, $extractor);
+
+        $response = $this->withSession([
+            'chat_user_id' => 'user-1',
+            'chat_session_id' => 'session-1',
+        ])->postJson('/api/documents/ingest', [
+            'title' => 'Billing Doc',
+            'text' => 'The billing note includes card 4111 1111 1111 1111 for an old vendor test account and should be redacted before document storage.',
+            'sensitivity' => 'public',
+        ]);
+
+        $response->assertStatus(201);
+        $response->assertJsonPath('effective_sensitivity', 'sensitive');
+        $response->assertJsonPath('redaction.applied', true);
+
+        $node = MemoryNode::where('user_id', 'user-1')
+            ->where('source', 'document')
+            ->firstOrFail();
+        $this->assertSame('sensitive', $node->sensitivity);
+        $this->assertStringNotContainsString('4111', $node->content);
+    }
+
     public function test_ingest_defaults_to_public_sensitivity(): void
     {
         // shouldIgnoreMissing() lets storeMemory() be called silently (default=public triggers it).

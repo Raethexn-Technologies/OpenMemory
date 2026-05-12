@@ -18,6 +18,128 @@ The log is append-only. Entries are not edited after the fact.
 
 ---
 
+## Entry 027 - 2026-05-12
+### Redaction becomes a content-control layer
+
+#### What was built
+
+The memory pipeline now has deterministic redaction before LLM and storage boundaries. `RedactionService` runs on chat input, assistant output, retrieved memory records before prompt injection, memory summaries before storage, browser-approved graph sync, MCP writes, and document ingestion. The system also sanitizes graph extractor labels, tags, people, and projects so redaction placeholders do not become entity anchors.
+
+The non-overridable floor covers payment cards, CVV, bank routing and account numbers, IBANs, SSNs, SINs, credentials, JWTs, private keys, and minor-age details. Configurable policy categories include email, phone, street address, date of birth, compensation, and health-condition text. Compensation defaults to abstraction, so precise values can become brackets rather than disappearing entirely.
+
+Per-user policy storage was added through `redaction_policies`. If a user policy exists, it selects a preset and category overrides. If no user policy exists, the deployment preset from `config/redaction.php` applies. Floor categories still win over user policy.
+
+#### Security implication
+
+This separates content control from access control. Sensitivity labels still decide who can read a record, but redaction decides whether raw high-risk values are allowed to cross model and storage boundaries at all. This closes the obvious bank/payment/credential gap in the earlier architecture, where a value could be classified as Sensitive only after it had already crossed the summarization LLM boundary.
+
+It does not make privacy complete. The redactor is pattern-based and will miss some natural-language sensitive disclosures. The server remains a trusted intermediary. The next step for stronger guarantees is browser-side or verifiable redaction and classification.
+
+#### Verification
+
+`php artisan test` passes with 200 tests and 647 assertions. `npm run test:front` passes with 3 Vue tests. New coverage checks the redaction floor, policy overrides, per-user policy loading, chat memory redaction, MCP bank-detail handling, document-ingestion redaction, redacted chat UI rendering, sensitive-memory approval, live browser graph sync typing, and traced retrieval simulation.
+
+---
+
+## Entry 026 - 2026-04-22
+### Harder corpus and goal ablation: recency gap narrows, goal contribution measured
+
+#### What was built
+
+Two additions to the benchmark infrastructure, implemented together in one changeset:
+
+`--ablate-goals` flag on `benchmark:retrieval`. When set, the command runs a second pass of each corpus with goal nodes excluded from seeding. `BenchmarkService::seedCorpus()` accepts `bool $excludeGoals = false` and skips the goal loop when true. The report gains a "Goal Ablation Analysis" section with a per-corpus and aggregate comparison table showing goal_graph scores with and without goal nodes: goal_alignment delta, composite delta. JSON output gains an `ablation` key with the full second-pass results. Four new tests cover goal exclusion, default inclusion, and the `goals_excluded` return flag.
+
+`corpus_04_longhorizon_engineer.json`. Forty memories spanning a 12-month horizon, three goals. Questions designed to require nodes from 1 to 12 months ago, including a database decision at day 360, SAML lessons at days 110-125, a caching evolution question spanning days 350 and 142, and a technical debt status question requiring both a day-55 audit and a day-12 merge event. Recency's top-12 window contains only current-sprint content and cannot answer the knowledge-history questions directly.
+
+#### The corpus_04 results
+
+| Strategy | Composite | Goal Alignment |
+|---|---|---|
+| recency | 2.30 | 2.40 |
+| graph | 2.25 | 2.60 |
+| goal_graph | 2.25 | 2.80 |
+
+All scores are lower than corpora 01-03. That is the expected result. The corpus is genuinely harder: the judge correctly identifies that 12 retrieved nodes from a 43-node corpus spanning 12 months cannot fully answer questions about decisions made at day 360 or incident lessons from months ago. The low scores confirm the corpus is doing what it was designed to do.
+
+The recency gap has narrowed. On corpora 01-03, recency beat goal_graph by 5.3% composite. On corpus_04, the gap is 2.2%. The harder time horizon reduces recency's advantage without eliminating it.
+
+Goal alignment lift increased. goal_graph beats plain graph by 7.7% on goal_alignment for corpus_04, versus 5.4% on the original three corpora. Goal nodes are more differentiating on longer-horizon corpora.
+
+#### The ablation finding
+
+| Condition | Goal Alignment | Composite |
+|---|---|---|
+| goal_graph with goals | 2.80 | 2.25 |
+| goal_graph without goals | 2.40 | 2.45 |
+| Delta | +0.40 | -0.20 |
+
+Goal nodes contribute +0.40 to goal_alignment. That is the Claim 3 finding: explicit goal nodes improve the system's ability to surface content relevant to the user's active priorities, measurably, by a specific margin.
+
+The composite delta is -0.20 when goals are present. Goal nodes occupy retrieval slots. On corpus_04, those slots would otherwise be filled by weight-ranked nodes, and for knowledge-retrieval questions (q1 architecture, q2 SAML lessons, q4 caching evolution), weight-ranked nodes are more directly relevant than goal content. Goal nodes improve goal alignment by pulling in priority context; they reduce completeness on questions that require factual synthesis from historical nodes.
+
+This is the design tension that the corpus reveals: goal seeding is a good default for "what should I work on?" and "what are my priorities?" questions. It is a net cost for "what was the decision about X?" questions where the answer is a historical fact unrelated to current goals.
+
+#### What this means
+
+Claim 1 (better retrieval) remains unconfirmed. Recency is competitive even at 12-month time horizons with 40-node corpora. The gap is narrowing (5.3% down to 2.2%) but has not flipped. A larger corpus or a smaller context window relative to corpus size would push the advantage further toward graph traversal. At CONTEXT_LIMIT=12 and 43 nodes, recency still reaches a meaningful fraction of the corpus.
+
+Claim 3 (goal continuity) has a number: goal nodes contribute +0.40 to goal_alignment. They are not free. The tradeoff is real and the ablation makes it quantifiable.
+
+Results archived at `storage/benchmarks/results-2026-04-22_024941.json` and `storage/benchmarks/report-2026-04-22_024941.md`.
+
+---
+
+## Entry 025 - 2026-04-22
+### First complete benchmark run: recency holds, goal alignment confirmed, hypothesis partially falsified
+
+#### What was measured
+
+`php artisan benchmark:retrieval` ran to completion for the first time: 45 judge calls across three corpora, zero failures. The previous attempt (Entry 024) produced only 16 valid calls before OpenRouter credits were exhausted. This entry records the first complete result.
+
+#### The finding
+
+| Strategy | Relevance | Completeness | Goal Align. | Noise Ratio | Composite |
+|---|---|---|---|---|---|
+| recency | 3.40 | 3.60 | 3.87 | 2.73 | **3.40** |
+| graph | 3.33 | 3.33 | 3.67 | 2.73 | 3.27 |
+| goal_graph | 3.27 | 3.07 | 3.87 | 2.67 | 3.22 |
+
+goal_graph vs recency: composite lift = **-5.3%**
+goal_graph vs graph: goal alignment lift = **+5.4%**
+
+The retrieval hypothesis for Track 10 Claim 1 does not hold at this benchmark scale. Goal-biased graph retrieval is not better than recency retrieval in composite score. It is slightly worse.
+
+The one confirmed positive finding: goal_graph equals recency on goal alignment (both 3.87) and beats weight-only graph by 5.4%. Goal seeding does pull goal-relevant content more reliably than unguided BFS. It does not pull comprehensive or highly relevant content more reliably than returning the most recent nodes.
+
+#### What the per-question data reveals
+
+The pattern is consistent across corpora. For questions about recent status (project standing, deadlines, weekly priorities), recency wins because in small corpora, recent creation time and current relevance are closely correlated. For questions requiring cross-temporal knowledge synthesis (q5 distributed systems in corpus_01, q4 deadlines in corpus_02 where graph scores 4.25), graph traversal adds value. goal_graph on those same cross-temporal questions tends to pull goal nodes that are directionally relevant but not informationally complete, reducing completeness scores below both recency and plain graph.
+
+Corpus 01 (software developer) is the only corpus where goal_graph beats recency (3.35 vs 3.25). Corpus 03 (consultancy owner) shows the largest recency advantage (3.65 vs 3.05 for goal_graph). The consultancy persona has many active projects with recent updates; the most recent memory is usually the most operationally relevant one.
+
+#### What this means for the research direction
+
+Three things follow from this finding.
+
+First: the recency baseline is stronger than the research framing assumed. A graph retrieval system that does not outperform recency on small corpora is not a credible upgrade to offer users. The next benchmark iteration needs a corpus where recency predictably fails: long time horizons where recent memories are status updates and the relevant knowledge is months old, or large corpora where the most recent 12 nodes are topically scattered.
+
+Second: goal alignment is the confirmed win and should be the primary claim going forward. The system reliably surfaces goal-relevant context whether or not that context was recent. For users with explicit long-term goals (a project they are building, a paper they are writing, a business they are growing), that alignment property is the actual differentiator. The claim to make is not "better retrieval" but "goal-coherent retrieval": the system always keeps your active goals in context, even when you ask a question that does not mention them.
+
+Third: the Claim 3 experiment (goal ablation) now has a sharper framing. The question is not whether goal_graph beats recency on composite score. It is whether goal node presence produces responses that stay coherent with the user's stated projects when the user asks questions that don't mention those projects. That is a user-level quality of experience question, not a retrieval quality question, and it requires a different evaluation protocol than the LLM-as-judge score used here.
+
+#### What remains open in Track 10
+
+Claim 1 (better retrieval) is not confirmed. The next step is a harder corpus: more memories, longer time horizons, questions that require assembling knowledge from non-recent nodes. The current corpora are too recency-friendly to distinguish graph retrieval from a simpler strategy.
+
+Claim 2 (safer memory ownership): threat model document not yet written.
+
+Claim 3 (better goal continuity): the goal ablation experiment requires extending the benchmark with a condition that removes goal nodes from the corpus before retrieval and compares judge scores against the goal-included condition. This is a corpus parameter change, not a system change.
+
+Full results archived at `storage/benchmarks/results-2026-04-22_022137.json` and `storage/benchmarks/report-2026-04-22_022137.md`.
+
+---
+
 ## Entry 024 - 2026-04-09
 ### Retrieval benchmark moves Track 10 from argument to measurement
 

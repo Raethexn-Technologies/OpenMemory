@@ -44,6 +44,8 @@ Setting `ICP_MOCK_MODE=true` (the default) replaces the ICP canister with Larave
 
 The consent flow runs identically in mock mode. Private and sensitive memories still require user approval before being written, so you can develop and test the full approval dialog flow without touching any ICP infrastructure.
 
+The redaction flow also runs in mock mode. Payment cards, bank details, government IDs, credentials, private keys, and comparable floor categories should be redacted before they reach transcripts, LLM prompts, graph nodes, document chunks, MCP writes, or mock ICP storage.
+
 For contributors who want to test the live canister path, the full setup steps are in the README under "Connecting a real ICP canister."
 
 ---
@@ -70,6 +72,8 @@ The three-tier memory model is the core architectural claim of the project. Plea
 | sensitive | No | Yes, owner only | Yes |
 
 `getPublicMemories()` is the explicit application-layer gate that keeps LLM context limited to public records. The canister enforces the same boundary at the protocol level, and both layers need to stay aligned.
+
+Redaction is a separate content-control layer. Do not treat sensitivity labels as a substitute for redaction. Contributions that add new ingestion paths, retrieval paths, or storage paths must run `RedactionService` before text crosses an LLM or storage boundary. Floor categories in `config/redaction.php` must remain non-overridable by user policy.
 
 ---
 

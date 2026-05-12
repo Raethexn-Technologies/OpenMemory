@@ -1,6 +1,10 @@
 <template>
   <AppLayout>
-    <div class="flex-1 flex flex-col max-w-4xl mx-auto w-full px-4 py-6 gap-4">
+    <!-- Ambient hive-mind background: every visitor's public memories drift here.
+         Pointer-events disabled so it can't intercept chat input. -->
+    <AmbientGraph ref="ambientGraph" />
+
+    <div class="flex-1 flex flex-col max-w-4xl mx-auto w-full px-4 py-6 gap-4 relative z-10">
 
       <!-- Header row -->
       <div class="flex items-center justify-between">
@@ -350,6 +354,7 @@ import { ref, computed, nextTick, onMounted } from 'vue';
 import { usePage, router } from '@inertiajs/vue3';
 import axios from 'axios';
 import AppLayout from '@/Components/AppLayout.vue';
+import AmbientGraph from '@/Components/AmbientGraph.vue';
 import { useIcpIdentity } from '@/composables/useIcpIdentity';
 import { useIcpMemory } from '@/composables/useIcpMemory';
 
@@ -441,6 +446,11 @@ const memoryState = ref(null);
 // { content, type, metadata }
 const pendingApproval = ref(null);
 
+// Ref to the ambient background visualization so the chat can pulse it after
+// a successful memory write, giving the user a visible "your message landed
+// in the collective" cue without waiting for the next poll interval.
+const ambientGraph = ref(null);
+
 const suggestions = [
   "My name is Anthony and I build AI tools.",
   "I'm an electrical engineer working in Toronto.",
@@ -467,23 +477,25 @@ function clearMemoryState(delay = 7000) {
 // Called for auto-signed public memories (live mode) and after manual approval (private/sensitive).
 async function writeMemoryToBrowser(content, type, metadata) {
   memoryState.value = { status: 'pending' };
+  let effectiveType = type ?? 'public';
   const id = await icpMemory.value.storeMemory({
     sessionId: props.session_id,
     content,
-    type:      type ?? 'public',
+    type:      effectiveType,
     metadata:  metadata ?? null,
   });
   if (id) {
     try {
-      await axios.post('/chat/sync-graph-memory', {
+      const { data } = await axios.post('/chat/sync-graph-memory', {
         content,
-        memory_type: type ?? 'public',
+        memory_type: effectiveType,
       });
+      effectiveType = data.memory_type ?? effectiveType;
     } catch (err) {
       console.warn('[chat] graph sync failed after browser memory write', err);
     }
 
-    memoryState.value = { status: 'success', content, source: 'browser' };
+    memoryState.value = { status: 'success', content, source: 'browser', type: effectiveType };
     // Refresh the owner panel so the new record appears immediately.
     if (showMyMemories.value) {
       const result = await icpMemory.value.getMyMemories(principal);
@@ -514,12 +526,12 @@ async function approveMemory() {
     // Consent behavior is identical to live mode; only the storage destination differs.
     memoryState.value = { status: 'pending' };
     try {
-      await axios.post('/chat/store-memory', {
+      const { data } = await axios.post('/chat/store-memory', {
         content:     m.content,
         memory_type: m.type,
         metadata:    m.metadata ?? null,
       });
-      memoryState.value = { status: 'success', content: m.content, source: 'server', type: m.type };
+      memoryState.value = { status: 'success', content: m.content, source: 'server', type: data.memory_type ?? m.type };
     } catch {
       memoryState.value = { status: 'failed', content: m.content };
     }
@@ -537,6 +549,7 @@ async function send() {
   if (!text || loading.value) return;
 
   messages.value.push({ role: 'user', content: text });
+  const userMessageIndex = messages.value.length - 1;
   input.value = '';
   loading.value = true;
   memoryState.value = null;
@@ -550,8 +563,16 @@ async function send() {
     });
 
     messages.value.push({ role: 'assistant', content: data.message });
+    if (data.redacted_message && data.redacted_message !== text) {
+      messages.value[userMessageIndex].content = data.redacted_message;
+    }
 
     if (data.memory) {
+      // Ping the ambient layer — public memories appear in the hive-mind feed
+      // immediately; private/sensitive ones won't until they're approved and
+      // stored, but pulsing now keeps the feedback loop tight either way.
+      ambientGraph.value?.pulse();
+
       if (data.memory_type !== 'public') {
         // Private and Sensitive always require user review before storing — in both modes.
         // Live mode: user approves → browser signs → writes to canister.

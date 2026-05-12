@@ -319,11 +319,13 @@ The experiment compares three strategies against the same memory corpus and the 
 
 Scoring uses an LLM-as-judge protocol on four dimensions (1-5 each): relevance, completeness, goal alignment, noise ratio. Composite score is the mean of the four. Token efficiency is composite divided by context token count.
 
-The benchmark harness (`php artisan benchmark:retrieval`) runs all three strategies against three synthetic but realistic corpora (software developer, academic researcher, small business owner), each with 20-22 memories, 2-3 goal nodes, and 5 questions. Results are written as JSON and a Markdown report to `storage/benchmarks/`. The JSON includes the retrieved context that was judged, so each score can be audited against the exact records shown to the judge.
+The benchmark harness (`php artisan benchmark:retrieval`) runs all three strategies against four synthetic but realistic corpora. Corpora 01-03 are compact personas (20-22 memories, 2-3 goals, 5 questions each). Corpus 04 is a long-horizon engineer corpus (40 memories, 3 goals, 5 questions) designed to force retrieval across up to 12 months of history. `--ablate-goals` reruns the same corpus with goal nodes excluded from seeding so goal contribution can be measured directly. Results are written as JSON and a Markdown report to `storage/benchmarks/`. The JSON includes the retrieved context that was judged, so each score can be audited against the exact records shown to the judge.
 
 The finding this experiment targets: a specific percentage improvement in composite score for goal_graph over recency, and a specific percentage improvement in goal alignment for goal_graph over the weight-only graph strategy.
 
-**Status: benchmark harness implemented (2026-04-09).** `php artisan benchmark:retrieval` is live. `MemoryGraphService::retrieveContext()` now accepts a `$strategy` parameter (`recency`, `graph`, `goal_graph`) with `goal_graph` as the default. Three synthetic corpora are seeded in `database/benchmarks/`. The command supports `--limit`, `--corpus`, `--strategies`, and `--keep` for manual inspection. Failed judge calls are counted explicitly, partial reports exit non-zero, and headline comparisons are suppressed unless the relevant strategy pair has complete scores. The measurement is ready to run. Results not yet recorded.
+**Status: two complete runs recorded (2026-04-22).** Corpora 01-03 (45/45 calls): recency leads at composite 3.40, goal_graph -5.3% behind. Corpus 04 long-horizon (30/30 calls including ablation): recency gap narrows to -2.2%, goal alignment lift increases to +7.7% over plain graph. See DEVLOG Entries 025 and 026.
+
+Claim 1 (better retrieval) is not yet confirmed. The recency advantage shrinks on harder corpora but has not flipped at CONTEXT_LIMIT=12. A corpus with more nodes or a smaller context-to-corpus ratio is the next test.
 
 The benchmark measures retrieved context quality, not final answer quality. A later experiment should run the full assistant response path and judge the answer itself after the retrieval context has been injected.
 
@@ -347,11 +349,11 @@ This claim matters because user life context is high-liability data. A provider 
 
 Explicit goal nodes improve response alignment across sessions and across different types of knowledge in the graph.
 
-The experiment runs the same memory graph and the same prompt set twice: once with goal nodes included in retrieval, once with goal nodes removed. The expected finding is that responses in the goal-included condition stay closer to the user's stated projects, priorities, and constraints, and that this effect is measurable by LLM-as-judge evaluation of whether responses address the user's actual situation rather than just the immediate question.
+The experiment runs the same memory graph and the same prompt set twice: once with goal nodes included in retrieval, once with goal nodes removed. The question it answers is whether the goal-included condition stays closer to the user's stated projects, priorities, and constraints, and whether that effect is measurable by LLM-as-judge evaluation of whether responses address the user's actual situation rather than just the immediate question.
 
 This is the "second brain" component of the system. Remembering facts is necessary but not sufficient. The system also needs to remember what the user is trying to do, and surface that knowledge when the user asks a question that does not explicitly mention their goals.
 
-**Status: open.** The experiment requires the Claim 1 benchmark harness to be extended with a goal-ablation condition: run `goal_graph` retrieval with goal nodes present in the corpus, then run again with goal nodes excluded, and compare judge scores. This is a parameter change to the benchmark, not a new system.
+**Status: measured (2026-04-22).** `--ablate-goals` flag implemented on `benchmark:retrieval`. On corpus_04 (long-horizon, 40 nodes): goal nodes contribute **+0.40 to goal_alignment** for goal_graph retrieval. They cost **-0.20 composite** because goal nodes occupy retrieval slots that would otherwise hold weight-ranked content more directly relevant to knowledge-retrieval questions. The tradeoff is real and quantified. Goal seeding helps "what should I work on?" questions; it is a net cost on "what was the decision about X?" questions. See DEVLOG Entry 026.
 
 ### Terminology for adoption-facing documentation
 

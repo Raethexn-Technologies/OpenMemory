@@ -30,6 +30,12 @@ Route::get('/api/status', [MemoryController::class, 'status'])->name('api.status
 // Memory graph explorer
 Route::get('/graph', [GraphController::class, 'index'])->name('graph');
 Route::get('/api/graph', [GraphController::class, 'data'])->name('api.graph');
+// Public hive-mind ambient feed. Unauthenticated; throttled per IP so a
+// curl loop cannot drain the database. 60/min is generous for the 9-second
+// poll plus pulse-triggered refetches across multiple tabs.
+Route::get('/api/graph/ambient', [GraphController::class, 'ambient'])
+    ->middleware('throttle:60,1')
+    ->name('api.graph.ambient');
 Route::get('/api/graph/neighborhood/{nodeId}', [GraphController::class, 'neighborhood'])->name('api.graph.neighborhood');
 Route::post('/api/graph/simulate', [GraphController::class, 'simulate'])->name('api.graph.simulate');
 Route::get('/api/graph/clusters', [GraphController::class, 'clusters'])->name('api.graph.clusters');

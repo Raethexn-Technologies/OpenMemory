@@ -14,17 +14,19 @@ Identity works differently depending on the tool. The browser chat UI holds an E
 
 The application is a standard Laravel and Vue web app. The interesting parts are the memory layer and the graph that grows on top of it.
 
+**Redaction policy.** Before a chat turn, MCP write, document ingest, retrieved memory, or graph-sync payload crosses an LLM or storage boundary, `RedactionService` runs deterministic local checks. Non-negotiable floor categories include payment cards, CVV, bank routing and account numbers, IBANs, SSNs, SINs, credentials, JWTs, private keys, and identifiable minor-age details. These are redacted or tokenized even if a user policy tries to allow them. User-tunable categories include email, phone, street address, date of birth, compensation, and health-condition text. Policies are loaded from `redaction_policies` when present, otherwise the deployment preset in `config/redaction.php` is used.
+
 **Storage trigger.** Before summarizing a conversation turn, the server passes the exchange to `MemorabilityService`, which evaluates novelty, significance, durability, and connection richness against the 20 most recently created nodes. The evaluation returns one of three decisions: store a new node, update an existing node with a specific ID, or skip the turn entirely. This filter prevents ephemeral exchanges (greetings, clarifying questions, transient status updates) from creating nodes, keeping the graph focused on durable knowledge.
 
-**Memory records.** When a turn passes the storage trigger, the server summarizes it, classifies it as public, private, or sensitive, and proceeds down the write path. In the browser chat UI, private and sensitive records require user approval before the browser signs the write with an Ed25519 key from localStorage and sends it directly to the ICP canister. The canister records `msg.caller` as the owner of that record. CLI tools writing through the MCP server POST to the Laravel `/mcp/store` endpoint in mock mode, which handles graph extraction and node storage server-side without a browser session.
+**Memory records.** When a redacted turn passes the storage trigger, the server summarizes it, classifies it as public, private, or sensitive, applies a second deterministic redaction pass to the summary, and proceeds down the write path. Redaction findings can only raise sensitivity, never lower it. In the browser chat UI, private and sensitive records require user approval before the browser signs the write with an Ed25519 key from localStorage and sends it directly to the ICP canister. The canister records `msg.caller` as the owner of that record. CLI tools writing through the MCP server POST to the Laravel `/mcp/store` endpoint in mock mode, which handles redaction, graph extraction, and node storage server-side without a browser session.
 
-**Document ingestion.** `POST /api/documents/ingest` accepts pasted text or Markdown files, creates a document anchor node, chunks the source with `DocumentChunkerService`, and runs each chunk through the same `GraphExtractionService` used for chat memories. Chunk nodes are stored with `source = 'document'` and connected back to the anchor with `part_of` edges, so uploaded knowledge enters the same graph primitives as chat-derived memory. `GET /api/documents` lists the document anchors for the current user. The HTTP API defaults ingested documents to `public` because graph-guided retrieval only loads public nodes into the LLM context window; `private` remains available when the user wants graph-only storage.
+**Document ingestion.** `POST /api/documents/ingest` accepts pasted text or Markdown files, redacts the source text, creates a document anchor node, chunks the redacted source with `DocumentChunkerService`, and runs each chunk through the same `GraphExtractionService` used for chat memories. Chunk nodes are stored with `source = 'document'` and connected back to the anchor with `part_of` edges, so uploaded knowledge enters the same graph primitives as chat-derived memory. `GET /api/documents` lists the document anchors for the current user. The HTTP API defaults ingested documents to `public` because graph-guided retrieval only loads public nodes into the LLM context window; redaction findings can escalate the effective sensitivity to `private` or `sensitive`.
 
-**The memory graph.** After every confirmed memory write or document ingest, an LLM call extracts a node type (memory, person, project, document, task, event, concept, or goal), a label, semantic tags, named people, and named projects from the memory content. This data creates a typed graph node in PostgreSQL and auto-wires edges to related existing nodes: tag overlap produces `same_topic_as` edges; named people produce `about_person` edges to person anchor nodes; named projects produce `part_of` edges to project anchor nodes.
+**The memory graph.** After every confirmed memory write or document ingest, an LLM call extracts a node type (memory, person, project, document, task, event, concept, or goal), a label, semantic tags, named people, and named projects from the redacted memory content. Extracted labels and entity fields are sanitized again before storage so redaction placeholders do not become person or project anchors. This data creates a typed graph node in PostgreSQL and auto-wires edges to related existing nodes: tag overlap produces `same_topic_as` edges; named people produce `about_person` edges to person anchor nodes; named projects produce `part_of` edges to project anchor nodes.
 
 **Physarum dynamics.** Edge weights are not static. When the LLM retrieves a set of memory nodes to build a response, all edges between those co-accessed nodes receive a conductance increment of ALPHA = 0.10, clamped to 1.0. A daily scheduled command applies a decay factor of RHO = 0.97 to all edges, floored at 0.05. Edges that are traversed together regularly accumulate weight; edges between memories that the agent never retrieves together decay toward the floor. This implements the discrete form of the Tero et al. (2010) slime mold conductance model: paths the organism uses frequently develop higher conductance, and paths that carry no flux thin out.
 
-**LLM recall.** Only public memories are loaded into the LLM context. Within that public set, `findContextSeeds()` seeds public `goal` nodes first and fills the remaining seed slots by total connected edge weight from the same bounded candidate pool. Retrieval is therefore goal-biased, but it is not query-aware yet. Private and sensitive records are gated by `msg.caller` on the canister: anonymous callers (the server adapter, the MCP server, and external HTTP clients) receive only public records.
+**LLM recall.** Only public memories are loaded into the LLM context. Within that public set, `findContextSeeds()` seeds public `goal` nodes first and fills the remaining seed slots by total connected edge weight from the same bounded candidate pool. Retrieved records are redacted again before prompt injection, which protects legacy records or external writes that predate the redaction layer. Retrieval is therefore goal-biased, but it is not query-aware yet. Private and sensitive records are gated by `msg.caller` on the canister: anonymous callers (the server adapter, the MCP server, and external HTTP clients) receive only public records.
 
 **Active node IDs.** The `/chat/send` response includes an `active_node_ids` field listing the graph nodes loaded into context that turn. The Three.js mission control surface at `/3d` reads this field to highlight which nodes were active on the most recent turn.
 
@@ -51,6 +53,8 @@ The three memory tiers are the core of the trust model:
 
 Public memories are the only records the LLM can recall. Private and sensitive records are owner-gated at the canister level, not just by application code. The graph layer inherits the sensitivity of the source memory record: anchor nodes created for a private memory are themselves private, so they do not appear in the public graph.
 
+The redaction layer sits beside this access-control model. Access control decides who can read a record. Redaction decides whether raw high-risk content may be stored or sent to an LLM at all. Floor categories are always redacted or tokenized before storage, and a redaction finding can raise a record from public to private or sensitive.
+
 ---
 
 ## Stack
@@ -61,6 +65,7 @@ Public memories are the only records the LLM can recall. Private and sensitive r
 | Frontend | Vue 3, Inertia.js, Tailwind CSS |
 | Database | PostgreSQL (Docker) or SQLite (local development) |
 | LLM | OpenRouter, model configurable via `OPENROUTER_MODEL` |
+| Redaction | `RedactionService`, `redaction_policies`, `config/redaction.php`, deterministic local checks before LLM and storage boundaries |
 | Memory records | ICP canister (Motoko), browser-signed writes (chat UI), MCP server writes (CLI tools), Node.js adapter for server reads |
 | Memory graph | PostgreSQL tables (`memory_nodes`, `memory_edges`), Physarum dynamics, D3 force-directed explorer at `/graph` |
 | Graph partition layer | PostgreSQL tables (`agents`, `shared_memory_edges`, `graph_snapshots`), collective Physarum dynamics across named partitions, Three.js mission control surface at `/3d` |
@@ -120,6 +125,16 @@ OPENROUTER_MODEL=meta-llama/llama-4-scout:free   # free tier, rate-limited
 ```
 
 The memory layer and graph layer store identical records regardless of which model is in use.
+
+---
+
+## Redaction policy
+
+Redaction is enabled by default through `REDACTION_ENABLED=true`. The deployment preset is controlled by `REDACTION_PRESET`, with `personal`, `professional`, and `regulated` presets defined in `app/config/redaction.php`. Deterministic redaction tokens use an HMAC key from `REDACTION_HASH_KEY`; when that is unset, the application key is used.
+
+The floor categories cannot be disabled by user policy: payment cards, CVV, bank routing and account numbers, IBANs, SSNs, SINs, credentials, JWTs, private keys, and minor-age details. These values are replaced before the LLM sees the turn, before the transcript is stored, before memory summaries are written, before document chunks are extracted, and before MCP writes enter the graph.
+
+User-specific policy rows live in `redaction_policies`. A row can select a preset and override configurable categories such as email, phone, street address, date of birth, compensation, and health-condition text. Compensation defaults to abstraction rather than deletion, so a precise salary can become a bracket such as `[COMPENSATION:100K_200K]`.
 
 ---
 
@@ -185,14 +200,17 @@ All three commands are scheduled automatically via `routes/console.php`. Both co
 
 ## Research diagnostics
 
-**Retrieval benchmark** compares three context selection strategies against synthetic user-memory corpora: flat recency, weight-only graph retrieval, and goal-biased graph retrieval. Each corpus is seeded into an isolated benchmark user partition, judged with an LLM-as-judge rubric, then deleted unless `--keep` is passed. Reports are written to `storage/benchmarks/`.
+**Retrieval benchmark** compares three context selection strategies against synthetic user-memory corpora: flat recency, weight-only graph retrieval, and goal-biased graph retrieval. Each corpus is seeded into an isolated benchmark user partition, judged with an LLM-as-judge rubric, then deleted unless `--keep` is passed. Reports are written to `storage/benchmarks/`. `--ablate-goals` runs a second pass with goal nodes excluded and adds a with-goals vs without-goals comparison table to the report.
 
 ```bash
 php artisan benchmark:retrieval
 php artisan benchmark:retrieval --strategies=recency,goal_graph
-php artisan benchmark:retrieval --corpus=database/benchmarks/corpus_01_software_developer.json
+php artisan benchmark:retrieval --corpus=database/benchmarks/corpus_04_longhorizon_engineer.json
+php artisan benchmark:retrieval --corpus=database/benchmarks/corpus_04_longhorizon_engineer.json --ablate-goals
 php artisan benchmark:retrieval --keep
 ```
+
+As of the 2026-04-22 benchmark runs, recency still leads on composite score. On the harder long-horizon corpus, the gap narrows to 2.2%, and goal ablation shows that explicit goal nodes add +0.40 goal alignment while costing -0.20 composite for `goal_graph`. The current claim is goal-coherent retrieval, not universal retrieval superiority.
 
 The benchmark measures retrieval quality only. It does not answer whether the final assistant response improves, because the judged artifact is the retrieved context set rather than the generated answer. If any judge call fails, the command still writes the partial report but exits non-zero and suppresses headline comparison claims.
 
@@ -275,7 +293,7 @@ openssl rand -hex 32
 
 The `WRITE_SCOPE` env var controls which sensitivity levels the MCP server will accept. The default is `public` only. Set it to `public,private` to allow private writes. Sensitive writes are always blocked at the MCP layer regardless of scope. Set `WRITE_SCOPE=none` to make the server read-only.
 
-In mock mode (`ICP_MOCK_MODE=true`), the MCP server POSTs to `OMA_MOCK_URL/mcp/store` and memory nodes are created in the local PostgreSQL graph. In live ICP mode (no `OMA_MOCK_URL` set), the server signs canister calls directly with the loaded identity.
+In mock mode (`ICP_MOCK_MODE=true`), the MCP server POSTs to `OMA_MOCK_URL/mcp/store` and memory nodes are created in the local PostgreSQL graph. The Laravel endpoint runs the redaction floor before storing content. If a public MCP write contains a floor category such as a bank routing number, the raw value is tokenized and the write is stored as private. In live ICP mode (no `OMA_MOCK_URL` set), the server signs canister calls directly with the loaded identity.
 
 ---
 
@@ -284,9 +302,10 @@ In mock mode (`ICP_MOCK_MODE=true`), the MCP server POSTs to `OMA_MOCK_URL/mcp/s
 ```bash
 cd app
 php artisan test
+npm run test:front
 ```
 
-The test suite runs against SQLite in-memory and mock mode throughout. No API key or canister is required. Coverage includes the storage trigger (MemorabilityService decisions, hallucinated node ID rejection, consolidated node exclusion), document chunking and ingestion, document controller routes, goal-biased retrieval seed selection, graph and recency retrieval strategy selection, benchmark cleanup behavior, graph reinforcement, edge decay, neighborhood traversal, cluster detection determinism, graph snapshot storage and pruning, agent alignment Jaccard calculation, the memory approval flow, the `active_node_ids` response field, consolidation pipeline (concept node creation, supersedes edges, sensitivity inheritance, re-consolidation prevention), node pruning (floor-weight detection, idle window, edge cascade delete, user scoping, dry-run), the MCP store endpoint (API key auth, graph node creation), and the ThreeD page load with agent scoping.
+The backend test suite runs against SQLite in-memory and mock mode throughout. No API key or canister is required. Coverage includes deterministic redaction policy and floor behavior, per-user redaction policy loading, redaction in chat storage, redaction in MCP writes, redaction in document ingestion, the storage trigger (MemorabilityService decisions, hallucinated node ID rejection, consolidated node exclusion), document chunking and ingestion, document controller routes, goal-biased retrieval seed selection, graph and recency retrieval strategy selection, benchmark cleanup behavior, goal ablation and `goals_excluded` metadata, graph reinforcement, edge decay, neighborhood traversal, cluster detection determinism, graph snapshot storage and pruning, agent alignment Jaccard calculation, the memory approval flow, the `active_node_ids` response field, consolidation pipeline (concept node creation, supersedes edges, sensitivity inheritance, re-consolidation prevention), node pruning (floor-weight detection, idle window, edge cascade delete, user scoping, dry-run), the MCP store endpoint (API key auth, graph node creation), and the ThreeD page load with agent scoping. The frontend Vitest coverage checks redacted chat rendering, sensitive-memory approval, and live browser graph sync typing.
 
 ---
 
@@ -317,6 +336,8 @@ OpenMemory/
 │   │   │   ├── DocumentIngestionService.php # document anchor creation, chunk ingest, part_of wiring
 │   │   │   ├── MemorabilityService.php      # storage trigger: evaluates novelty/significance before writing
 │   │   │   ├── MemorySummarizationService.php
+│   │   │   ├── RedactionService.php          # deterministic PII, financial, and credential redaction
+│   │   │   ├── RedactionResult.php           # redacted text plus category metadata
 │   │   │   ├── ConsolidationService.php     # compresses episodic clusters into concept nodes (weekly)
 │   │   │   ├── GraphExtractionService.php   # LLM extracts node type, label, tags per memory or document chunk
 │   │   │   ├── MemoryGraphService.php       # stores nodes, wires edges, Physarum dynamics
@@ -331,6 +352,7 @@ OpenMemory/
 │   │       ├── Message.php
 │   │       ├── MemoryNode.php               # typed graph node with access tracking
 │   │       ├── MemoryEdge.php               # directed edge with Physarum weight
+│   │       ├── RedactionPolicy.php          # per-user redaction preset and overrides
 │   │       ├── Agent.php                    # agent record with trust_score and graph_user_id
 │   │       ├── SharedMemoryEdge.php         # cross-agent edge keyed by content hash
 │   │       └── GraphSnapshot.php            # cluster payload for one 15-minute interval
@@ -340,6 +362,7 @@ OpenMemory/
 │   │   ├── ..._add_access_tracking_to_memory_graph.php
 │   │   ├── ..._add_consolidated_at_to_memory_nodes.php
 │   │   ├── ..._add_goal_type_to_memory_nodes.php
+│   │   ├── ..._create_redaction_policies_table.php
 │   │   ├── ..._create_agents_table.php
 │   │   ├── ..._create_shared_memory_edges_table.php
 │   │   └── ..._create_graph_snapshots_table.php
@@ -381,6 +404,8 @@ OpenMemory/
 └── SCIENCE.md                               # plain-language explanations of the mathematics and biology behind the graph layer
 ```
 
+The benchmark corpora live in `app/database/benchmarks/`. Corpora 01-03 are the compact persona sets used in the first complete run. `corpus_04_longhorizon_engineer.json` is the harder 12-month retrieval challenge added for the long-horizon pass. `BenchmarkService` and `benchmark:retrieval` also support goal ablation, so the same corpus can be rerun with goal nodes excluded when measuring Claim 3.
+
 ---
 
 ## What each layer does
@@ -392,9 +417,11 @@ OpenMemory/
 | useIcpIdentity.js | Generates an Ed25519 key pair in browser localStorage and derives the ICP principal |
 | useIcpMemory.js | Browser actor for signing store_memory calls and retrieving the owner's full record set |
 | PostgreSQL | Chat transcript, session data, memory graph (nodes, edges, Physarum weights) |
+| RedactionService | Deterministic local redaction and tokenization before LLM, transcript, graph, document, MCP, and storage boundaries |
+| RedactionPolicy | Per-user preset and category overrides for configurable redaction behavior |
 | MemorabilityService | Pre-write filter evaluating novelty, significance, durability, and connection richness; returns store/update/skip |
 | DocumentChunkerService | Splits pasted text or Markdown into paragraph-aware chunks sized for graph extraction |
-| DocumentIngestionService | Creates document anchor nodes, stores chunk nodes, and wires `part_of` edges back to the source document |
+| DocumentIngestionService | Redacts document text, creates document anchor nodes, stores chunk nodes, and wires `part_of` edges back to the source document |
 | GraphExtractionService | LLM pass after each confirmed memory write or document chunk; extracts node type, label, tags, people, projects |
 | MemoryGraphService | Creates nodes, auto-wires edges, applies Hebbian reinforcement, runs Physarum decay |
 | BenchmarkService | Seeds isolated corpora and scores retrieval strategies with an LLM-as-judge rubric |

@@ -13,17 +13,18 @@ use Illuminate\Support\Facades\File;
  * Usage:
  *   php artisan benchmark:retrieval
  *   php artisan benchmark:retrieval --strategies=recency,goal_graph
- *   php artisan benchmark:retrieval --corpus=database/benchmarks/corpus_01_software_developer.json
- *   php artisan benchmark:retrieval --keep   # do not clean up seeded data
- *
- * Each strategy is evaluated against every question in every corpus. The LLM judges
- * each (strategy, question) pair and scores on four dimensions (1-5). Results are
- * written to storage/benchmarks/ as JSON (full detail) and Markdown (readable report).
+ *   php artisan benchmark:retrieval --corpus=database/benchmarks/corpus_04_longhorizon_engineer.json
+ *   php artisan benchmark:retrieval --keep
+ *   php artisan benchmark:retrieval --ablate-goals
  *
  * Strategies:
  *   recency: most recently created public nodes, no graph traversal.
  *   graph: BFS from weight-ranked seeds, no goal priority.
  *   goal_graph: BFS from goal seeds first, then weight-ranked seeds.
+ *
+ * --ablate-goals runs a second pass of each corpus with goal nodes excluded from
+ * seeding. The report includes a comparison table showing how much goal nodes
+ * contribute to goal_alignment and composite scores for goal_graph.
  */
 class BenchmarkRetrieval extends Command
 {
@@ -31,7 +32,8 @@ class BenchmarkRetrieval extends Command
                             {--strategies=recency,graph,goal_graph : Comma-separated strategies to compare}
                             {--corpus= : Path to a single corpus JSON file (runs all corpora by default)}
                             {--limit=12 : Number of context nodes to retrieve per strategy}
-                            {--keep : Do not clean up seeded benchmark data after the run}';
+                            {--keep : Do not clean up seeded benchmark data after the run}
+                            {--ablate-goals : Re-run each corpus without goal nodes to measure their contribution}';
 
     protected $description = 'Compare memory retrieval strategies against synthetic corpora using LLM-as-judge scoring';
 
@@ -58,7 +60,8 @@ class BenchmarkRetrieval extends Command
             return self::FAILURE;
         }
 
-        $keep = (bool) $this->option('keep');
+        $keep        = (bool) $this->option('keep');
+        $ablateGoals = (bool) $this->option('ablate-goals');
         $corpusPaths = $this->resolveCorpusPaths();
 
         if (empty($corpusPaths)) {
@@ -71,8 +74,12 @@ class BenchmarkRetrieval extends Command
         $this->line('Corpora    : ' . count($corpusPaths));
         $this->line('Limit      : ' . $contextLimit . ' context nodes per retrieval');
         $this->line('Cleanup    : ' . ($keep ? 'keep seeded benchmark data' : 'delete seeded benchmark data'));
+        if ($ablateGoals) {
+            $this->line('Ablation   : goal nodes excluded in second pass');
+        }
         $this->newLine();
 
+        // Normal pass.
         $allCorpusResults = [];
 
         foreach ($corpusPaths as $path) {
@@ -111,10 +118,57 @@ class BenchmarkRetrieval extends Command
             return self::FAILURE;
         }
 
-        $aggregated = $this->aggregateResults($allCorpusResults, $strategies);
-        $judgeCalls = $this->aggregateJudgeCalls($allCorpusResults);
+        $aggregated  = $this->aggregateResults($allCorpusResults, $strategies);
+        $judgeCalls  = $this->aggregateJudgeCalls($allCorpusResults);
         $this->printAggregateSummary($allCorpusResults, $aggregated, $strategies);
 
+        // Ablation pass.
+        $ablationResults    = [];
+        $ablationAggregated = [];
+        $ablationJudgeCalls = ['expected' => 0, 'completed' => 0, 'failed' => 0, 'complete' => true];
+
+        if ($ablateGoals) {
+            $this->newLine();
+            $this->info('Goal ablation pass (goal nodes excluded from seeding):');
+
+            foreach ($corpusPaths as $path) {
+                $corpus = json_decode(File::get($path), true);
+
+                if (! is_array($corpus)) {
+                    continue;
+                }
+
+                $this->line("  Corpus: {$corpus['id']} (ablated)");
+
+                $bar = $this->output->createProgressBar(count($corpus['questions']) * count($strategies));
+                $bar->start();
+
+                $corpusResult = $benchmark->runCorpus(
+                    $corpus,
+                    $strategies,
+                    $contextLimit,
+                    $keep,
+                    fn () => $bar->advance(),
+                    true, // excludeGoals
+                );
+
+                $bar->finish();
+                $this->newLine();
+
+                $this->printCorpusSummary($corpusResult['summary'], $strategies);
+                $this->newLine();
+
+                $ablationResults[] = $corpusResult;
+            }
+
+            if (! empty($ablationResults)) {
+                $ablationAggregated = $this->aggregateResults($ablationResults, $strategies);
+                $ablationJudgeCalls = $this->aggregateJudgeCalls($ablationResults);
+                $this->printAblationComparison($allCorpusResults, $ablationResults, $aggregated, $ablationAggregated, $strategies);
+            }
+        }
+
+        // Write outputs.
         $outputDir = storage_path('benchmarks');
         File::ensureDirectoryExists($outputDir);
 
@@ -122,26 +176,48 @@ class BenchmarkRetrieval extends Command
         $jsonPath  = "{$outputDir}/results-{$timestamp}.json";
         $mdPath    = "{$outputDir}/report-{$timestamp}.md";
 
-        File::put($jsonPath, json_encode([
-            'run_at'     => Carbon::now()->toIso8601String(),
-            'strategies' => $strategies,
-            'context_limit' => $contextLimit,
+        $jsonData = [
+            'run_at'         => Carbon::now()->toIso8601String(),
+            'strategies'     => $strategies,
+            'context_limit'  => $contextLimit,
             'kept_seed_data' => $keep,
-            'judge_calls' => $judgeCalls,
-            'corpora'    => $allCorpusResults,
-            'aggregate'  => $aggregated,
-        ], JSON_PRETTY_PRINT));
+            'judge_calls'    => $judgeCalls,
+            'corpora'        => $allCorpusResults,
+            'aggregate'      => $aggregated,
+        ];
 
-        File::put($mdPath, $this->buildMarkdownReport($allCorpusResults, $aggregated, $strategies, $contextLimit, $judgeCalls));
+        if ($ablateGoals && ! empty($ablationResults)) {
+            $jsonData['ablation'] = [
+                'judge_calls' => $ablationJudgeCalls,
+                'corpora'     => $ablationResults,
+                'aggregate'   => $ablationAggregated,
+            ];
+        }
+
+        File::put($jsonPath, json_encode($jsonData, JSON_PRETTY_PRINT));
+
+        File::put($mdPath, $this->buildMarkdownReport(
+            $allCorpusResults,
+            $aggregated,
+            $strategies,
+            $contextLimit,
+            $judgeCalls,
+            $ablationResults,
+            $ablationAggregated,
+            $ablationJudgeCalls,
+        ));
 
         $this->newLine();
         $this->info('Results written to:');
         $this->line("  JSON   : {$jsonPath}");
         $this->line("  Report : {$mdPath}");
 
-        if (! $judgeCalls['complete']) {
+        $anyFailed = ! $judgeCalls['complete'] || ($ablateGoals && ! $ablationJudgeCalls['complete']);
+
+        if ($anyFailed) {
+            $totalFailed = $judgeCalls['failed'] + $ablationJudgeCalls['failed'];
             $this->newLine();
-            $this->warn("Benchmark completed with {$judgeCalls['failed']} failed judge calls. Treat the report as incomplete.");
+            $this->warn("Benchmark completed with {$totalFailed} failed judge calls. Treat the report as incomplete.");
             return self::FAILURE;
         }
 
@@ -194,7 +270,6 @@ class BenchmarkRetrieval extends Command
         $this->info('Aggregate across all corpora:');
         $this->printCorpusSummary($aggregated, $strategies);
 
-        // Surface the key comparison numbers.
         $goalGraph = $aggregated['goal_graph'] ?? null;
         $recency   = $aggregated['recency'] ?? null;
         $graph     = $aggregated['graph'] ?? null;
@@ -213,6 +288,63 @@ class BenchmarkRetrieval extends Command
             $this->line("  goal_graph vs graph: goal_alignment lift = {$gaLift}%");
         } elseif (in_array('goal_graph', $strategies, true) && in_array('graph', $strategies, true)) {
             $this->line('  goal_graph vs graph: unavailable; judge results are incomplete.');
+        }
+    }
+
+    private function printAblationComparison(
+        array $normalResults,
+        array $ablationResults,
+        array $normalAggregated,
+        array $ablationAggregated,
+        array $strategies,
+    ): void {
+        if (! in_array('goal_graph', $strategies, true)) {
+            return;
+        }
+
+        $this->info('Goal ablation comparison (goal_graph: with goals vs without):');
+        $this->line('  Corpus           GA (with)  GA (w/o)  GA Delta   Composite (with)  Composite (w/o)  Delta');
+        $this->line('  ' . str_repeat('-', 102));
+
+        foreach ($normalResults as $i => $normal) {
+            $ablated  = $ablationResults[$i] ?? null;
+            $nSummary = $normal['summary']['goal_graph'] ?? null;
+            $aSummary = $ablated['summary']['goal_graph'] ?? null;
+
+            if ($nSummary === null || $aSummary === null) {
+                continue;
+            }
+
+            $gaDelta   = round($nSummary['goal_alignment'] - $aSummary['goal_alignment'], 2);
+            $compDelta = round($nSummary['composite'] - $aSummary['composite'], 2);
+
+            $this->line(sprintf(
+                '  %-16s  %-9s  %-8s  %+.2f      %-16s  %-15s  %+.2f',
+                $normal['corpus_id'],
+                $nSummary['goal_alignment'],
+                $aSummary['goal_alignment'],
+                $gaDelta,
+                $nSummary['composite'],
+                $aSummary['composite'],
+                $compDelta,
+            ));
+        }
+
+        $nAgg = $normalAggregated['goal_graph'] ?? null;
+        $aAgg = $ablationAggregated['goal_graph'] ?? null;
+
+        if ($nAgg && $aAgg) {
+            $this->line('  ' . str_repeat('-', 102));
+            $this->line(sprintf(
+                '  %-16s  %-9s  %-8s  %+.2f      %-16s  %-15s  %+.2f',
+                'AGGREGATE',
+                $nAgg['goal_alignment'],
+                $aAgg['goal_alignment'],
+                round($nAgg['goal_alignment'] - $aAgg['goal_alignment'], 2),
+                $nAgg['composite'],
+                $aAgg['composite'],
+                round($nAgg['composite'] - $aAgg['composite'], 2),
+            ));
         }
     }
 
@@ -276,9 +408,9 @@ class BenchmarkRetrieval extends Command
 
         foreach ($corpusResults as $corpusResult) {
             $calls = $corpusResult['judge_calls'] ?? ['expected' => 0, 'completed' => 0, 'failed' => 0];
-            $totals['expected'] += $calls['expected'];
+            $totals['expected']  += $calls['expected'];
             $totals['completed'] += $calls['completed'];
-            $totals['failed'] += $calls['failed'];
+            $totals['failed']    += $calls['failed'];
         }
 
         $totals['complete'] = $totals['failed'] === 0;
@@ -291,8 +423,7 @@ class BenchmarkRetrieval extends Command
         foreach ($corpusResults as $corpusResult) {
             foreach ($corpusResult['results'] as $q) {
                 foreach ($strategies as $strategy) {
-                    $scores = $q['strategies'][$strategy]['scores'] ?? null;
-                    if ($scores === null) {
+                    if (($q['strategies'][$strategy]['scores'] ?? null) === null) {
                         return false;
                     }
                 }
@@ -304,17 +435,30 @@ class BenchmarkRetrieval extends Command
 
     // Markdown report.
 
-    private function buildMarkdownReport(array $corpusResults, array $aggregated, array $strategies, int $contextLimit, array $judgeCalls): string
-    {
-        $runAt = Carbon::now()->toIso8601String();
+    private function buildMarkdownReport(
+        array $corpusResults,
+        array $aggregated,
+        array $strategies,
+        int $contextLimit,
+        array $judgeCalls,
+        array $ablationResults = [],
+        array $ablationAggregated = [],
+        array $ablationJudgeCalls = [],
+    ): string {
+        $runAt          = Carbon::now()->toIso8601String();
         $totalQuestions = array_sum(array_column($corpusResults, 'question_count'));
 
-        $lines = [];
+        $lines   = [];
         $lines[] = "# Memory Retrieval Benchmark";
         $lines[] = "";
         $lines[] = "Run at: {$runAt}";
         $lines[] = "Corpora: " . count($corpusResults) . " | Questions: {$totalQuestions} | Strategies: " . implode(', ', $strategies);
-        $lines[] = "Judge calls: {$judgeCalls['completed']}/{$judgeCalls['expected']} completed";
+
+        $callsSummary = "Judge calls: {$judgeCalls['completed']}/{$judgeCalls['expected']} completed";
+        if (! empty($ablationResults)) {
+            $callsSummary .= " | Ablation: {$ablationJudgeCalls['completed']}/{$ablationJudgeCalls['expected']} completed";
+        }
+        $lines[] = $callsSummary;
         $lines[] = "";
 
         if (! $judgeCalls['complete']) {
@@ -329,19 +473,24 @@ class BenchmarkRetrieval extends Command
         $lines[] = $this->mdTable($aggregated, $strategies);
         $lines[] = "";
 
-        // Key findings
         $goalGraph = $aggregated['goal_graph'] ?? null;
         $recency   = $aggregated['recency'] ?? null;
         $graph     = $aggregated['graph'] ?? null;
 
         if ($goalGraph && $recency && $recency['composite'] > 0 && $this->comparisonComplete($corpusResults, ['goal_graph', 'recency'])) {
-            $lift   = round(($goalGraph['composite'] - $recency['composite']) / $recency['composite'] * 100, 1);
-            $lines[] = "Goal-biased graph retrieval improved composite score by **{$lift}%** over the recency baseline.";
+            $lift    = round(($goalGraph['composite'] - $recency['composite']) / $recency['composite'] * 100, 1);
+            if ($lift > 0) {
+                $lines[] = "Goal-biased graph retrieval improved composite score by **{$lift}%** over the recency baseline.";
+            } elseif ($lift < 0) {
+                $lines[] = "Goal-biased graph retrieval reduced composite score by **" . abs($lift) . "%** versus the recency baseline.";
+            } else {
+                $lines[] = "Goal-biased graph retrieval matched the recency baseline on composite score.";
+            }
             $lines[] = "";
         }
 
         if ($goalGraph && $graph && $graph['goal_alignment'] > 0 && $this->comparisonComplete($corpusResults, ['goal_graph', 'graph'])) {
-            $gaLift = round(($goalGraph['goal_alignment'] - $graph['goal_alignment']) / $graph['goal_alignment'] * 100, 1);
+            $gaLift  = round(($goalGraph['goal_alignment'] - $graph['goal_alignment']) / $graph['goal_alignment'] * 100, 1);
             $lines[] = "Goal alignment improved by **{$gaLift}%** over weight-only graph retrieval.";
             $lines[] = "";
         }
@@ -370,15 +519,17 @@ class BenchmarkRetrieval extends Command
                 $lines[] = "";
 
                 foreach ($strategies as $s) {
-                    $r = $q['strategies'][$s] ?? null;
+                    $r      = $q['strategies'][$s] ?? null;
+                    $scores = $r['scores'] ?? null;
+
                     if ($r === null) {
                         continue;
                     }
-                    $scores = $r['scores'];
                     if ($scores === null) {
                         $lines[] = "- {$s}: judge call failed";
                         continue;
                     }
+
                     $lines[] = sprintf(
                         "- **%s**: R=%d C=%d G=%d N=%d | composite=%.2f | tokens=%d",
                         $s,
@@ -397,6 +548,66 @@ class BenchmarkRetrieval extends Command
             }
         }
 
+        // Ablation section.
+        if (! empty($ablationResults) && in_array('goal_graph', $strategies, true)) {
+            $lines[] = "---";
+            $lines[] = "";
+            $lines[] = "## Goal Ablation Analysis";
+            $lines[] = "";
+            $lines[] = "Second pass with goal nodes excluded from each corpus. Measures how much explicit goal nodes contribute to retrieval quality.";
+            $lines[] = "";
+            $lines[] = "### goal_graph: With Goals vs Without Goals";
+            $lines[] = "";
+            $lines[] = "| Corpus | GA (with goals) | GA (no goals) | GA Delta | Composite (with) | Composite (no goals) | Composite Delta |";
+            $lines[] = "|---|---|---|---|---|---|---|";
+
+            foreach ($corpusResults as $i => $normal) {
+                $ablated  = $ablationResults[$i] ?? null;
+                $nSummary = $normal['summary']['goal_graph'] ?? null;
+                $aSummary = $ablated['summary']['goal_graph'] ?? null;
+
+                if ($nSummary === null || $aSummary === null) {
+                    $lines[] = "| {$normal['corpus_id']} | n/a | n/a | n/a | n/a | n/a | n/a |";
+                    continue;
+                }
+
+                $gaDelta   = round($nSummary['goal_alignment'] - $aSummary['goal_alignment'], 2);
+                $compDelta = round($nSummary['composite'] - $aSummary['composite'], 2);
+
+                $lines[] = sprintf(
+                    "| %s | %.2f | %.2f | %+.2f | %.2f | %.2f | %+.2f |",
+                    $normal['corpus_id'],
+                    $nSummary['goal_alignment'],
+                    $aSummary['goal_alignment'],
+                    $gaDelta,
+                    $nSummary['composite'],
+                    $aSummary['composite'],
+                    $compDelta,
+                );
+            }
+
+            $nNormAgg = $aggregated['goal_graph'] ?? null;
+            $nAgg     = $ablationAggregated['goal_graph'] ?? null;
+
+            if ($nNormAgg && $nAgg) {
+                $lines[] = sprintf(
+                    "| **Aggregate** | **%.2f** | **%.2f** | **%+.2f** | **%.2f** | **%.2f** | **%+.2f** |",
+                    $nNormAgg['goal_alignment'],
+                    $nAgg['goal_alignment'],
+                    round($nNormAgg['goal_alignment'] - $nAgg['goal_alignment'], 2),
+                    $nNormAgg['composite'],
+                    $nAgg['composite'],
+                    round($nNormAgg['composite'] - $nAgg['composite'], 2),
+                );
+            }
+
+            $lines[] = "";
+            $lines[] = "### Ablated corpus aggregate (all strategies, no goal nodes)";
+            $lines[] = "";
+            $lines[] = $this->mdTable($ablationAggregated, $strategies);
+            $lines[] = "";
+        }
+
         $lines[] = "---";
         $lines[] = "";
         $lines[] = "## Methodology";
@@ -404,7 +615,7 @@ class BenchmarkRetrieval extends Command
         $lines[] = "- Scoring: LLM-as-judge";
         $lines[] = "- Context limit: " . $contextLimit . " nodes per retrieval";
         $lines[] = "- Strategies: " . implode(' | ', $strategies);
-        $lines[] = "- Corpora: synthetic, persona-driven, 20-22 memories each";
+        $lines[] = "- Corpora: synthetic, persona-driven";
         $lines[] = "- Token estimate: character count / 4 (approximation)";
         $lines[] = "- Efficiency: composite_score / (token_estimate / 1000)";
         $lines[] = "";

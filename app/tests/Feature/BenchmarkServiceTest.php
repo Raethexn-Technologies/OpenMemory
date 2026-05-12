@@ -77,6 +77,58 @@ class BenchmarkServiceTest extends TestCase
         $this->assertNull($result['results'][0]['strategies']['goal_graph']['scores']);
     }
 
+    public function test_seed_corpus_excludes_goal_nodes_when_flag_is_true(): void
+    {
+        $service = $this->makeService();
+        $userId  = 'test-ablation-' . uniqid();
+
+        $service->seedCorpus($this->corpus(), $userId, excludeGoals: true);
+
+        $goalCount = MemoryNode::where('user_id', $userId)
+            ->where('type', 'goal')
+            ->count();
+
+        $this->assertSame(0, $goalCount);
+
+        $service->cleanupCorpus($userId);
+    }
+
+    public function test_seed_corpus_includes_goal_nodes_by_default(): void
+    {
+        $service = $this->makeService();
+        $userId  = 'test-goals-present-' . uniqid();
+
+        $service->seedCorpus($this->corpus(), $userId);
+
+        $goalCount = MemoryNode::where('user_id', $userId)
+            ->where('type', 'goal')
+            ->count();
+
+        $this->assertGreaterThan(0, $goalCount);
+
+        $service->cleanupCorpus($userId);
+    }
+
+    public function test_run_corpus_sets_goals_excluded_flag_when_requested(): void
+    {
+        $service = $this->makeService();
+
+        $result = $service->runCorpus($this->corpus(), ['recency'], 2, false, null, true);
+
+        $this->assertTrue($result['goals_excluded']);
+        $this->assertSame(count($this->corpus()['memories']), $result['memory_count']);
+    }
+
+    public function test_run_corpus_goals_excluded_false_by_default(): void
+    {
+        $service = $this->makeService();
+
+        $result = $service->runCorpus($this->corpus(), ['recency'], 2);
+
+        $this->assertFalse($result['goals_excluded']);
+        $this->assertSame(count($this->corpus()['memories']) + count($this->corpus()['goals']), $result['memory_count']);
+    }
+
     private function makeService(): BenchmarkService
     {
         $llm = Mockery::mock(LlmService::class);

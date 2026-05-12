@@ -41,6 +41,7 @@ class DocumentIngestionService
         private readonly DocumentChunkerService $chunker,
         private readonly GraphExtractionService $graphExtractor,
         private readonly MemoryGraphService $graphService,
+        private readonly RedactionService $redactor,
     ) {}
 
     /**
@@ -60,10 +61,20 @@ class DocumentIngestionService
         string $text,
         string $sensitivity = 'public',
     ): array {
+        $redaction = $this->redactor->redact($text, $userId);
+        $text = $redaction->text;
+        $sensitivity = $this->redactor->enforceSensitivity($sensitivity, $redaction);
+
         $chunks = $this->chunker->chunk($text);
         $total = count($chunks);
 
-        $anchorNode = $this->createAnchorNode($userId, $title, $text, $sensitivity);
+        $anchorNode = $this->createAnchorNode(
+            userId: $userId,
+            title: $title,
+            text: $text,
+            sensitivity: $sensitivity,
+            metadata: $redaction->applied() ? ['redaction' => $redaction->toMetadata()] : [],
+        );
 
         $nodesCreated = 0;
         $skipped = 0;
@@ -86,11 +97,12 @@ class DocumentIngestionService
             $chunkNode = $this->graphService->storeNode(
                 userId:    $userId,
                 content:   $chunk,
-                extracted: $extracted,
+                extracted: $this->sanitizeExtractedMetadata($extracted, $userId),
                 source:    'document',
                 metadata:  [
                     'source_document_id' => $anchorNode->id,
                     'chunk_index'        => $index,
+                    ...($redaction->applied() ? ['redaction' => $redaction->toMetadata()] : []),
                 ],
             );
 
@@ -115,6 +127,8 @@ class DocumentIngestionService
             'chunks_total'     => $total,
             'nodes_created'    => $nodesCreated,
             'chunks_skipped'   => $skipped,
+            'effective_sensitivity' => $sensitivity,
+            'redaction' => $redaction->applied() ? $redaction->toMetadata() : ['applied' => false],
         ];
     }
 
@@ -130,6 +144,7 @@ class DocumentIngestionService
         string $title,
         string $text,
         string $sensitivity,
+        array $metadata = [],
     ): MemoryNode {
         $preview = mb_substr(strip_tags($text), 0, 300);
         $label = mb_substr($title, 0, 120);
@@ -153,6 +168,38 @@ class DocumentIngestionService
                 'sensitivity' => $sensitivity,
             ],
             source: 'document_anchor',
+            metadata: $metadata,
         );
+    }
+
+    /**
+     * @param  array<string, mixed>  $extracted
+     * @return array<string, mixed>
+     */
+    private function sanitizeExtractedMetadata(array $extracted, string $userId): array
+    {
+        if (isset($extracted['label']) && is_string($extracted['label'])) {
+            $extracted['label'] = $this->redactor->redact($extracted['label'], $userId)->text;
+        }
+
+        foreach (['tags', 'people', 'projects'] as $field) {
+            $values = $extracted[$field] ?? [];
+            if (! is_array($values)) {
+                $extracted[$field] = [];
+                continue;
+            }
+
+            $redactedValues = array_map(
+                fn ($value) => is_string($value) ? trim($this->redactor->redact($value, $userId)->text) : '',
+                $values,
+            );
+
+            $extracted[$field] = array_values(array_unique(array_filter(
+                $redactedValues,
+                static fn (string $value) => $value !== '' && ! str_contains($value, '['),
+            )));
+        }
+
+        return $extracted;
     }
 }

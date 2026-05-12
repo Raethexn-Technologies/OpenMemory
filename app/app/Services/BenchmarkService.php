@@ -90,6 +90,7 @@ TEMPLATE;
         int $contextLimit = self::CONTEXT_LIMIT,
         bool $keep = false,
         ?callable $onJudged = null,
+        bool $excludeGoals = false,
     ): array
     {
         if ($contextLimit < 1) {
@@ -100,7 +101,7 @@ TEMPLATE;
         $userId = 'benchmark-' . $corpusId . '-' . uniqid();
 
         try {
-            $this->seedCorpus($corpus, $userId);
+            $this->seedCorpus($corpus, $userId, $excludeGoals);
 
             $results = [];
 
@@ -152,13 +153,16 @@ TEMPLATE;
             $summary = $this->summariseCorpus($results, $strategies);
             $judgeCalls = $this->summariseJudgeCalls($results, $strategies);
 
+            $memoryCount = count($corpus['memories']) + ($excludeGoals ? 0 : count($corpus['goals']));
+
             return [
                 'corpus_id' => $corpusId,
                 'user_id' => $userId,
                 'kept_seed_data' => $keep,
+                'goals_excluded' => $excludeGoals,
                 'description' => $corpus['description'] ?? '',
                 'question_count' => count($corpus['questions']),
-                'memory_count' => count($corpus['memories']) + count($corpus['goals']),
+                'memory_count' => $memoryCount,
                 'judge_calls' => $judgeCalls,
                 'results' => $results,
                 'summary' => $summary,
@@ -179,7 +183,7 @@ TEMPLATE;
      * nodes as they would in real usage. Created-at timestamps are set after insertion
      * to match the corpus-specified recency distribution.
      */
-    public function seedCorpus(array $corpus, string $userId): void
+    public function seedCorpus(array $corpus, string $userId, bool $excludeGoals = false): void
     {
         // Sort oldest-first so wireTagEdges() encounters earlier nodes when inserting later ones.
         $memories = collect($corpus['memories'])
@@ -203,6 +207,10 @@ TEMPLATE;
             $node->created_at = $nodeTime;
             $node->updated_at = $nodeTime;
             $node->saveQuietly();
+        }
+
+        if ($excludeGoals) {
+            return;
         }
 
         // Add goal nodes after regular memories (recent by default, representing current active goals).
