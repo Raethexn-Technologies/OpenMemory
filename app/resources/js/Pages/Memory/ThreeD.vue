@@ -35,6 +35,14 @@
             : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600']"
         >Alignment</button>
 
+        <!-- Goals panel toggle -->
+        <button
+          @click="showGoals = !showGoals"
+          :class="['px-2.5 py-1 text-xs rounded border transition-colors', showGoals && goalNodes.length > 0
+            ? 'bg-lime-900/40 border-lime-700 text-lime-300'
+            : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600']"
+        >Goals<span v-if="goalNodes.length > 0" class="ml-1 font-mono">({{ goalNodes.length }})</span></button>
+
         <!-- Node count badge -->
         <span class="text-xs text-slate-500">
           <span class="text-slate-300 font-mono">{{ totalNodeCount }}</span> nodes
@@ -76,6 +84,62 @@
           </div>
         </div>
         <p v-if="lastAlignmentAt" class="text-xs text-slate-600 mt-2">Updated {{ lastAlignmentAt }}</p>
+      </div>
+    </transition>
+
+    <!-- ── Active goals panel ── -->
+    <transition name="slide-right">
+      <div
+        v-if="showGoals && goalNodes.length > 0"
+        class="absolute top-14 w-56 bg-slate-900/95 border border-lime-900/60 rounded-lg p-3 z-10 backdrop-blur transition-all duration-200"
+        :style="{ right: (showAlignment && alignmentPairs.length > 0) ? '18rem' : '1rem' }"
+      >
+        <p class="text-xs font-medium text-lime-500 mb-2 uppercase tracking-wide">Active goals</p>
+        <div class="space-y-2.5">
+          <div v-for="goal in goalNodes" :key="goal.id">
+            <p class="text-xs text-slate-200 leading-snug">{{ goal.label || goal.content }}</p>
+            <div v-if="(goal.tags ?? []).length > 0" class="flex flex-wrap gap-1 mt-1">
+              <span
+                v-for="tag in goal.tags"
+                :key="tag"
+                class="px-1.5 py-0.5 text-xs rounded bg-lime-900/40 text-lime-400 border border-lime-800/50"
+              >{{ tag }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </transition>
+
+    <!-- ── Node inspect panel ── -->
+    <transition name="slide-right">
+      <div
+        v-if="selectedNode"
+        class="absolute bottom-24 right-4 w-72 bg-slate-900/97 border border-slate-600 rounded-lg p-4 z-10 backdrop-blur shadow-xl"
+      >
+        <div class="flex items-start justify-between mb-2">
+          <span
+            class="text-xs font-semibold uppercase tracking-wide px-2 py-0.5 rounded"
+            :class="nodeTypeClass(selectedNode.type)"
+          >{{ selectedNode.type }}</span>
+          <button @click="selectedNode = null" class="text-slate-600 hover:text-slate-300 text-lg leading-none ml-2">×</button>
+        </div>
+        <p v-if="selectedNode.label" class="text-sm font-medium text-slate-200 mb-1 leading-snug">{{ selectedNode.label }}</p>
+        <p class="text-xs text-slate-400 leading-relaxed mb-3">{{ selectedNode.content }}</p>
+        <div v-if="(selectedNode.tags ?? []).length > 0" class="flex flex-wrap gap-1 mb-3">
+          <span
+            v-for="tag in selectedNode.tags"
+            :key="tag"
+            class="px-1.5 py-0.5 text-xs rounded bg-slate-800 text-slate-400 border border-slate-700"
+          >{{ tag }}</span>
+        </div>
+        <div class="text-xs text-slate-600 space-y-0.5 border-t border-slate-800 pt-2">
+          <div v-if="selectedNode.created_at">
+            Added: <span class="text-slate-400">{{ new Date(selectedNode.created_at).toLocaleDateString() }}</span>
+          </div>
+          <div v-if="selectedNode.sensitivity">
+            Sensitivity: <span class="text-slate-400">{{ selectedNode.sensitivity }}</span>
+          </div>
+        </div>
       </div>
     </transition>
 
@@ -138,7 +202,33 @@
         @click="runSimulateAll"
         class="ml-1 px-2.5 py-1 text-xs rounded bg-violet-900/40 border border-violet-800 text-violet-300 hover:bg-violet-800/40 transition-colors"
       >Sim all</button>
+
+      <!-- 1:1 traced retrieval — plays one real retrieval phase by phase -->
+      <button
+        @click="runTracedTick"
+        :disabled="traceInFlight"
+        :class="['ml-1 px-2.5 py-1 text-xs rounded border transition-colors',
+          traceInFlight
+            ? 'bg-cyan-900/30 border-cyan-800 text-cyan-500 cursor-not-allowed'
+            : 'bg-cyan-900/40 border-cyan-700 text-cyan-300 hover:bg-cyan-800/40']"
+        title="Plays one retrieval phase by phase: goal seeds, weight seeds, BFS hops, assembled context, reinforcement."
+      >{{ traceInFlight ? '◌ tracing' : '⌗ Trace 1:1' }}</button>
     </div>
+
+    <!-- ── Trace phase HUD ─────────────────────────────────────────────── -->
+    <transition name="slide-down">
+      <div
+        v-if="tracePhase"
+        class="absolute top-14 left-1/2 -translate-x-1/2 bg-slate-900/95 border border-cyan-800 rounded-lg px-4 py-2 z-20 backdrop-blur shadow-xl"
+      >
+        <div class="flex items-center gap-3">
+          <span class="text-xs font-mono text-cyan-400">{{ tracePhase.index }}/{{ tracePhase.total }}</span>
+          <span class="text-xs font-semibold uppercase tracking-wider"
+            :class="tracePhaseColor">{{ tracePhase.label }}</span>
+          <span v-if="tracePhase.detail" class="text-xs text-slate-400">{{ tracePhase.detail }}</span>
+        </div>
+      </div>
+    </transition>
 
     <!-- ── Temporal axis scrubber (bottom) ── -->
     <div
@@ -205,6 +295,9 @@ const snapshots = ref([])
 const scrubberIndex = ref(null) // null = live
 const alignmentPairs = ref([])
 const lastAlignmentAt = ref(null)
+const showGoals = ref(true)
+const goalNodes = ref([])      // goal-type nodes for sidebar panel
+const selectedNode = ref(null) // clicked node for inspect panel
 
 // Simulation state
 const simRunning = ref(false)
@@ -220,6 +313,23 @@ const SIM_SPEEDS = [
   { label: '1x', ms: 1000 },
   { label: 'fast', ms: 350 },
 ]
+
+// Trace state — the 1:1 phase-by-phase retrieval player.
+// tracePhase is shown in a HUD above the canvas while a trace is playing.
+const traceInFlight = ref(false)
+const tracePhase = ref(null) // { index, total, kind, label, detail }
+
+const tracePhaseColor = computed(() => {
+  if (!tracePhase.value) return 'text-slate-300'
+  const map = {
+    goal_seed: 'text-lime-400',
+    weight_seed: 'text-amber-400',
+    bfs_hop: 'text-cyan-400',
+    context_assembled: 'text-white',
+    reinforce: 'text-sky-400',
+  }
+  return map[tracePhase.value.kind] ?? 'text-slate-300'
+})
 
 // ── Three.js objects (module-scope, not reactive) ─────────────────────────────
 let renderer, scene, camera, controls, clock
@@ -243,6 +353,11 @@ let nodeScaleMap = new Map()    // node_uuid -> base render scale
 let edgeIndexMap = new Map()    // edge_id -> byte offset in color Float32Array
 let colorAttr = null            // reference to lineSegments color BufferAttribute
 let animationFrameId = null
+let goalCorona = null           // pulsing wireframe shell overlaid on goal nodes
+let goalCoronaIndices = []      // [{ instanceIdx, nodeId }]
+let nodeDataMap = new Map()     // node_id -> node data object for click-to-inspect
+let _pointerDownPos = null      // drag-vs-click discrimination
+const _coronaMat = new THREE.Matrix4()
 
 // ── Colors ────────────────────────────────────────────────────────────────────
 const NODE_TYPE_COLORS = {
@@ -268,6 +383,20 @@ function jaccardColor(j) {
   if (j >= 0.7) return '#4ade80'
   if (j >= 0.4) return '#facc15'
   return '#f87171'
+}
+
+function nodeTypeClass(type) {
+  const map = {
+    memory:   'bg-sky-900/50 text-sky-300',
+    person:   'bg-green-900/50 text-green-300',
+    project:  'bg-violet-900/50 text-violet-300',
+    document: 'bg-amber-900/50 text-amber-300',
+    task:     'bg-orange-900/50 text-orange-300',
+    event:    'bg-pink-900/50 text-pink-300',
+    concept:  'bg-slate-700 text-slate-300',
+    goal:     'bg-lime-900/50 text-lime-300',
+  }
+  return map[type] ?? 'bg-slate-700 text-slate-300'
 }
 
 function intraEdgeBrightness(weight) {
@@ -450,6 +579,17 @@ function disposeScene() {
     instancedMesh = null
   }
 
+  if (goalCorona) {
+    scene?.remove(goalCorona)
+    goalCorona.geometry.dispose()
+    goalCorona.material.dispose()
+    goalCorona = null
+  }
+  goalCoronaIndices = []
+  nodeDataMap = new Map()
+  goalNodes.value = []
+  selectedNode.value = null
+
   if (composer) {
     composer.dispose()
     composer = null
@@ -462,6 +602,8 @@ function disposeScene() {
 
   if (renderer) {
     const canvas = renderer.domElement
+    canvas.removeEventListener('pointerdown', onPointerDown)
+    canvas.removeEventListener('click', onCanvasClick)
     renderer.dispose()
     if (canvas.parentNode === canvasContainer.value) {
       canvasContainer.value.removeChild(canvas)
@@ -495,6 +637,8 @@ async function buildScene() {
   renderer.toneMapping = THREE.ACESFilmicToneMapping
   renderer.toneMappingExposure = 1.4
   canvasContainer.value.appendChild(renderer.domElement)
+  renderer.domElement.addEventListener('pointerdown', onPointerDown)
+  renderer.domElement.addEventListener('click', onCanvasClick)
 
   // Post-processing bloom — the visual upgrade that makes nodes and edges
   // genuinely glow rather than just using transparent halos as a substitute.
@@ -768,6 +912,44 @@ async function buildScene() {
   auraMesh.instanceColor.needsUpdate = true
   scene.add(auraMesh)  // aura first (behind nodes)
   scene.add(instancedMesh)
+
+  // ── Goal node data and corona ─────────────────────────────────────────────
+  // Build the node lookup map for click-to-inspect, then create a separate
+  // pulsing wireframe shell for every goal node so active goals are immediately
+  // identifiable in the scene rather than relying on color alone.
+  for (const { node } of allNodes) {
+    nodeDataMap.set(node.id, node)
+  }
+  goalNodes.value = allNodes.filter(({ node }) => node.type === 'goal').map(({ node }) => node)
+
+  const goalNodeList = allNodes.filter(({ node }) => node.type === 'goal')
+  goalCoronaIndices = []
+  if (goalNodeList.length > 0) {
+    const coronaGeo = new THREE.SphereGeometry(1.4, 10, 10)
+    goalCorona = new THREE.InstancedMesh(
+      coronaGeo,
+      new THREE.MeshBasicMaterial({
+        color: 0x84cc16,
+        transparent: true,
+        opacity: 0.28,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        wireframe: true,
+      }),
+      goalNodeList.length,
+    )
+    goalCorona.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+    goalNodeList.forEach(({ node }, i) => {
+      const pos = nodePositions.get(node.id)
+      const baseScale = nodeScaleMap.get(node.id) ?? 1
+      const s = baseScale * 2.5
+      matrix.compose(pos, new THREE.Quaternion(), new THREE.Vector3(s, s, s))
+      goalCorona.setMatrixAt(i, matrix)
+      goalCoronaIndices.push({ instanceIdx: i, nodeId: node.id })
+    })
+    goalCorona.instanceMatrix.needsUpdate = true
+    scene.add(goalCorona)
+  }
 
   // ── Collect all edges ─────────────────────────────────────────────────────
   // Two types:
@@ -1052,6 +1234,202 @@ function updateEdgeColors(updatedEdges) {
   colorAttr.needsUpdate = true
 }
 
+// ── 1:1 Traced retrieval ──────────────────────────────────────────────────────
+// Faithful phase-by-phase replay of what retrieveContext() actually does:
+// goal seeding → weight-ranked seeding → BFS expansion → context assembly →
+// reinforcement. Each phase has its own visual signature so the operator can
+// see which step in the algorithm is firing at any given moment.
+async function runTracedTick() {
+  if (traceInFlight.value) return
+  traceInFlight.value = true
+  stopSimulation() // pause the cheap ticker so the two don't overlap visually
+
+  try {
+    const res = await fetch('/api/graph/simulate?trace=1', {
+      method: 'POST',
+      headers: csrfHeaders(),
+    })
+    if (!res.ok) return
+    const data = await res.json()
+    const phases = data.phases ?? []
+    simActiveCount.value = (data.active_node_ids ?? []).length
+
+    await playTrace(phases)
+
+    // After the trace, sync any edge weight changes the reinforcement produced.
+    updateEdgeColors(data.updated_edges ?? [])
+    simTick.value++
+  } catch (_) {
+    // Network/render error — clear the HUD and continue
+  } finally {
+    tracePhase.value = null
+    traceInFlight.value = false
+  }
+}
+
+function delay(ms) { return new Promise(r => setTimeout(r, ms)) }
+
+async function playTrace(phases) {
+  const total = phases.length
+  for (let i = 0; i < phases.length; i++) {
+    const phase = phases[i]
+    tracePhase.value = phaseLabel(phase, i + 1, total)
+    switch (phase.kind) {
+      case 'goal_seed':         await playSeedPhase(phase.node_ids, 0x84cc16, 700); break
+      case 'weight_seed':       await playSeedPhase(phase.node_ids, 0xfbbf24, 700); break
+      case 'bfs_hop':           await playBfsHop(phase); break
+      case 'context_assembled': await playAssembled(phase.node_ids); break
+      case 'reinforce':         await playReinforce(phase); break
+    }
+  }
+}
+
+function phaseLabel(phase, index, total) {
+  switch (phase.kind) {
+    case 'goal_seed':
+      return { index, total, kind: 'goal_seed', label: 'Goal seeds',
+        detail: `${phase.node_ids.length} goal node${phase.node_ids.length === 1 ? '' : 's'} selected first` }
+    case 'weight_seed':
+      return { index, total, kind: 'weight_seed', label: 'Weight-ranked seeds',
+        detail: `${phase.node_ids.length} of ${phase.considered_ids?.length ?? 0} candidates picked by edge weight` }
+    case 'bfs_hop':
+      return { index, total, kind: 'bfs_hop', label: `BFS hop ${phase.depth}`,
+        detail: `${phase.admitted.length} admitted · ${phase.rejected_neighbor_ids.length} filtered (private/consolidated)` }
+    case 'context_assembled':
+      return { index, total, kind: 'context_assembled', label: 'Loaded into LLM context',
+        detail: `${phase.node_ids.length} node${phase.node_ids.length === 1 ? '' : 's'} assembled` }
+    case 'reinforce':
+      return { index, total, kind: 'reinforce', label: 'Hebbian reinforcement',
+        detail: `+${(0.10).toFixed(2)} on ${phase.edges.length} co-accessed edge${phase.edges.length === 1 ? '' : 's'}` }
+  }
+  return { index, total, kind: phase.kind, label: phase.kind }
+}
+
+// Pulse a set of seed nodes with a coloured ring and a brief scale bump.
+async function playSeedPhase(nodeIds, hexColor, holdMs) {
+  if (!instancedMesh || nodeIds.length === 0) {
+    await delay(holdMs)
+    return
+  }
+  scaleNodes(nodeIds, 1.8)
+  for (const id of nodeIds) {
+    const pos = nodePositions.get(id)
+    if (pos) spawnPulse(pos, hexColor)
+  }
+  await delay(holdMs)
+  scaleNodes(nodeIds, 1.0)
+}
+
+// Highlight each admitted neighbour by flashing the edge that brought it in
+// (white), then pulsing the new node in cyan. Rejected neighbours don't appear
+// in the scene (they were filtered before render) but the HUD already reports
+// the count.
+async function playBfsHop(phase) {
+  if (!instancedMesh || phase.admitted.length === 0) {
+    await delay(500)
+    return
+  }
+  const newNodeIds = []
+  for (const entry of phase.admitted) {
+    if (entry.via_edge_id) {
+      flashEdge(entry.via_edge_id, 0xffffff)
+    }
+    if (entry.node_id) newNodeIds.push(entry.node_id)
+  }
+  scaleNodes(newNodeIds, 1.5)
+  for (const id of newNodeIds) {
+    const pos = nodePositions.get(id)
+    if (pos) spawnPulse(pos, 0x38bdf8)
+  }
+  await delay(800)
+  scaleNodes(newNodeIds, 1.0)
+  // Restore the flashed edges to their persisted weight colour.
+  for (const entry of phase.admitted) {
+    if (entry.via_edge_id) restoreEdgeColor(entry.via_edge_id, entry.edge_weight ?? 0.5)
+  }
+}
+
+// Flash the entire assembled set together — this is the "loaded into context"
+// moment, the discrete event the LLM actually receives.
+async function playAssembled(nodeIds) {
+  if (!instancedMesh || nodeIds.length === 0) {
+    await delay(500)
+    return
+  }
+  scaleNodes(nodeIds, 2.0)
+  for (const id of nodeIds) {
+    const pos = nodePositions.get(id)
+    if (pos) spawnPulse(pos, 0xffffff)
+  }
+  await delay(600)
+  scaleNodes(nodeIds, 1.0)
+}
+
+// Reinforcement is atomic, not sequential: every edge between collected nodes
+// receives +ALPHA simultaneously. Visualise as a synchronous bright flash on
+// every reinforced edge, then settle to the new weight colour.
+async function playReinforce(phase) {
+  if (!phase.edges || phase.edges.length === 0) {
+    await delay(400)
+    return
+  }
+  for (const edge of phase.edges) {
+    flashEdge(edge.id, 0xffffff)
+  }
+  await delay(600)
+  for (const edge of phase.edges) {
+    restoreEdgeColor(edge.id, edge.weight_after)
+  }
+}
+
+// ── Trace primitives ──────────────────────────────────────────────────────────
+function scaleNodes(nodeIds, factor) {
+  if (!instancedMesh) return
+  const matrix = new THREE.Matrix4()
+  const pos = new THREE.Vector3()
+  for (const nodeId of nodeIds) {
+    const idx = nodeIndexMap.get(nodeId)
+    if (idx === undefined) continue
+    instancedMesh.getMatrixAt(idx, matrix)
+    pos.setFromMatrixPosition(matrix)
+    const baseScale = nodeScaleMap.get(nodeId) ?? 1
+    const s = baseScale * factor
+    matrix.compose(pos, new THREE.Quaternion(), new THREE.Vector3(s, s, s))
+    instancedMesh.setMatrixAt(idx, matrix)
+  }
+  instancedMesh.instanceMatrix.needsUpdate = true
+}
+
+function flashEdge(edgeId, hexColor) {
+  if (!colorAttr) return
+  const k = edgeIndexMap.get(edgeId)
+  if (k === undefined) return
+  const r = ((hexColor >> 16) & 0xff) / 255
+  const g = ((hexColor >> 8) & 0xff) / 255
+  const b = (hexColor & 0xff) / 255
+  const colors = colorAttr.array
+  colors[k * 6 + 0] = r; colors[k * 6 + 1] = g; colors[k * 6 + 2] = b
+  colors[k * 6 + 3] = r; colors[k * 6 + 4] = g; colors[k * 6 + 5] = b
+  colorAttr.needsUpdate = true
+}
+
+function restoreEdgeColor(edgeId, weight) {
+  if (!colorAttr) return
+  const k = edgeIndexMap.get(edgeId)
+  if (k === undefined) return
+  const colors = colorAttr.array
+  const brightness = intraEdgeBrightness(weight)
+  colors[k * 6 + 0] = 0.220 * brightness
+  colors[k * 6 + 1] = 0.741 * brightness
+  colors[k * 6 + 2] = 0.973 * brightness
+  colors[k * 6 + 3] = 0.220 * brightness
+  colors[k * 6 + 4] = 0.741 * brightness
+  colors[k * 6 + 5] = 0.973 * brightness
+  colorAttr.needsUpdate = true
+  const endpoint = edgeEndpointMap.get(edgeId)
+  if (endpoint) endpoint.weight = weight
+}
+
 // ── Simulate all agents ───────────────────────────────────────────────────────
 async function runSimulateAll() {
   const wasRunning = simRunning.value
@@ -1212,6 +1590,22 @@ function animate() {
   updateParticles()
   updatePulses()
 
+  // Goal corona breathes — each shell pulses independently at a slightly
+  // different phase so they don't lock-step, giving each goal a distinct rhythm
+  if (goalCorona && goalCoronaIndices.length > 0) {
+    const t = performance.now() * 0.001
+    for (const { instanceIdx, nodeId } of goalCoronaIndices) {
+      const pos = nodePositions.get(nodeId)
+      if (!pos) continue
+      const baseScale = nodeScaleMap.get(nodeId) ?? 1
+      const pulse = 2.0 + Math.sin(t * 1.3 + instanceIdx * 1.1) * 0.55
+      const s = baseScale * pulse
+      _coronaMat.compose(pos, new THREE.Quaternion(), new THREE.Vector3(s, s, s))
+      goalCorona.setMatrixAt(instanceIdx, _coronaMat)
+    }
+    goalCorona.instanceMatrix.needsUpdate = true
+  }
+
   // Use the bloom composer when available, fall back to plain renderer
   if (composer) {
     composer.render()
@@ -1233,6 +1627,53 @@ function csrfHeaders() {
   const token = document.querySelector('meta[name="csrf-token"]')?.content ?? ''
 
   return token ? { 'X-CSRF-TOKEN': token } : {}
+}
+
+// ── Click-to-inspect ──────────────────────────────────────────────────────────
+function onPointerDown(e) {
+  _pointerDownPos = { x: e.clientX, y: e.clientY }
+}
+
+function onCanvasClick(e) {
+  if (!instancedMesh || !camera) return
+  // Ignore drags — OrbitControls fires click after drag on pointerup
+  if (_pointerDownPos) {
+    const dx = e.clientX - _pointerDownPos.x
+    const dy = e.clientY - _pointerDownPos.y
+    if (dx * dx + dy * dy > 36) return // 6px threshold
+  }
+  const rect = renderer.domElement.getBoundingClientRect()
+  const ndc = new THREE.Vector2(
+    ((e.clientX - rect.left) / rect.width) * 2 - 1,
+    -((e.clientY - rect.top) / rect.height) * 2 + 1,
+  )
+  const raycaster = new THREE.Raycaster()
+  raycaster.setFromCamera(ndc, camera)
+  // Include goalCorona so clicking the outer lime ring also selects the node.
+  // intersectObjects returns hits sorted nearest-first; the corona encloses the
+  // node sphere, so a corona hit will be closest when the user clips the ring
+  // edge. We resolve both mesh types back to node IDs via the same maps.
+  const targets = goalCorona ? [instancedMesh, goalCorona] : [instancedMesh]
+  const hits = raycaster.intersectObjects(targets)
+  if (hits.length === 0) {
+    selectedNode.value = null
+    return
+  }
+  const hitObject = hits[0].object
+  const hitInstanceId = hits[0].instanceId
+
+  if (hitObject === goalCorona) {
+    // Corona instance indices align with goalCoronaIndices array
+    const entry = goalCoronaIndices[hitInstanceId]
+    if (entry) selectedNode.value = nodeDataMap.get(entry.nodeId) ?? null
+  } else {
+    for (const [nodeId, idx] of nodeIndexMap) {
+      if (idx === hitInstanceId) {
+        selectedNode.value = nodeDataMap.get(nodeId) ?? null
+        break
+      }
+    }
+  }
 }
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
@@ -1257,5 +1698,14 @@ onUnmounted(() => {
 .slide-right-leave-to {
   opacity: 0;
   transform: translateX(8px);
+}
+.slide-down-enter-active,
+.slide-down-leave-active {
+  transition: opacity 0.2s, transform 0.2s;
+}
+.slide-down-enter-from,
+.slide-down-leave-to {
+  opacity: 0;
+  transform: translateY(-8px) translateX(-50%);
 }
 </style>

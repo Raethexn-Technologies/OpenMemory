@@ -209,4 +209,88 @@ class GraphControllerTest extends TestCase
         $edge->refresh();
         $this->assertEqualsWithDelta(0.6, $edge->weight, 0.0001);
     }
+
+    public function test_graph_simulate_trace_returns_retrieval_phases_and_reinforces_same_context(): void
+    {
+        $goal = MemoryNode::create([
+            'user_id' => 'user-trace',
+            'type' => 'goal',
+            'sensitivity' => 'public',
+            'label' => 'Launch goal',
+            'content' => 'Goal: launch the memory demo.',
+            'tags' => ['launch'],
+            'confidence' => 1.0,
+            'source' => 'chat',
+        ]);
+        $hub = MemoryNode::create([
+            'user_id' => 'user-trace',
+            'type' => 'memory',
+            'sensitivity' => 'public',
+            'label' => 'Launch plan',
+            'content' => 'The launch plan is ready.',
+            'tags' => ['launch'],
+            'confidence' => 1.0,
+            'source' => 'chat',
+        ]);
+        $neighbor = MemoryNode::create([
+            'user_id' => 'user-trace',
+            'type' => 'memory',
+            'sensitivity' => 'public',
+            'label' => 'Demo notes',
+            'content' => 'The demo notes are connected to the launch plan.',
+            'tags' => ['demo'],
+            'confidence' => 1.0,
+            'source' => 'chat',
+        ]);
+        $private = MemoryNode::create([
+            'user_id' => 'user-trace',
+            'type' => 'memory',
+            'sensitivity' => 'private',
+            'label' => 'Private note',
+            'content' => 'Private note',
+            'tags' => ['launch'],
+            'confidence' => 1.0,
+            'source' => 'chat',
+        ]);
+
+        $goalEdge = MemoryEdge::create([
+            'user_id' => 'user-trace',
+            'from_node_id' => $goal->id,
+            'to_node_id' => $hub->id,
+            'relationship' => 'same_topic_as',
+            'weight' => 0.8,
+        ]);
+        $neighborEdge = MemoryEdge::create([
+            'user_id' => 'user-trace',
+            'from_node_id' => $hub->id,
+            'to_node_id' => $neighbor->id,
+            'relationship' => 'same_topic_as',
+            'weight' => 0.7,
+        ]);
+        MemoryEdge::create([
+            'user_id' => 'user-trace',
+            'from_node_id' => $hub->id,
+            'to_node_id' => $private->id,
+            'relationship' => 'same_topic_as',
+            'weight' => 1.0,
+        ]);
+
+        $expectedIds = array_column(app(\App\Services\MemoryGraphService::class)->retrieveContext('user-trace'), 'id');
+
+        $response = $this->withSession(['chat_user_id' => 'user-trace'])
+            ->postJson('/api/graph/simulate?trace=1');
+
+        $response->assertOk();
+        $response->assertJsonPath('phases.0.kind', 'goal_seed');
+        $response->assertJsonPath('phases.1.kind', 'weight_seed');
+        $response->assertJsonPath('phases.' . (count($response->json('phases')) - 2) . '.kind', 'context_assembled');
+        $response->assertJsonPath('phases.' . (count($response->json('phases')) - 1) . '.kind', 'reinforce');
+        $this->assertSame($expectedIds, $response->json('active_node_ids'));
+        $this->assertNotContains($private->id, $response->json('active_node_ids'));
+
+        $goalEdge->refresh();
+        $neighborEdge->refresh();
+        $this->assertEqualsWithDelta(0.9, $goalEdge->weight, 0.0001);
+        $this->assertEqualsWithDelta(0.8, $neighborEdge->weight, 0.0001);
+    }
 }

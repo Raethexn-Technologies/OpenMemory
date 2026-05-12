@@ -400,6 +400,202 @@ class MemoryGraphService
     }
 
     /**
+     * Trace the retrieval pipeline phase by phase for visualisation.
+     *
+     * Mirrors retrieveContext() but emits a structured record of every step
+     * the algorithm actually performs: which nodes were selected as goal seeds,
+     * which were selected by edge-weight score, how each BFS hop expanded the
+     * frontier, which neighbours were filtered out (private/sensitive/consolidated),
+     * which final set was assembled, and which edges were reinforced.
+     *
+     * The trace duplicates the algorithm rather than parameterising retrieveContext
+     * with a collector callback, so the hot path stays untouched. If retrieveContext
+     * changes, this method must change with it; the two are tested against the same
+     * final node-id set in the trace endpoint test.
+     *
+     * @return array{phases: array<int, array<string, mixed>>, active_node_ids: string[]}
+     */
+    public function traceRetrieveContext(string $userId, int $limit = 12): array
+    {
+        $phases = [];
+
+        // ── Phase 1: goal seeds ─────────────────────────────────────────────
+        $goalSeeds = MemoryNode::where('user_id', $userId)
+            ->where('type', 'goal')
+            ->where('sensitivity', 'public')
+            ->whereNull('consolidated_at')
+            ->get();
+
+        $phases[] = [
+            'kind' => 'goal_seed',
+            'node_ids' => $goalSeeds->pluck('id')->all(),
+        ];
+
+        // ── Phase 2: weight-ranked seed candidates ──────────────────────────
+        $remaining = max(0, 4 - $goalSeeds->count());
+        $weightedSeeds = collect();
+        $candidatePool = collect();
+        $candidateScores = [];
+
+        if ($remaining > 0) {
+            $goalIds = $goalSeeds->pluck('id');
+            $candidates = MemoryNode::where('user_id', $userId)
+                ->where('sensitivity', 'public')
+                ->whereNull('consolidated_at')
+                ->when($goalIds->isNotEmpty(), fn ($q) => $q->whereNotIn('id', $goalIds))
+                ->latest()
+                ->limit(60)
+                ->get();
+
+            if ($candidates->isNotEmpty()) {
+                $candidateIds = $candidates->pluck('id');
+                $edges = MemoryEdge::where('user_id', $userId)
+                    ->where(function ($q) use ($candidateIds) {
+                        $q->whereIn('from_node_id', $candidateIds)
+                            ->orWhereIn('to_node_id', $candidateIds);
+                    })
+                    ->get();
+
+                $scores = $candidates->mapWithKeys(fn ($node) => [
+                    $node->id => $edges
+                        ->filter(fn ($e) => $e->from_node_id === $node->id || $e->to_node_id === $node->id)
+                        ->sum('weight'),
+                ]);
+
+                $candidatePool = $candidates;
+                $candidateScores = $scores->all();
+
+                $weightedSeeds = $candidates
+                    ->sort(function ($left, $right) use ($scores) {
+                        $scoreComparison = $scores[$right->id] <=> $scores[$left->id];
+                        if ($scoreComparison !== 0) {
+                            return $scoreComparison;
+                        }
+                        return ($right->created_at?->getTimestamp() ?? 0) <=> ($left->created_at?->getTimestamp() ?? 0);
+                    })
+                    ->take($remaining)
+                    ->values();
+            }
+        }
+
+        $phases[] = [
+            'kind' => 'weight_seed',
+            'node_ids' => $weightedSeeds->pluck('id')->all(),
+            'considered_ids' => $candidatePool->pluck('id')->all(),
+            'scores' => $candidateScores,
+        ];
+
+        // ── Phase 3+: BFS expansion ─────────────────────────────────────────
+        $seeds = $goalSeeds->merge($weightedSeeds)->values();
+        if ($seeds->isEmpty()) {
+            $phases[] = ['kind' => 'context_assembled', 'node_ids' => []];
+            $phases[] = ['kind' => 'reinforce', 'node_ids' => [], 'edges' => []];
+            return ['phases' => $phases, 'active_node_ids' => []];
+        }
+
+        $collected = collect($seeds);
+        $visited = $seeds->pluck('id');
+        $frontier = $seeds->pluck('id');
+        $depth = 0;
+
+        while ($collected->count() < $limit && $frontier->isNotEmpty()) {
+            $depth++;
+            $edges = MemoryEdge::where('user_id', $userId)
+                ->where(function ($q) use ($frontier) {
+                    $q->whereIn('from_node_id', $frontier)
+                        ->orWhereIn('to_node_id', $frontier);
+                })
+                ->orderByDesc('weight')
+                ->get();
+
+            $neighborIds = $edges
+                ->flatMap(fn ($e) => [$e->from_node_id, $e->to_node_id])
+                ->unique()
+                ->diff($visited)
+                ->values();
+
+            if ($neighborIds->isEmpty()) {
+                break;
+            }
+
+            $neighborsById = MemoryNode::where('user_id', $userId)
+                ->where('sensitivity', 'public')
+                ->whereNull('consolidated_at')
+                ->whereIn('id', $neighborIds)
+                ->get()
+                ->keyBy('id');
+
+            $neighbors = $neighborIds
+                ->map(fn ($id) => $neighborsById->get($id))
+                ->filter()
+                ->values();
+
+            // Pair each admitted neighbour with the highest-weight edge that brought it in.
+            $frontierSet = $frontier->flip();
+            $admitted = $neighbors->map(function ($node) use ($edges, $frontierSet) {
+                $bringIn = $edges->first(function ($e) use ($node, $frontierSet) {
+                    return ($e->from_node_id === $node->id && $frontierSet->has($e->to_node_id))
+                        || ($e->to_node_id === $node->id && $frontierSet->has($e->from_node_id));
+                });
+                return [
+                    'node_id' => $node->id,
+                    'via_edge_id' => $bringIn?->id,
+                    'edge_weight' => $bringIn?->weight,
+                    'source_frontier_id' => $bringIn
+                        ? ($frontierSet->has($bringIn->from_node_id) ? $bringIn->from_node_id : $bringIn->to_node_id)
+                        : null,
+                ];
+            })->values()->all();
+
+            $rejectedIds = $neighborIds->diff($neighborsById->keys())->values()->all();
+
+            $phases[] = [
+                'kind' => 'bfs_hop',
+                'depth' => $depth,
+                'frontier_ids' => $frontier->values()->all(),
+                'admitted' => $admitted,
+                'rejected_neighbor_ids' => $rejectedIds,
+            ];
+
+            $collected = $collected->merge($neighbors)->unique('id')->take($limit);
+            $visited = $visited->merge($neighbors->pluck('id'))->unique();
+            $frontier = $neighbors->pluck('id');
+        }
+
+        // ── Phase N-1: assembled context ────────────────────────────────────
+        $finalIds = $collected->pluck('id')->all();
+        $phases[] = [
+            'kind' => 'context_assembled',
+            'node_ids' => $finalIds,
+        ];
+
+        // ── Phase N: reinforce (predicted edge updates) ─────────────────────
+        // We project the +ALPHA update without applying it; the caller is responsible
+        // for calling reinforce() if it wants the persistent side effect.
+        $reinforcedEdges = empty($finalIds) ? collect() : MemoryEdge::where('user_id', $userId)
+            ->whereIn('from_node_id', $finalIds)
+            ->whereIn('to_node_id', $finalIds)
+            ->get();
+
+        $phases[] = [
+            'kind' => 'reinforce',
+            'node_ids' => $finalIds,
+            'edges' => $reinforcedEdges->map(fn ($e) => [
+                'id' => $e->id,
+                'source' => $e->from_node_id,
+                'target' => $e->to_node_id,
+                'weight_before' => $e->weight,
+                'weight_after' => min(1.0, $e->weight + self::ALPHA),
+            ])->values()->all(),
+        ];
+
+        return [
+            'phases' => $phases,
+            'active_node_ids' => $finalIds,
+        ];
+    }
+
+    /**
      * Look up the graph nodes that correspond to a set of ICP memory records,
      * call reinforce() on their IDs, and return those IDs for the API response.
      *
