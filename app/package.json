@@ -4,15 +4,19 @@
     "type": "module",
     "scripts": {
         "build": "vite build",
-        "dev": "vite"
+        "dev": "vite",
+        "test:front": "vitest run"
     },
     "devDependencies": {
         "@tailwindcss/vite": "^4.2.1",
+        "@vue/test-utils": "^2.4.10",
         "axios": "^1.13.6",
         "concurrently": "^9.0.1",
+        "jsdom": "^28.1.0",
         "laravel-vite-plugin": "^2.0.0",
         "tailwindcss": "^4.2.1",
-        "vite": "^7.0.7"
+        "vite": "^7.0.7",
+        "vitest": "^4.1.6"
     },
     "dependencies": {
         "@dfinity/agent": "^2.1.3",
