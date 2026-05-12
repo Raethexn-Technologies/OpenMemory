@@ -29,6 +29,10 @@ Classification guide:
 
 Rules:
 - Extract only facts about the USER, not the assistant
+- If precise sensitive values are replaced with [CATEGORY] or [CATEGORY#token],
+  preserve the useful concept but never invent or restore the original value
+- Prefer abstractions over exact sensitive values, e.g. store an income bracket
+  or bank relationship rather than literal account details
 - When in doubt between PUBLIC and PRIVATE, choose PRIVATE
 - When in doubt between PRIVATE and SENSITIVE, choose SENSITIVE
 - Output ONLY the classification line — no explanation, no other text

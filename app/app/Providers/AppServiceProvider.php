@@ -11,6 +11,7 @@ use App\Services\LLM\OpenRouterProvider;
 use App\Services\MemoryGraphService;
 use App\Services\MemorySummarizationService;
 use App\Services\MultiAgentGraphService;
+use App\Services\RedactionService;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -31,6 +32,8 @@ class AppServiceProvider extends ServiceProvider
         });
 
         $this->app->singleton(IcpMemoryService::class);
+
+        $this->app->singleton(RedactionService::class);
 
         $this->app->singleton(MemorySummarizationService::class, function ($app) {
             return new MemorySummarizationService($app->make(LlmService::class));

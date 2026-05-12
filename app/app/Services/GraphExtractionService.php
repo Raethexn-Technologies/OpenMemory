@@ -36,6 +36,8 @@ Classification guide:
 Rules:
 - TAGS should be specific and useful for finding related memories
 - PEOPLE and PROJECTS must be proper nouns from the memory text
+- Do not put redaction placeholders such as [EMAIL] or [BANK_ACCOUNT#token]
+  in PEOPLE or PROJECTS
 - LABEL should read naturally as a node title in a graph visualization
 PROMPT;
 

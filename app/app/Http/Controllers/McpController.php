@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Services\GraphExtractionService;
 use App\Services\IcpMemoryService;
 use App\Services\MemoryGraphService;
+use App\Services\RedactionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -34,6 +35,7 @@ class McpController extends Controller
         private IcpMemoryService $icp,
         private GraphExtractionService $graphExtractor,
         private MemoryGraphService $graph,
+        private RedactionService $redactor,
     ) {}
 
     public function store(Request $request): JsonResponse
@@ -52,24 +54,72 @@ class McpController extends Controller
         ]);
 
         $userId      = $validated['user_id'];
-        $content     = $validated['content'];
-        $sensitivity = $validated['sensitivity'];
+        $redaction   = $this->redactor->redact($validated['content'], $userId);
+        $content     = $redaction->text;
+        $sensitivity = $this->redactor->enforceSensitivity($validated['sensitivity'], $redaction);
+
+        // The MCP write surface intentionally accepts only public/private. If a
+        // floor category is detected, store the redacted memory as private rather
+        // than rejecting useful context or allowing it to remain public.
+        if ($sensitivity === 'sensitive') {
+            $sensitivity = 'private';
+        }
+
+        $metadata = $validated['context'] ?? null;
+        if ($redaction->applied()) {
+            $metadata = json_encode([
+                'context' => $metadata,
+                'redaction' => $redaction->toMetadata(),
+            ]);
+        }
 
         // Store in ICP mock cache. Session ID is synthesized from the user ID
         // and current timestamp since CLI tools have no browser session.
         $sessionId = 'mcp-' . $userId . '-' . now()->timestamp;
-        $icpId = $this->icp->storeMemory($userId, $sessionId, $content, $validated['context'] ?? null, $sensitivity);
+        $icpId = $this->icp->storeMemory($userId, $sessionId, $content, $metadata, $sensitivity);
 
         // Extract graph node metadata and wire into the memory graph.
         $extracted = $this->graphExtractor->extract($content, $sensitivity);
         if ($extracted !== null) {
-            $this->graph->storeNode($userId, $content, $extracted, $sessionId);
+            $this->graph->storeNode($userId, $content, $this->sanitizeExtractedMetadata($extracted, $userId), $sessionId);
         }
 
         return response()->json([
             'id'          => $icpId,
             'user_id'     => $userId,
             'sensitivity' => $sensitivity,
+            'redaction'   => $redaction->applied() ? $redaction->toMetadata() : ['applied' => false],
         ], 201);
+    }
+
+    /**
+     * @param  array<string, mixed>  $extracted
+     * @return array<string, mixed>
+     */
+    private function sanitizeExtractedMetadata(array $extracted, string $userId): array
+    {
+        if (isset($extracted['label']) && is_string($extracted['label'])) {
+            $extracted['label'] = $this->redactor->redact($extracted['label'], $userId)->text;
+        }
+
+        foreach (['tags', 'people', 'projects'] as $field) {
+            $values = $extracted[$field] ?? [];
+            if (! is_array($values)) {
+                $extracted[$field] = [];
+                continue;
+            }
+
+            $redactedValues = array_map(
+                fn ($value) => is_string($value) ? trim($this->redactor->redact($value, $userId)->text) : '',
+                $values,
+            );
+
+            $extracted[$field] = array_values(array_unique(array_filter(
+                $redactedValues,
+                static fn (string $value) => $value !== '' && ! str_contains($value, '['),
+            )));
+        }
+
+        return $extracted;
     }
 }
