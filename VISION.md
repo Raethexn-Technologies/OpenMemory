@@ -58,6 +58,8 @@ OpenMemory is a working prototype of one concrete answer to the above questions.
 
 **Three-tier memory classification.** Each extracted memory is classified as Public, Private, or Sensitive by an LLM call. This classification determines what the agent can recall (only Public reaches the LLM), what the user must approve before signing (both Private and Sensitive), and what is accessible outside the app (only Public is served at the HTTP endpoint).
 
+**Deterministic redaction before LLM and storage boundaries.** Access control and content control are separate layers. `RedactionService` runs local pattern checks before chat turns, memory summaries, retrieved records, document chunks, MCP writes, and graph-sync payloads cross an LLM or storage boundary. Payment cards, CVV, bank routing and account numbers, IBANs, SSNs, SINs, credentials, JWTs, private keys, and minor-age details are non-overridable floor categories. Configurable categories such as email, phone, address, date of birth, compensation, and health text can be controlled through deployment presets or per-user rows in `redaction_policies`.
+
 **Canister-level read enforcement.** The Motoko canister enforces access by `msg.caller`. The server adapter, the HTTP gateway, and the MCP server are all anonymous callers, so they receive only public records. Private and Sensitive records are returned only to a caller whose principal matches the record's owner. This is cryptographic enforcement, not application-level trust.
 
 **Public HTTP endpoint.** Any public memory record is readable at `https://<canister-id>.ic0.app/memory/<principal>` with no authentication, no API key, and no dependency on the Laravel server. The record is accessible from a terminal, another application, or any MCP-compatible AI agent.
@@ -68,7 +70,7 @@ OpenMemory is a working prototype of one concrete answer to the above questions.
 
 **Graph-guided retrieval replacing flat recall.** LLM context assembly uses the Physarum neighbourhood of a goal-biased seed set rather than the full public memory set. All public `goal` nodes are seeded first. Remaining seed slots are filled by the public non-goal nodes with the highest total connected edge weight from the same bounded candidate pool. BFS from those seeds collects neighbours in weight-descending order up to a limit. Only the retrieved neighbourhood is reinforced on each turn, so frequently traversed paths grow stronger and unused paths decay toward the floor. Cold-start fallback to flat ICP recall handles the case where no graph exists yet. Each turn's response now includes `active_node_ids`, the exact node IDs that entered the context window.
 
-**Document ingestion path.** Text and Markdown documents can now be ingested through `POST /api/documents/ingest`. The pipeline chunks the source on paragraph boundaries, creates a document anchor node, extracts typed chunk nodes with the same LLM graph extractor used for chat memory, and wires each chunk back to the anchor through `part_of` edges. This is the first perception path in the architecture: non-chat knowledge now enters the same graph primitives as chat-derived memory. In mock mode, public document ingests also mirror a short anchor record into the mock ICP store so the MCP read path can see that a document was ingested. Live browser-signed canister writes for uploaded documents are not wired yet.
+**Document ingestion path.** Text and Markdown documents can now be ingested through `POST /api/documents/ingest`. The pipeline redacts the source, chunks the redacted text on paragraph boundaries, creates a document anchor node, extracts typed chunk nodes with the same LLM graph extractor used for chat memory, and wires each chunk back to the anchor through `part_of` edges. This is the first perception path in the architecture: non-chat knowledge now enters the same graph primitives as chat-derived memory. In mock mode, public document ingests also mirror a short anchor record into the mock ICP store so the MCP read path can see that a document was ingested. Live browser-signed canister writes for uploaded documents are not wired yet.
 
 **Multi-agent collective Physarum.** Multiple agents each hold their own graph partition, keyed by a derived `graph_user_id`. When two agents both access nodes from the same memory content, identified by SHA-256 content hash, a shared edge accumulates weight at `SHARED_ALPHA * trust_score`. Trust-weighted reinforcement is the MemoryGraft resistance mechanism: zero-trust agents cannot shift collective edge weights. Their access patterns are recorded but their contribution to the collective graph is effectively zero until trust is explicitly granted.
 
@@ -132,13 +134,14 @@ The chat interface, LLM integration, session management, and transcript storage 
 - The canister enforces read access by `msg.caller`, which is cryptographic rather than application logic
 - Private and Sensitive memories never reach the LLM recall path, enforced at both the canister and application layers
 - Sensitive and Private memories require explicit user approval before any write happens, in both live mode and mock mode
+- Floor redaction categories are removed or tokenized before transcript storage, prompt history, graph extraction, document ingestion, MCP writes, and mock ICP storage
 - LLM classification failures discard the memory rather than defaulting to Public (fail-closed behavior)
 - The adapter's live write path hard-rejects rather than silently dropping `memory_type`
 
 ### What's not real yet
 
 - The user previously had no first-party path to read their own private or sensitive memories back within the app. This has been partially addressed with an authenticated owner-read panel in the chat UI, but the read flow deserves more attention.
-- Classification is LLM-generated, non-deterministic, and uncorrectable by the user
+- Classification is still LLM-generated, non-deterministic, and uncorrectable by the user. Redaction narrows the blast radius for known high-risk values, but it does not make the classification step deterministic.
 - localStorage key custody is weaker than hardware-backed identity
 - Mock mode is not a security simulation; it is a functional approximation for development
 
@@ -147,6 +150,8 @@ The chat interface, LLM integration, session management, and transcript storage 
 The honest version of the trust claim is this:
 
 > In live ICP mode, the memory storage layer enforces its own access control independently of the host application. Private and Sensitive records are inaccessible to unauthenticated callers at the protocol level. The host application cannot forge writes under a user's identity. The user must approve both Private and Sensitive writes before they are signed.
+>
+> The application layer still sees enough text to generate responses and summaries. Deterministic redaction reduces the chance that raw financial, credential, government-ID, and comparable floor values cross model or storage boundaries, but it does not remove trust in the host application.
 >
 > The host application still controls what text gets presented for signing. The user cannot fully verify that the LLM extraction is faithful to the conversation. The key is as secure as the browser environment it lives in.
 
@@ -182,13 +187,13 @@ Initially, Private memories were auto-signed, with only Sensitive requiring appr
 
 ## What Was Learned
 
-**The central unsolved problem is not the canister; it's the server in the middle.** The canister enforcement is clean and provably correct. The server that sits between the user and the canister, generating summaries and deciding what to surface for approval, is still a trusted intermediary even in live mode. Reducing that trust requires either moving classification into the browser or making the classification verifiable.
+**The central unsolved problem is not the canister; it's the server in the middle.** The canister enforcement is clean and provably correct. The server that sits between the user and the canister, generating responses, generating summaries, redacting known categories, and deciding what to surface for approval, is still a trusted intermediary even in live mode. Reducing that trust requires either moving redaction and classification into the browser or making those steps verifiable.
 
 **Mock mode creates a misleading development environment.** The default local development experience is mock mode, where there is no canister, no identity enforcement, and no meaningful privacy guarantee. Developers building against mock mode develop a different intuition about the system than users running in live mode. This gap is dangerous for a project where the security properties are the point.
 
 **The write-only problem is real and visible.** A user who approves a private memory and then cannot see it again within the application has experienced a broken product, not a privacy feature. The first-party owner-read path is not optional; it is how the user verifies that the privacy guarantee is real.
 
-**LLM classification is probabilistic infrastructure.** Treating LLM output as reliable classification for security-relevant decisions is dangerous without validation. The system currently assumes the LLM output is correct. In practice, classification accuracy will vary by model, by content type, and by language. Any production version of this needs human review or deterministic validation for the classification step.
+**LLM classification is probabilistic infrastructure.** Treating LLM output as reliable classification for security-relevant decisions is dangerous without validation. The system now has deterministic redaction for known high-risk patterns, but Public/Private/Sensitive classification is still model output. In practice, classification accuracy will vary by model, by content type, and by language. Any production version of this needs human review or deterministic validation for the classification step.
 
 **The demo story and the implementation must match exactly.** A claim that cannot be demonstrated live is worse than no claim. "Private memories are access-controlled" cannot be demonstrated if there is no first-party way to show the owner reading a private memory. The story must be constrained to what can actually be shown.
 
@@ -498,7 +503,9 @@ The following are not future work items. They are properties of the current impl
 
 **localStorage key custody is vulnerable to script injection.** The Ed25519 private key is generated in the browser and persisted to localStorage. Any same-origin JavaScript can read localStorage. A script injection attack could exfiltrate the key. The server never holds the key, which prevents server-side forgery. Replacing localStorage with WebAuthn or a hardware key would close the client-side vulnerability. Internet Identity on ICP provides a ready implementation of this upgrade.
 
-**LLM classification is non-deterministic and uncorrectable.** The Public/Private/Sensitive classification is produced by an LLM call on each extracted memory. The same content submitted twice may receive different classifications. A misclassified memory has no correction path in the current implementation; it remains at its original classification until deleted. Any deployment treating this classification as a security boundary rather than a best-effort filter should validate classification accuracy on a held-out sample before relying on it.
+**Redaction is pattern-based and incomplete.** The redaction floor catches common structured financial, credential, government-ID, and key formats. It is not a general privacy classifier and it will not catch every way a person can disclose sensitive information in natural language. The user-configurable policy layer narrows expected categories, but it does not replace human review for regulated deployments.
+
+**LLM classification is non-deterministic and uncorrectable.** The Public/Private/Sensitive classification is produced by an LLM call on each extracted memory. The same content submitted twice may receive different classifications. A misclassified memory has no correction path in the current implementation; it remains at its original classification until deleted. Deterministic redaction prevents some raw high-risk values from being stored, but any deployment treating classification as a security boundary rather than a best-effort filter should validate classification accuracy on a held-out sample before relying on it.
 
 ---
 

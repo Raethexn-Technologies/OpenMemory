@@ -18,6 +18,29 @@ The log is append-only. Entries are not edited after the fact.
 
 ---
 
+## Entry 027 - 2026-05-12
+### Redaction becomes a content-control layer
+
+#### What was built
+
+The memory pipeline now has deterministic redaction before LLM and storage boundaries. `RedactionService` runs on chat input, assistant output, retrieved memory records before prompt injection, memory summaries before storage, browser-approved graph sync, MCP writes, and document ingestion. The system also sanitizes graph extractor labels, tags, people, and projects so redaction placeholders do not become entity anchors.
+
+The non-overridable floor covers payment cards, CVV, bank routing and account numbers, IBANs, SSNs, SINs, credentials, JWTs, private keys, and minor-age details. Configurable policy categories include email, phone, street address, date of birth, compensation, and health-condition text. Compensation defaults to abstraction, so precise values can become brackets rather than disappearing entirely.
+
+Per-user policy storage was added through `redaction_policies`. If a user policy exists, it selects a preset and category overrides. If no user policy exists, the deployment preset from `config/redaction.php` applies. Floor categories still win over user policy.
+
+#### Security implication
+
+This separates content control from access control. Sensitivity labels still decide who can read a record, but redaction decides whether raw high-risk values are allowed to cross model and storage boundaries at all. This closes the obvious bank/payment/credential gap in the earlier architecture, where a value could be classified as Sensitive only after it had already crossed the summarization LLM boundary.
+
+It does not make privacy complete. The redactor is pattern-based and will miss some natural-language sensitive disclosures. The server remains a trusted intermediary. The next step for stronger guarantees is browser-side or verifiable redaction and classification.
+
+#### Verification
+
+`php artisan test` passes with 200 tests and 647 assertions. `npm run test:front` passes with 3 Vue tests. New coverage checks the redaction floor, policy overrides, per-user policy loading, chat memory redaction, MCP bank-detail handling, document-ingestion redaction, redacted chat UI rendering, sensitive-memory approval, live browser graph sync typing, and traced retrieval simulation.
+
+---
+
 ## Entry 026 - 2026-04-22
 ### Harder corpus and goal ablation: recency gap narrows, goal contribution measured
 

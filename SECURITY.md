@@ -26,11 +26,15 @@ The project never stores secrets in source code. All credentials, API keys, and 
 
 Do not commit `.env` files. The root `.gitignore` and each component's local `.gitignore` exclude them by default.
 
+`REDACTION_HASH_KEY` can be set to a separate HMAC key for deterministic redaction tokens. If it is unset, the Laravel `APP_KEY` is used. Treat either value as secret because a stable token lets the system recognize the same redacted value across writes without storing the raw value.
+
 ## Scope
 
 The following areas are in scope for security reports:
 
 **ICP canister access control.** The Motoko canister enforces read access using `msg.caller`. Private and Sensitive records are only returned to the principal that stored them. A bypass of this check is a critical vulnerability.
+
+**Deterministic redaction floor.** `RedactionService` must redact or tokenize payment cards, CVV, bank routing and account numbers, IBANs, SSNs, SINs, credentials, JWTs, private keys, and minor-age details before those values cross LLM or storage boundaries. A bypass that lets those raw values reach the transcript, prompt history, graph nodes, document chunks, MCP storage path, or ICP mock store is in scope.
 
 **API key validation for `/mcp/store`.** The Laravel endpoint that accepts memory writes from the MCP server and the agent requires an `X-OMA-API-Key` header. Missing or incorrect validation of that header allows unauthenticated memory writes.
 
