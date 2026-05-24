@@ -37,8 +37,8 @@ class ChatController extends Controller
         session()->put('chat_session_id', $sessionId);
 
         // identity_source tracks where the user_id came from.
-        // 'browser' = browser-derived Ed25519 principal (set on first /chat/send with a principal).
-        // 'session' = legacy server-generated fallback (first page load before any message).
+        // 'browser' = browser principal from Internet Identity (set on first /chat/send with a principal).
+        // 'session' = server-generated fallback used before the user has signed in.
         $userId = session()->get('chat_user_id', 'session_'.Str::random(8));
         session()->put('chat_user_id', $userId);
 
@@ -56,6 +56,7 @@ class ChatController extends Controller
             'icp_mode' => $this->icp->mode(),
             'canister_id' => $this->icp->canisterId(),
             'browser_host' => $this->icp->browserHost(),
+            'ii_provider_url' => $this->icp->iiProviderUrl(),
         ]);
     }
 
@@ -63,21 +64,23 @@ class ChatController extends Controller
      * Handle a new chat message.
      *
      * Identity flow:
-     *   - The browser generates an Ed25519 principal and sends it as `principal`.
+     *   - The browser obtains its principal from Internet Identity (AuthClient
+     *     delegation) and sends it as `principal`. Signed-out browsers omit it.
      *   - On first message, we store that principal as the user_id and mark the
      *     identity_source as 'browser'. Subsequent messages verify it matches.
-     *   - If no principal is supplied (e.g. direct API call), the session-generated
-     *     fallback is used and identity_source remains 'session'.
+     *   - If no principal is supplied (signed out, or a direct API call), the
+     *     session-generated fallback is used and identity_source remains 'session'.
      *
      * Memory write flow (live ICP mode):
      *   - Laravel returns the memory_summary to the browser.
-     *   - The browser calls the canister directly with the user's Ed25519 identity.
-     *   - msg.caller on the canister == the user's principal (cryptographically verified).
-     *   - The server cannot write under the user's principal in live mode.
+     *   - The browser calls the canister directly using the II delegation.
+     *   - msg.caller on the canister == the user's II principal (cryptographically verified).
+     *   - The canister rejects anonymous callers, so a signed-out browser cannot
+     *     write at all and the server cannot write under any user's principal.
      *
      * Memory write flow (mock mode):
      *   - Laravel writes server-side to the file cache (no canister available).
-     *   - The principal is still browser-derived; it just isn't cryptographically enforced.
+     *   - The principal still comes from the browser (II or empty); it just isn't cryptographically enforced.
      */
     public function send(Request $request)
     {
@@ -91,7 +94,8 @@ class ChatController extends Controller
             return response()->json(['error' => 'Session not found. Please refresh.'], 422);
         }
 
-        // Accept browser-derived principal on first message; lock it in after that.
+        // Accept the Internet Identity principal sent by the browser on first
+        // message; lock it in after that so later turns cannot silently re-bind.
         $userId = session()->get('chat_user_id');
         $identitySource = session()->get('identity_source', 'session');
         $incomingPrincipal = $validated['principal'] ?? null;
@@ -336,6 +340,30 @@ class ChatController extends Controller
         session()->forget('chat_session_id');
 
         return redirect()->route('chat');
+    }
+
+    /**
+     * Forget the browser identity bound to this Laravel session.
+     *
+     * Called by the chat UI after the user signs out of Internet Identity.
+     * Without this, the session keeps the previous chat_user_id and subsequent
+     * /chat/send calls — even with `principal: null` in the body — continue to
+     * retrieve and reinforce the prior principal's memory graph. The chat
+     * transcript is also reset because messages addressed to the old principal
+     * should not bleed into a new session.
+     */
+    public function identityLogout(Request $request)
+    {
+        $sessionId = session()->get('chat_session_id');
+        if ($sessionId) {
+            Message::where('session_id', $sessionId)->delete();
+        }
+
+        session()->forget('chat_user_id');
+        session()->forget('identity_source');
+        session()->forget('chat_session_id');
+
+        return response()->json(['ok' => true]);
     }
 
     /**

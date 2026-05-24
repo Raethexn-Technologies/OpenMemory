@@ -57,6 +57,12 @@ return [
         // ICP mainnet gateway. Separate from ICP_CANISTER_ENDPOINT (Laravel→adapter).
         // Local default: http://localhost:4943  |  Mainnet: https://ic0.app
         'browser_host' => env('ICP_BROWSER_HOST', 'http://localhost:4943'),
+        // ICP_II_PROVIDER_URL: the Internet Identity provider URL the browser
+        // AuthClient connects to. Leaving this empty disables II login and
+        // blocks live ICP writes (mock mode still works without it).
+        // Local dfx II: http://<II_CANISTER_ID>.localhost:4943 after `dfx deps deploy internet_identity`.
+        // Mainnet II:   https://identity.ic0.app
+        'ii_provider_url' => env('ICP_II_PROVIDER_URL', ''),
     ],
 
 ];

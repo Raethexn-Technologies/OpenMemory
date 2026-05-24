@@ -8,6 +8,7 @@ import Iter "mo:base/Iter";
 import Buffer "mo:base/Buffer";
 import Array "mo:base/Array";
 import Principal "mo:base/Principal";
+import Error "mo:base/Error";
 import Types "./types";
 
 actor Memory {
@@ -41,7 +42,15 @@ actor Memory {
   // Store a memory record.
   // user_id is always msg.caller — the request body cannot override it.
   // memory_type defaults to #Public if absent.
+  // Anonymous principals are rejected: writes must come from an authenticated
+  // identity so ownership has a real key behind it. Without this, two signed-out
+  // browsers would both write under the shared anonymous principal and one could
+  // read the other's private records by satisfying caller == user_id.
   public shared(msg) func store_memory(req : Types.StoreRequest) : async Text {
+    if (Principal.isAnonymous(msg.caller)) {
+      throw Error.reject("anonymous principal cannot store memories");
+    };
+
     let caller  = Principal.toText(msg.caller);
     let id      = caller # ":" # Nat.toText(nextId);
     nextId += 1;
@@ -65,7 +74,12 @@ actor Memory {
   };
 
   // Delete a record — only the owning principal may delete it.
+  // Anonymous principals can never be owners (see store_memory) and are
+  // rejected here as well, so an anonymous caller cannot delete records
+  // even if a legacy anonymous-owned record exists from before this guard.
   public shared(msg) func delete_memory(id : Text) : async Bool {
+    if (Principal.isAnonymous(msg.caller)) { return false };
+
     let caller = Principal.toText(msg.caller);
     switch (memories.get(id)) {
       case (?record) {
@@ -89,7 +103,10 @@ actor Memory {
   // Private and Sensitive records are for the user to read directly.
   public shared query(msg) func get_memories(user_id : Text) : async [Types.MemoryResponse] {
     let caller   = Principal.toText(msg.caller);
-    let isOwner  = caller == user_id;
+    // Anonymous callers can never be owners. Without this check, any anonymous
+    // caller could satisfy caller == user_id for records that a previous
+    // anonymous caller had stored and read their private/sensitive content.
+    let isOwner  = not Principal.isAnonymous(msg.caller) and caller == user_id;
     let buf = Buffer.Buffer<Types.MemoryResponse>(10);
 
     for ((id, record) in memories.entries()) {
@@ -108,15 +125,16 @@ actor Memory {
 
   // Get memories for a specific session (owner only for private/sensitive).
   public shared query(msg) func get_memories_by_session(session_id : Text) : async [Types.MemoryResponse] {
-    let caller = Principal.toText(msg.caller);
-    let buf    = Buffer.Buffer<Types.MemoryResponse>(10);
+    let caller     = Principal.toText(msg.caller);
+    let canBeOwner = not Principal.isAnonymous(msg.caller);
+    let buf        = Buffer.Buffer<Types.MemoryResponse>(10);
 
     for ((id, record) in memories.entries()) {
       if (record.session_id == session_id) {
         let visible = switch (record.memory_type) {
-          case (#Public)    { true             };
-          case (#Private)   { caller == record.user_id };
-          case (#Sensitive) { caller == record.user_id };
+          case (#Public)    { true                                       };
+          case (#Private)   { canBeOwner and caller == record.user_id    };
+          case (#Sensitive) { canBeOwner and caller == record.user_id    };
         };
         if (visible) { buf.add(toResponse(id, record)) };
       };

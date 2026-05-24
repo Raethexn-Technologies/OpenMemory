@@ -3,9 +3,15 @@
  *
  * Browser-side ICP actor for reading and writing memory records directly to the canister.
  *
- * storeMemory  — signs a write with the user's Ed25519 identity; msg.caller on the canister
- *                equals the user's principal. Called after the server returns a memory summary
- *                and the user approves it (private/sensitive) or auto-signs it (public, live mode).
+ * The `identity` argument is any object implementing the @dfinity/agent Identity
+ * interface — typically the DelegationIdentity returned by `AuthClient.getIdentity()`
+ * after the user has signed in with Internet Identity. AnonymousIdentity is also
+ * accepted but the canister will reject writes from anonymous principals.
+ *
+ * storeMemory  — signs a write with the supplied identity; msg.caller on the canister
+ *                equals the user's principal. Called after the server returns a memory
+ *                summary and the user approves it (private/sensitive) or auto-signs it
+ *                (public, live mode).
  *
  * getMyMemories — authenticated read; returns { ok: true, records: [...] } with all records
  *                 the owner can see (public + private + sensitive), or { ok: false, error }
