@@ -156,6 +156,16 @@ class IcpMemoryService
     }
 
     /**
+     * Internet Identity provider URL for the browser AuthClient.
+     * Empty when II is not configured — the UI disables login and blocks
+     * live writes in that case. Mock mode is unaffected.
+     */
+    public function iiProviderUrl(): string
+    {
+        return config('services.icp.ii_provider_url', '');
+    }
+
+    /**
      * Ping the adapter for live status.
      * Returns structured health info suitable for the /api/status endpoint.
      */

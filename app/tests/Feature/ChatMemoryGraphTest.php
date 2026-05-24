@@ -496,4 +496,29 @@ class ChatMemoryGraphTest extends TestCase
         $summarizer->shouldIgnoreMissing();
         $this->app->instance(MemorySummarizationService::class, $summarizer);
     }
+
+    public function test_identity_logout_clears_session_user_and_transcript(): void
+    {
+        $this->bindUnusedControllerDependencies();
+
+        \App\Models\Message::create([
+            'session_id' => 'session-1',
+            'role'       => 'user',
+            'content'    => 'Previous principal said this.',
+        ]);
+
+        $response = $this->withSession([
+            'chat_session_id' => 'session-1',
+            'chat_user_id'    => 'previous-principal',
+            'identity_source' => 'browser',
+        ])->postJson('/chat/identity-logout');
+
+        $response->assertOk();
+        $response->assertJsonPath('ok', true);
+
+        $this->assertNull(session()->get('chat_user_id'));
+        $this->assertNull(session()->get('identity_source'));
+        $this->assertNull(session()->get('chat_session_id'));
+        $this->assertDatabaseMissing('messages', ['session_id' => 'session-1']);
+    }
 }

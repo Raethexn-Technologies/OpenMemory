@@ -4,7 +4,7 @@ Built because working across Claude, Codex, Gemini CLI, and other AI tools means
 
 The MCP server at `icp/mcp-server/server.js` is the protocol endpoint through which any MCP-compatible AI reads and writes memory records. Configure it once, and every AI you connect to it already knows what you have been working on. The chat interface in this repository is the reference implementation demonstrating that the infrastructure works end-to-end.
 
-Identity works differently depending on the tool. The browser chat UI holds an Ed25519 key in localStorage and signs writes directly to the ICP canister. CLI tools running in terminals (Claude Code, Gemini, Codex) share a portable identity file at `~/.config/openmemory/identity.json`, generated once with `node setup-identity.js`, and write through the MCP server rather than through a browser. A typed memory graph sits in PostgreSQL alongside the canister records, tracking relationships between memories and applying Physarum conductance dynamics that shift edge weights based on how the LLM actually uses each connection over time.
+Identity works differently depending on the tool. The browser chat UI authenticates the user through Internet Identity (`@dfinity/auth-client`) and signs writes to the ICP canister with the delegation that II returns. Until the user has signed in, the browser holds an `AnonymousIdentity` and the canister rejects writes from anonymous callers, so no memories are stored. CLI tools running in terminals (Claude Code, Gemini, Codex) share a portable Ed25519 identity file at `~/.config/openmemory/identity.json`, generated once with `node setup-identity.js`, and write through the MCP server rather than through a browser. A typed memory graph sits in PostgreSQL alongside the canister records, tracking relationships between memories and applying Physarum conductance dynamics that shift edge weights based on how the LLM actually uses each connection over time.
 
 [VISION.md](./VISION.md) covers the design decisions and research questions in depth. [DEVLOG.md](./DEVLOG.md) is the running record of what was discovered building it: implementation findings, security fixes, architectural tensions, and what remains unresolved. [RESEARCH.md](./RESEARCH.md) is the active research agenda: the open scientific claims, what needs to be built to test each one, and how the tracks evolve as discoveries open new questions. [SCIENCE.md](./SCIENCE.md) explains the mathematics and biology behind the graph layer in plain terms, with source citations and references to the tests that verify each formula.
 
@@ -18,7 +18,7 @@ The application is a standard Laravel and Vue web app. The interesting parts are
 
 **Storage trigger.** Before summarizing a conversation turn, the server passes the exchange to `MemorabilityService`, which evaluates novelty, significance, durability, and connection richness against the 20 most recently created nodes. The evaluation returns one of three decisions: store a new node, update an existing node with a specific ID, or skip the turn entirely. This filter prevents ephemeral exchanges (greetings, clarifying questions, transient status updates) from creating nodes, keeping the graph focused on durable knowledge.
 
-**Memory records.** When a redacted turn passes the storage trigger, the server summarizes it, classifies it as public, private, or sensitive, applies a second deterministic redaction pass to the summary, and proceeds down the write path. Redaction findings can only raise sensitivity, never lower it. In the browser chat UI, private and sensitive records require user approval before the browser signs the write with an Ed25519 key from localStorage and sends it directly to the ICP canister. The canister records `msg.caller` as the owner of that record. CLI tools writing through the MCP server POST to the Laravel `/mcp/store` endpoint in mock mode, which handles redaction, graph extraction, and node storage server-side without a browser session.
+**Memory records.** When a redacted turn passes the storage trigger, the server summarizes it, classifies it as public, private, or sensitive, applies a second deterministic redaction pass to the summary, and proceeds down the write path. Redaction findings can only raise sensitivity, never lower it. In the browser chat UI, private and sensitive records require user approval before the browser signs the write with the Internet Identity delegation and sends it directly to the ICP canister. The canister records `msg.caller` as the owner of that record and rejects writes from anonymous principals, so a signed-out browser cannot store memories. CLI tools writing through the MCP server POST to the Laravel `/mcp/store` endpoint in mock mode, which handles redaction, graph extraction, and node storage server-side without a browser session.
 
 **Document ingestion.** `POST /api/documents/ingest` accepts pasted text or Markdown files, redacts the source text, creates a document anchor node, chunks the redacted source with `DocumentChunkerService`, and runs each chunk through the same `GraphExtractionService` used for chat memories. Chunk nodes are stored with `source = 'document'` and connected back to the anchor with `part_of` edges, so uploaded knowledge enters the same graph primitives as chat-derived memory. `GET /api/documents` lists the document anchors for the current user. The HTTP API defaults ingested documents to `public` because graph-guided retrieval only loads public nodes into the LLM context window; redaction findings can escalate the effective sensitivity to `private` or `sensitive`.
 
@@ -378,7 +378,7 @@ OpenMemory/
 │   │   │   ├── Memory/ThreeD.vue            # Three.js mission control surface
 │   │   │   └── Agents/Index.vue             # graph partition simulation panel
 │   │   └── composables/
-│   │       ├── useIcpIdentity.js            # Ed25519 key generation and localStorage persistence
+│   │       ├── useIcpIdentity.js            # Internet Identity AuthClient adapter; exposes identity, principal, isAuthenticated, isReady
 │   │       └── useIcpMemory.js              # browser-signed writes and owner-authenticated reads
 │   └── tests/Feature/
 ├── icp/
@@ -414,7 +414,7 @@ The benchmark corpora live in `app/database/benchmarks/`. Corpora 01-03 are the 
 |---|---|
 | Laravel | Request handling, LLM orchestration, memory summarization, graph extraction, public-only context retrieval |
 | Vue + Inertia | Chat interface, identity management, browser-signed writes, approval dialogs, graph explorer |
-| useIcpIdentity.js | Generates an Ed25519 key pair in browser localStorage and derives the ICP principal |
+| useIcpIdentity.js | Internet Identity AuthClient adapter; manages login/logout lifecycle and exposes the authenticated principal |
 | useIcpMemory.js | Browser actor for signing store_memory calls and retrieving the owner's full record set |
 | PostgreSQL | Chat transcript, session data, memory graph (nodes, edges, Physarum weights) |
 | RedactionService | Deterministic local redaction and tokenization before LLM, transcript, graph, document, MCP, and storage boundaries |

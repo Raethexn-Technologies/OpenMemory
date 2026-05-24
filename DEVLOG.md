@@ -18,6 +18,79 @@ The log is append-only. Entries are not edited after the fact.
 
 ---
 
+## Entry 028 - 2026-05-23
+### Internet Identity replaces the browser-key principal
+
+#### What was built
+
+The browser identity layer moved from an Ed25519 key in `localStorage` to a delegation issued by Internet Identity through `@dfinity/auth-client`. `useIcpIdentity` is now an async, singleton composable that exposes refs for `identity`, `principal`, `isAuthenticated`, and `isReady`, plus `init`, `login`, and `logout`. Until login completes, the identity is `AnonymousIdentity` and the memory canister rejects writes by msg.caller checks.
+
+The Chat header gained an identity-aware tri-state badge (Initializing, Signed out, Internet Identity) and Sign in / Sign out controls. A new inline notice surfaces the two failure modes that previously fell through silently: live ICP mode while signed out (the canister will reject writes) and live ICP mode while `ICP_II_PROVIDER_URL` is unset on the server (II is unavailable for this deployment). The legacy identity-divergence warning was repurposed: it now fires when the session principal differs from the currently signed-in II principal, instead of when localStorage was wiped.
+
+Configuration plumbing: `services.icp.ii_provider_url` reads `ICP_II_PROVIDER_URL`, surfaced as `ii_provider_url` on the Chat page Inertia render. The default is an empty string. `dfx.json` gained a pulled `internet_identity` canister so `dfx deps deploy internet_identity` works for the local demo.
+
+MCP was deliberately left untouched. The headless adapter at `~/.config/openmemory/identity.json` still uses Ed25519 (Entry 020). The browser/MCP identity split is documented in `project_icp_technical.md` and remains correct: II requires a browser, the MCP path is browser-less, and the delegation flow that would unify them is a separate design question.
+
+#### Security implication
+
+This closes the trust-on-access half of the privacy story. The redaction layer in Entry 027 was the trust-on-content half: deciding whether a raw value is allowed across an LLM or storage boundary at all. Internet Identity decides whether the principal making canister calls is held by the user or stored where the server can reach it. Together they let the project say, with substance behind it, that user memories live under a key the server has never seen and cannot reconstruct.
+
+This does not promise multi-device migration. II principals are per-identity, not per-device, so a user who signs in to the same II account from a new device gets the same principal automatically. That is the credibility win. The web-out-of-the-box trust story does not yet extend to MCP CLI tools, which still hold their own file-stored key.
+
+#### The migration gap
+
+Legacy `oma_icp_identity_v1` localStorage entries from the Ed25519 implementation are not migrated to II principals. A user who used the previous version and signs in to II will see their old memories disappear from the owner-authenticated `My memories` panel, because those records are owned by the old browser-key principal that the II principal cannot read.
+
+The clean fix is a one-time browser-side migration: read the old key, derive its principal, query the canister for records under it, re-sign them under the II principal, then wipe the localStorage entry. That work is explicitly deferred. For the demo this is acceptable because no production data exists yet. For real users this becomes mandatory before II rolls out in any user-facing build.
+
+#### Verification
+
+`php artisan test` passes with 200 tests and 647 assertions. `npm run test:front` passes with 7 Vue tests (3 existing redaction cases plus 4 new II lifecycle cases: signed-in badge state, signed-out warning in live mode, II unconfigured notice, principal omitted from `/chat/send` when signed out). Manual canister round-trip against a live II deployment is the next verification step and is not yet recorded.
+
+#### What this does not yet do
+
+The `My memories` panel is now hidden until the user signs in, which is correct but removes the ICP-live signal for visitors who have not authenticated. A small "what you would see if signed in" preview would be a fairer landing experience. The Sign in flow is plain: there is no recovery hint if II login is cancelled or blocked by the browser, only a logged console error. Migration of legacy localStorage principals remains future work, as does the MCP delegation question.
+
+#### Review findings and fixes (same day)
+
+A review of the initial II swap surfaced four problems that the first cut missed. They have all been fixed; the entry below records what was wrong and what changed.
+
+The first cut blocked writes only in the UI. `writeMemoryToBrowser` still ran when the user was signed out, the public auto-sign branch in `send()` still called it, and the private/sensitive `approveMemory` path still called it. The canister itself accepted any `msg.caller`, so a signed-out browser could store records under the shared anonymous principal — and any other anonymous caller could then satisfy `caller == user_id` and read those records back, including private and sensitive ones. The fix is in both layers. `writeMemoryToBrowser` now short-circuits when `isAuthenticated` is false and surfaces a new `blocked` memory state explaining why nothing was written. The canister rejects `Principal.isAnonymous(msg.caller)` in `store_memory` and `delete_memory`, and treats anonymous callers as never-the-owner in `get_memories` and `get_memories_by_session` so the read path cannot leak previously-anonymous records.
+
+Sign out did not clear the Laravel session identity. `handleLogout` only called `AuthClient.logout()`. The session still held `chat_user_id` and `identity_source = 'browser'`, so the next `/chat/send` (even with `principal: null` in the body) kept retrieving the previous principal's memory graph. The fix is a new `POST /chat/identity-logout` route that forgets `chat_user_id`, `identity_source`, and `chat_session_id` and deletes the transcript. `handleLogout` calls it after II logout and then triggers an Inertia visit to `/chat` so the new anonymous session takes effect immediately.
+
+The owner-memory panel kept stale records across identity switches. `myMemories`, `myMemoriesError`, and `showMyMemories` were not cleared on logout, so signing back in as a different II principal in the same tab could show the previous principal's private records. The fix is twofold: `handleLogout` clears the panel state up front, and a `watch(principal, ...)` resets it on any principal change so delegation expiry or in-tab account switches cannot resurface a previous principal's cache.
+
+The top-level trust documents were materially stale. `README.md` and `VISION.md` still described the browser identity as Ed25519 localStorage. Both have been rewritten to match what shipped: Internet Identity for the browser, the canister-level anonymous rejection, MCP's continued Ed25519 file identity, and the explicit gap for legacy localStorage migration.
+
+#### Updated verification
+
+`php artisan test` passes with 201 tests and 653 assertions (one new backend test for `identity-logout` session clearing). `npm run test:front` passes with 9 Vue tests (two new: live public write blocked when signed out, and Sign out triggers the `/chat/identity-logout` call). Canister behavior is covered by the source-level guards but no Motoko test harness is set up yet; live-replica verification is still pending.
+
+#### Second-round review fixes
+
+A second review pass found three more issues. They are now fixed; this section records them.
+
+The first cut had a race on the first turn. `initIdentity()` runs asynchronously in `onMounted`, but the chat input was only disabled on `loading` and empty text. A fast send before II restoration completed would post `principal: null` and the backend would lock the session to the anonymous fallback identity, even for a user who already had a valid II delegation in browser storage. The fix is a `sendBlocked` computed (`icp_mode === 'icp' && !isReady`) that disables the input and Send button while restoration is in flight, plus an `await initIdentity()` defense inside `send()` itself so a programmatic call cannot race the template gate. The input placeholder changes to "Waiting for Internet Identity…" while blocked.
+
+Logout was not atomic. `handleLogout` cleared the local UI state, called `logoutIdentity()`, then attempted `POST /chat/identity-logout` and continued to `router.visit` regardless of whether that POST succeeded. A backend POST failure left the Laravel session bound to the previous principal while the UI showed signed-out, and the next chat turn would silently retrieve under the stale principal. The fix reorders the operation so the backend POST runs first; only on success does the code clear panel state, call `logoutIdentity`, and navigate. On failure, a new `logoutError` ref surfaces a red banner ("Sign out failed — you are still signed in"), the delegation stays intact, and the Sign out button stays available for retry. A new `loggingOut` flag prevents duplicate inflight requests and changes the button label to "Signing out…" while pending. A failure-path test (`/chat/identity-logout` rejected, `router.visit` not called) was added alongside the existing success-path test.
+
+Several docs and comments still described the old identity model as current. `README.md` repo-tree and layer-table entries called `useIcpIdentity.js` the "Ed25519 key generation and localStorage persistence" composable. `VISION.md` had four passages still presenting the browser identity as Ed25519 in localStorage as if it were the live design: the "Strong key custody" caveat, the "Multi-device portability" caveat, the trust-boundary narrative paragraph, the "graph layer carries no cryptographic ownership" finding, the "localStorage key custody" finding, the "canister enforces identity at the protocol level" claim, the short "What's not real yet" bullet on key custody, and the "Next Steps" Internet-Identity entry. `ChatController::index` had a comment describing `'browser'` as a "browser-derived Ed25519 principal." All have been rewritten to match what shipped: II as the principal source, delegation held in browser storage between turns as the real custody caveat, MCP's continued file-based Ed25519 identity correct where mentioned, and the WebAuthn-per-write upgrade described as the remaining hardening path rather than as the missing baseline.
+
+After these fixes: `php artisan test` 201/653; `npm run test:front` 11/11 (two new cases — logout-failure surfaces error and does not navigate, and send is disabled while II readiness is pending).
+
+#### Third-round review fixes
+
+A third review pass surfaced a deadlock and a small batch of remaining stale wording. Both are now fixed.
+
+`useIcpIdentity.init` only flipped `isReady` after a successful `AuthClient.create()` and `client.isAuthenticated()`. If either rejected (no IndexedDB, browser security policy, hostile environment), `isReady` stayed false forever. In live ICP mode that meant the new `sendBlocked` gate kept the chat input disabled indefinitely with no recovery path. The composable now wraps the whole init body in `try / finally` so `isReady` is set regardless, and exposes a new `initError` ref carrying the failure message. The Chat page reads `initError` and: in live mode, the existing "Sign in to write memories" notice swaps to a red "Internet Identity is currently unavailable" notice that includes the AuthClient error message; the Sign in button stays rendered but disabled (clicking it would only re-trigger the same failure); the chat input is unblocked so the user can still read and ask questions. Live writes remain blocked by the canister's anonymous rejection and the browser-side guard from the previous round. A new frontend test asserts the unblocked input, the error banner, and the disabled Sign in button when `initError` is set.
+
+A repo-wide grep for `browser key`, `Ed25519 principal`, `Ed25519 KeyIdentity`, `browser-derived`, and similar phrases turned up four more current-tense references that had survived the earlier passes: `ChatController::send` PHPDoc still described the browser as "generating an Ed25519 principal" and using "the user's Ed25519 identity" for writes; the same controller's `'browser-derived'` comments at the session-locking site were ambiguous now that derivation happens in the II canister rather than in `useIcpIdentity`; `icp/adapter/server.js` repeated the Ed25519-key wording in its IDL-block notes; and `VISION.md` had two passages ("Memory outlives the application session" and the strongest-truthful-pitch ownership paragraph) that still said "browser key." All four have been rewritten to reference Internet Identity, the AuthClient delegation, and the canister-level anonymous rejection where each is the relevant property. Historical entries earlier in this DEVLOG and notes.md are left alone — they document what the system was when the entries were written, which is the point of an append-only log.
+
+After these fixes: `php artisan test` 201/653; `npm run test:front` 12/12 (one new case — chat unblocked and Sign in disabled when AuthClient init fails).
+
+---
+
 ## Entry 027 - 2026-05-12
 ### Redaction becomes a content-control layer
 

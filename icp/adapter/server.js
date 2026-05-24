@@ -33,8 +33,9 @@ const mockStore = [];
 //
 // NOTE: store_memory is a shared (update) call — the canister uses msg.caller
 // as the user_id. This adapter is used by Laravel for READS only in live mode.
-// WRITES in live mode come from the browser (signed with the user's Ed25519 key).
-// The adapter's /store endpoint is only meaningful in mock mode.
+// WRITES in live mode come from the browser, signed with the Internet Identity
+// delegation that AuthClient returns after the user signs in. The adapter's
+// /store endpoint is only meaningful in mock mode.
 //
 const idlFactory = ({ IDL }) => {
   const MemoryType = IDL.Variant({
@@ -84,7 +85,8 @@ async function getActor() {
 // POST /store
 // Mock mode only: Laravel calls this to persist memories when no canister is available.
 // In live mode, the browser writes directly to the canister (browser-signed via @dfinity/agent).
-// The user_id field here is the browser-derived principal, not a server-generated ID.
+// The user_id field here is the browser's Internet Identity principal,
+// not a server-generated ID.
 app.post('/store', async (req, res) => {
   const { user_id, session_id, content, metadata, memory_type } = req.body;
 

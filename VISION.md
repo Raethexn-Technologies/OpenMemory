@@ -52,9 +52,9 @@ OpenMemory is a working prototype of one concrete answer to the above questions.
 
 ### What's different
 
-**Browser-generated identity.** An Ed25519 key pair is generated in the user's browser on first load and persisted in `localStorage`. The server never sees the private key. The ICP principal derived from this key becomes the user's identity in the memory layer, not a server-assigned user ID.
+**Internet Identity in the browser.** The browser obtains a principal by authenticating with Internet Identity through `@dfinity/auth-client`. The delegation lives in this browser and the server never sees the underlying key material. Until the user has signed in, the browser holds an `AnonymousIdentity` and the canister rejects writes, so no memories are stored under an unauthenticated session. The principal returned by II is the user's identity in the memory layer, not a server-assigned user ID. CLI tools that have no browser keep the earlier Ed25519 file identity at `~/.config/openmemory/identity.json` and write through the MCP server (see Entry 020 in DEVLOG); a delegation flow that would unify the two is still an open question.
 
-**Browser-signed canister writes (live mode).** When the server extracts a memory summary, it returns it to the browser instead of writing it directly. The browser signs the write using the Ed25519 identity and sends it to the ICP canister. The canister uses `msg.caller` as the record owner, which is the browser's signed principal. The server cannot forge writes under the user's principal.
+**Browser-signed canister writes (live mode).** When the server extracts a memory summary, it returns it to the browser instead of writing it directly. The browser signs the write using the Internet Identity delegation and sends it to the ICP canister. The canister uses `msg.caller` as the record owner, which is the browser's authenticated principal. It also rejects writes from anonymous callers, so neither the server nor a signed-out browser can put records into a user's principal slot.
 
 **Three-tier memory classification.** Each extracted memory is classified as Public, Private, or Sensitive by an LLM call. This classification determines what the agent can recall (only Public reaches the LLM), what the user must approve before signing (both Private and Sensitive), and what is accessible outside the app (only Public is served at the HTTP endpoint).
 
@@ -86,11 +86,11 @@ The chat interface, LLM integration, session management, and transcript storage 
 
 ## What This Actually Proves
 
-**The canister enforces identity at the protocol level.** In live ICP mode, `msg.caller` on `store_memory` is cryptographically the browser's Ed25519 principal. The server cannot write under a user's principal. This is a real property, not application-level trust, and it is verifiable by reading the Motoko source on-chain.
+**The canister enforces identity at the protocol level.** In live ICP mode, `msg.caller` on `store_memory` is the user's Internet Identity principal as verified by the AuthClient delegation. Anonymous callers are rejected by the canister, so neither the server nor a signed-out browser can write under any user's principal. This is a real property, not application-level trust, and it is verifiable by reading the Motoko source on-chain.
 
 **Anonymous reads are limited to public records.** The LLM, the server adapter, and the MCP server all call the canister anonymously. The canister's `get_memories` returns private and sensitive records only to an authenticated caller whose principal matches the owner. The LLM cannot recall private or sensitive memories because the canister will not return them to an anonymous caller, not because of application logic.
 
-**Memory outlives the application session.** The browser key survives chat resets. A user who clears their chat history still has the same principal and the same canister records. The memory is not session-scoped.
+**Memory outlives the application session.** The Internet Identity principal survives chat resets and browser restarts. A user who clears their chat history still has the same principal and the same canister records, and signing in from a different device returns the same principal so the records remain reachable. The memory is not session-scoped or device-scoped.
 
 **Memory lives outside the app's database.** Records are stored in the canister, not in PostgreSQL. The HTTP endpoint works independently of the Laravel server. A user can read their public memories from any context using only their principal: another application, a terminal, or a different AI assistant.
 
@@ -108,11 +108,11 @@ The chat interface, LLM integration, session management, and transcript storage 
 
 **User-controlled memory content.** The server still decides what text gets extracted and stored. The browser signs the write, but the user sees only the finished summary, not the extraction logic or any alternative phrasings that were considered. Approving a memory is consent to store that specific string, not consent to the summarization decision.
 
-**Strong key custody.** `localStorage` is accessible to any same-origin JavaScript. An operator-controlled frontend could read the private key. A script injection attack could exfiltrate it. True user key custody requires a hardware key, WebAuthn, or Internet Identity. The server never holds the key, which prevents server-side forgery. However, localStorage remains vulnerable to script injection where a hardware key or WebAuthn would not be.
+**Strong key custody.** Internet Identity holds the user's master key inside its own canister and issues a short-lived delegation that the browser uses to sign canister calls. The server never holds the delegation. This is a real upgrade over the original Ed25519-in-localStorage model, but it is not absolute custody: the delegation still lives in browser storage between turns and is reachable by same-origin JavaScript, so a successful XSS against this page can still impersonate the user until the delegation expires. The hardware-backed WebAuthn flow used during II login keeps the master key off this origin entirely; what remains exposed is the delegation, not the key itself.
 
 **User-chosen classification.** The LLM classifies each memory. The user cannot say "mark this private." Classification accuracy depends on model quality and prompt design. There is no correction mechanism; a misclassified memory stays misclassified until it is deleted.
 
-**Multi-device portability.** The Ed25519 key lives in one browser's `localStorage`. Clearing it generates a new identity. Cross-device access requires manual key export and import. Internet Identity would solve this, and it requires only swapping the identity source.
+**Multi-device portability for browser memories.** Internet Identity provides the same principal on any device the user authenticates from, so cross-device browser access works without manual key export. What remains is the legacy gap: memories written under the previous Ed25519-in-localStorage build are owned by that older principal and do not automatically migrate to the user's II principal. A one-time browser-side migration (read the old key, re-sign records under II, wipe localStorage) is described in DEVLOG Entry 028 as future work.
 
 **Decentralized application layer.** The application itself (Laravel, Vue) runs on conventional infrastructure. Only the memory storage layer is decentralized. "Decentralized AI memory" is accurate; "decentralized AI" is not.
 
@@ -142,7 +142,7 @@ The chat interface, LLM integration, session management, and transcript storage 
 
 - The user previously had no first-party path to read their own private or sensitive memories back within the app. This has been partially addressed with an authenticated owner-read panel in the chat UI, but the read flow deserves more attention.
 - Classification is still LLM-generated, non-deterministic, and uncorrectable by the user. Redaction narrows the blast radius for known high-risk values, but it does not make the classification step deterministic.
-- localStorage key custody is weaker than hardware-backed identity
+- Internet Identity holds the master key off this origin, but the delegation it returns is held in browser storage between turns and is still reachable by same-origin script. A WebAuthn-per-write flow would be the stricter custody story.
 - Mock mode is not a security simulation; it is a functional approximation for development
 
 ### The trust boundary
@@ -241,13 +241,13 @@ This project is one concrete implementation. The questions it surfaces are more 
 
 > "We're working on two connected problems: what AI memory looks like when the storage layer belongs to the user, and what it looks like when you can actually observe what the memory system is doing across multiple agents running for days.
 >
-> On the ownership side: in live ICP mode, the canister verifies the caller's cryptographic identity before returning private records. Writes are signed by the browser key, not the server. The memory lives on open infrastructure and is readable by any tool that knows the user's principal.
+> On the ownership side: in live ICP mode, the canister verifies the caller's cryptographic identity before returning private records. Writes are signed in the browser by the Internet Identity delegation, not by the server, and the canister rejects anonymous callers so no one can forge writes under a user's principal. The memory lives on open infrastructure and is readable by any tool that knows the user's principal.
 >
 > On the observability side: each conversation turn identifies exactly which memory nodes entered the context window. Those nodes and the edges between them evolve according to a Physarum conductance model. Frequently co-accessed paths grow stronger and unused paths decay. A Three.js mission control surface renders this at the cluster level across multiple agent partitions simultaneously, showing which knowledge regions are hot, where agents are converging, and where cross-agent shared edges have formed.
 >
 > What we have not proven: whether the LLM actually attends to the injected memory, whether the weight distribution reflects causal influence rather than access frequency, and whether the collective graph topology differs meaningfully from independent individual graphs. Those are the open questions this implementation is positioned to investigate.
 >
-> This is an experiment, not a product. The key is in localStorage. The classification is LLM-generated. The server still writes the summary. The observation surface shows what entered context, not what influenced the response. We know exactly where the trust boundary and the visibility boundary are. What exists is a working system where AI memory lives on open infrastructure, browser-signed writes prevent server-side forgery, and aggregate agent behavior is observable from a mission control surface across multiple partitions simultaneously."
+> This is an experiment, not a product. The browser principal comes from Internet Identity and the delegation is held in browser storage between turns; an XSS that reaches this origin can still impersonate the user until the delegation expires. The classification is LLM-generated. The server still writes the summary. The observation surface shows what entered context, not what influenced the response. We know exactly where the trust boundary and the visibility boundary are. What exists is a working system where AI memory lives on open infrastructure, browser-signed writes prevent server-side forgery, and aggregate agent behavior is observable from a mission control surface across multiple partitions simultaneously."
 
 ---
 
@@ -321,7 +321,7 @@ The infrastructure is not the bottleneck. The Three.js surface renders the colle
 
 These are not near-term goals; they are the research trajectory the design points toward.
 
-- Internet Identity or WebAuthn for key custody: Kinic has already demonstrated WebAuthn as the signing device on ICP, meaning the user's biometric or hardware token replaces Ed25519 KeyIdentity in localStorage. Swapping the identity source requires no other architectural change.
+- WebAuthn-per-write for stricter key custody: Internet Identity is now the browser principal source (DEVLOG Entry 028), but the delegation it returns is held in browser storage between turns. Kinic has demonstrated WebAuthn as the per-call signing device on ICP, meaning the user's biometric or hardware token would gate each individual write rather than just the once-per-session login. Adopting that flow would close the script-injection window the current delegation model leaves open.
 - Graph ownership registry on ICP: a lightweight canister that maps each principal to a signed fingerprint of their acknowledged graph state, so the graph layer gains the same tamper-proof ownership property that the record layer already has.
 - User-correctable classification: let users re-classify or delete memories they disagree with, and propagate the correction through the graph (update node sensitivity, remove or reclassify edges).
 - Opt-in private recall: a user-gated path for the LLM to access private memories for a session, with the canister returning private records only after the user's signed approval for that session.
@@ -497,11 +497,11 @@ The following are not future work items. They are properties of the current impl
 
 **Physarum weights track access frequency, not causal influence.** When the LLM generates a response with memory records in context, those records' edges receive reinforcement regardless of whether the model attended to them. A record present at token position 40,000 in a long context receives the same weight increment as one the model demonstrably used. The attention distribution over the context window is not observable through any current LLM provider API. The edge weights are therefore a signal of retrieval co-occurrence, not a signal of reasoning relevance. The distinction matters for anyone interpreting high-weight edges as evidence of conceptual importance.
 
-**The graph layer carries no cryptographic ownership.** Memory records in the ICP canister are owned by the user's Ed25519 principal. The graph nodes and edge weights derived from those records live in PostgreSQL on a server the user does not control. The relationship structure could be altered without the user's knowledge. The ICP ownership guarantee covers the source records; it does not extend to the derived topology. A graph ownership registry on ICP (signed fingerprints per graph state) is the correct fix, described under the ICP-PostgreSQL division of labour section.
+**The graph layer carries no cryptographic ownership.** Memory records in the ICP canister are owned by the user's Internet Identity principal. The graph nodes and edge weights derived from those records live in PostgreSQL on a server the user does not control. The relationship structure could be altered without the user's knowledge. The ICP ownership guarantee covers the source records; it does not extend to the derived topology. A graph ownership registry on ICP (signed fingerprints per graph state) is the correct fix, described under the ICP-PostgreSQL division of labour section.
 
 **Document ingest is only partially portable today.** Public document ingests mirror a short anchor record into the mock ICP store, which keeps the mock-mode MCP path aware that a document exists. In live ICP mode, uploaded documents still enter only the PostgreSQL graph because the browser-signed canister write path is not wired for file uploads yet. The result is that document ingestion currently improves in-app graph retrieval before it fully improves cross-tool portability.
 
-**localStorage key custody is vulnerable to script injection.** The Ed25519 private key is generated in the browser and persisted to localStorage. Any same-origin JavaScript can read localStorage. A script injection attack could exfiltrate the key. The server never holds the key, which prevents server-side forgery. Replacing localStorage with WebAuthn or a hardware key would close the client-side vulnerability. Internet Identity on ICP provides a ready implementation of this upgrade.
+**Browser-side delegation is vulnerable to script injection.** The Internet Identity master key is held in II's own canister and never reaches this origin. What this origin does hold is the short-lived delegation that AuthClient stores in IndexedDB so the user does not have to re-authenticate every turn. Same-origin JavaScript can reach that delegation, so a successful XSS can impersonate the user until the delegation expires. The server still never holds the delegation, so server-side forgery remains impossible. Hardening this further means a stricter Content-Security-Policy, shorter delegation `maxTimeToLive`, or a WebAuthn-per-write flow that requires a fresh user gesture for each canister call.
 
 **Redaction is pattern-based and incomplete.** The redaction floor catches common structured financial, credential, government-ID, and key formats. It is not a general privacy classifier and it will not catch every way a person can disclose sensitive information in natural language. The user-configurable policy layer narrows expected categories, but it does not replace human review for regulated deployments.
 

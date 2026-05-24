@@ -11,12 +11,12 @@
         <div>
           <h1 class="text-lg font-semibold text-gray-100">Chat</h1>
           <p class="text-xs text-gray-500 mt-0.5 flex items-center gap-1.5 flex-wrap">
-            <!-- Identity badge — shows source of the principal -->
+            <!-- Identity badge — shows the current Internet Identity state -->
             <span
               :title="identityTooltip"
               :class="[
                 'inline-flex items-center gap-1 px-1.5 py-0.5 rounded border font-mono text-[11px]',
-                identityReady
+                isAuthenticated
                   ? 'bg-emerald-950/40 border-emerald-800/40 text-emerald-400/80'
                   : 'bg-gray-800/60 border-gray-700/60 text-gray-500'
               ]"
@@ -25,7 +25,7 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                   d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
               </svg>
-              {{ identityReady ? 'Browser key' : 'Generating…' }}
+              {{ identityBadgeLabel }}
             </span>
             <code class="text-sky-400/70 font-mono truncate max-w-[200px]" :title="displayUserId">{{ displayUserId }}</code>
             <span class="text-gray-700">·</span>
@@ -44,6 +44,26 @@
           >
             {{ props.icp_mode === 'mock' ? 'Memory: Mock' : 'Memory: ICP Live' }}
           </span>
+          <!-- Sign in / Sign out — Internet Identity login.
+               Disabled if AuthClient itself failed to initialize, since the
+               login flow would fail the same way. -->
+          <button
+            v-if="isReady && !isAuthenticated && iiConfigured"
+            @click="handleLogin"
+            :disabled="loggingIn || !!initError"
+            :title="initError ? 'Internet Identity is currently unavailable.' : ''"
+            class="text-xs text-emerald-400 hover:text-emerald-300 transition-colors px-2 py-1 rounded border border-emerald-900 hover:border-emerald-700 disabled:opacity-60"
+          >
+            {{ loggingIn ? 'Opening II…' : 'Sign in' }}
+          </button>
+          <button
+            v-if="isReady && isAuthenticated"
+            @click="handleLogout"
+            :disabled="loggingOut"
+            class="text-xs text-gray-500 hover:text-gray-300 transition-colors px-2 py-1 rounded border border-gray-800 hover:border-gray-600 disabled:opacity-60"
+          >
+            {{ loggingOut ? 'Signing out…' : 'Sign out' }}
+          </button>
           <button
             @click="resetSession"
             class="text-xs text-gray-500 hover:text-red-400 transition-colors px-2 py-1 rounded border border-gray-800 hover:border-red-900"
@@ -53,9 +73,33 @@
         </div>
       </div>
 
+      <!-- Logout failure surface — backend session-forget POST failed and
+           the user is still signed in. They can retry from the Sign out
+           button above. We do not clear II until this clears. -->
+      <div
+        v-if="logoutError"
+        class="flex items-start gap-3 bg-red-950/50 border border-red-700/50 rounded-xl px-4 py-3 text-sm"
+        role="alert"
+      >
+        <svg class="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+        </svg>
+        <div class="flex-1">
+          <p class="text-red-300 font-medium">Sign out failed</p>
+          <p class="text-red-400/80 text-xs mt-0.5">{{ logoutError }}</p>
+        </div>
+        <button
+          @click="logoutError = null"
+          class="text-xs text-red-400 hover:text-red-200 px-2 py-1 rounded transition-colors flex-shrink-0"
+        >
+          Dismiss
+        </button>
+      </div>
+
       <!-- Identity divergence warning -->
-      <!-- This appears when localStorage was cleared but the session still holds the old principal.
-           Reads and writes will go to different identities until the session is reset. -->
+      <!-- The session locked in a principal from an earlier sign-in, but the user is
+           now authenticated as someone else. Reads continue using the session principal
+           and new writes use the current one until the session is reset. -->
       <div
         v-if="identityDiverged"
         class="flex items-start gap-3 bg-yellow-950/50 border border-yellow-700/40 rounded-xl px-4 py-3 text-sm"
@@ -65,10 +109,11 @@
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
         </svg>
         <div class="flex-1">
-          <p class="text-yellow-300 font-medium">Browser key has changed</p>
+          <p class="text-yellow-300 font-medium">Signed in as a different principal</p>
           <p class="text-yellow-500/80 text-xs mt-0.5">
-            Your localStorage key no longer matches the session identity. Reads will use the old principal;
-            new writes will use the current browser key. Start a new session to realign them.
+            This session is bound to a previous principal. Reads will use the old one;
+            new writes will use your current Internet Identity principal. Start a new
+            session to realign them.
           </p>
         </div>
         <button
@@ -77,6 +122,49 @@
         >
           Reset session
         </button>
+      </div>
+
+      <!-- Live ICP mode without a signed-in principal: live writes will be rejected
+           by the canister. Surface it instead of silently letting writes fail.
+           If AuthClient itself failed to initialize, the wording reflects that
+           the user cannot sign in even if they wanted to. -->
+      <div
+        v-if="icpMode === 'icp' && isReady && !isAuthenticated"
+        :class="[
+          'flex items-start gap-3 rounded-xl px-4 py-3 text-sm',
+          initError
+            ? 'bg-red-950/50 border border-red-700/50'
+            : 'bg-sky-950/40 border border-sky-800/40',
+        ]"
+        role="status"
+      >
+        <svg
+          :class="['w-4 h-4 flex-shrink-0 mt-0.5', initError ? 'text-red-400' : 'text-sky-400']"
+          fill="none" viewBox="0 0 24 24" stroke="currentColor"
+        >
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <div class="flex-1">
+          <p :class="['font-medium', initError ? 'text-red-300' : 'text-sky-300']">
+            <template v-if="initError">Internet Identity is currently unavailable</template>
+            <template v-else-if="iiConfigured">Sign in to write memories to ICP</template>
+            <template v-else>Internet Identity is not configured</template>
+          </p>
+          <p :class="['text-xs mt-0.5', initError ? 'text-red-400/80' : 'text-sky-500/80']">
+            <template v-if="initError">
+              The AuthClient could not be initialized in this browser ({{ initError }}). Chat still works,
+              but live memories cannot be stored until II is reachable again.
+            </template>
+            <template v-else-if="iiConfigured">
+              The canister rejects writes from anonymous principals. Chat still works,
+              but no memories will be stored until you sign in.
+            </template>
+            <template v-else>
+              Set <code class="font-mono">ICP_II_PROVIDER_URL</code> on the server to enable browser-signed writes.
+              Mock mode is unaffected.
+            </template>
+          </p>
+        </div>
       </div>
 
       <!-- Messages -->
@@ -153,7 +241,7 @@
         </template>
       </div>
 
-      <!-- Memory write notification — three states: pending / success / failed -->
+      <!-- Memory write notification — four states: pending / success / failed / blocked -->
       <transition name="fade">
         <!-- Pending: browser write in flight -->
         <div
@@ -191,8 +279,24 @@
             >{{ memoryState.type }}</span>
             <span class="text-emerald-300/80 ml-1">{{ memoryState.content }}</span>
             <p v-if="memoryState.source === 'browser'" class="text-emerald-600/60 text-xs mt-0.5 font-mono">
-              msg.caller = your browser principal · server did not write this
+              msg.caller = your Internet Identity principal · server did not write this
             </p>
+          </div>
+        </div>
+      </transition>
+      <transition name="fade">
+        <!-- Blocked — precondition not met (e.g. signed out in live mode) -->
+        <div
+          v-if="memoryState?.status === 'blocked'"
+          class="flex items-start gap-2.5 bg-yellow-950/50 border border-yellow-700/40 rounded-xl px-4 py-3 text-sm"
+        >
+          <svg class="w-4 h-4 text-yellow-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          <div class="flex-1">
+            <span class="text-yellow-300 font-medium">Memory not stored:</span>
+            <span class="text-yellow-200/80 ml-1">{{ memoryState.content }}</span>
+            <p class="text-yellow-500/80 text-xs mt-0.5">{{ memoryState.reason }}</p>
           </div>
         </div>
       </transition>
@@ -255,10 +359,10 @@
       </transition>
 
       <!-- My Memories — owner-authenticated read (live ICP mode only) -->
-      <!-- This call is signed by the browser's Ed25519 identity. The canister returns   -->
-      <!-- public + private + sensitive records because msg.caller == user_id.            -->
+      <!-- This call is signed by the user's Internet Identity delegation. The canister  -->
+      <!-- returns public + private + sensitive records because msg.caller == user_id.    -->
       <!-- The LLM only ever sees public records. This panel shows the owner everything.  -->
-      <div v-if="icpMode === 'icp' && canisterId" class="border border-gray-800 rounded-xl overflow-hidden">
+      <div v-if="icpMode === 'icp' && canisterId && isAuthenticated" class="border border-gray-800 rounded-xl overflow-hidden">
         <button
           @click="toggleMyMemories"
           class="w-full px-4 py-2.5 flex items-center justify-between text-left hover:bg-gray-800/30 transition-colors"
@@ -321,18 +425,21 @@
       </div>
 
       <!-- Input -->
+      <!-- Send is gated on II readiness when ICP is live: a fast send before
+           initIdentity() resolves would post principal: null and lock the chat
+           into the anonymous fallback identity for the rest of the session. -->
       <div class="flex gap-3">
         <input
           v-model="input"
           @keydown.enter.exact.prevent="send"
-          :disabled="loading"
+          :disabled="loading || sendBlocked"
           type="text"
-          placeholder="Type a message..."
+          :placeholder="sendBlocked ? 'Waiting for Internet Identity…' : 'Type a message...'"
           class="flex-1 bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-sky-600 focus:ring-1 focus:ring-sky-600/30 disabled:opacity-50 transition-colors"
         />
         <button
           @click="send"
-          :disabled="loading || !input.trim()"
+          :disabled="loading || sendBlocked || !input.trim()"
           class="bg-sky-600 hover:bg-sky-500 disabled:bg-gray-800 disabled:text-gray-600 text-white px-5 py-3 rounded-xl text-sm font-medium transition-colors flex items-center gap-2"
         >
           <svg v-if="!loading" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -350,7 +457,7 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick, onMounted } from 'vue';
+import { ref, computed, nextTick, onMounted, watch } from 'vue';
 import { usePage, router } from '@inertiajs/vue3';
 import axios from 'axios';
 import AppLayout from '@/Components/AppLayout.vue';
@@ -367,29 +474,71 @@ const props = defineProps({
   icp_mode:        String,
   canister_id:     String,
   browser_host:    String,
+  ii_provider_url: String,
 });
 
 const page = usePage();
 
 // ─── Identity ──────────────────────────────────────────────────────
-// Generate (or load) the Ed25519 key pair from localStorage.
-// This runs synchronously — the principal is available immediately.
-const { identity, principal } = useIcpIdentity();
-const identityReady = ref(true);
+// The browser principal is held by Internet Identity. Until the user has
+// signed in, identity is anonymous and live canister writes will be
+// rejected by msg.caller checks. Mock mode is unaffected by sign-in state.
+const {
+  identity,
+  principal,
+  isAuthenticated,
+  isReady,
+  initError,
+  init:   initIdentity,
+  login:  loginIdentity,
+  logout: logoutIdentity,
+} = useIcpIdentity();
+const loggingIn = ref(false);
+const loggingOut = ref(false);
+const logoutError = ref(null);
 
-const displayUserId = computed(() => principal);
+const iiConfigured = computed(() => !!props.ii_provider_url);
 
-const identityTooltip = computed(() =>
-  `Ed25519 principal generated in your browser.\nStored in localStorage — the server never has your private key.\nThis is your memory identity in ICP live mode.`
-);
+// In ICP live mode we must wait for AuthClient to finish restoring any prior
+// delegation before accepting input — otherwise a fast first turn posts
+// principal: null and the backend locks the session to the anonymous fallback
+// even though the user already had a valid II session in browser storage.
+const sendBlocked = computed(() => props.icp_mode === 'icp' && !isReady.value);
 
-// Detect identity divergence: localStorage was cleared but the session still holds
-// the old principal. Reads and writes will target different identities until reset.
-// Only meaningful when the session has already adopted a browser principal.
+// Three-state badge:
+//   - not yet ready  → "Initializing"
+//   - ready, signed-in → "Internet Identity"
+//   - ready, signed-out → "Signed out"
+const identityBadgeLabel = computed(() => {
+  if (!isReady.value) return 'Initializing';
+  return isAuthenticated.value ? 'Internet Identity' : 'Signed out';
+});
+
+const identityTooltip = computed(() => {
+  if (!isReady.value) return 'Restoring Internet Identity session…';
+  if (isAuthenticated.value) {
+    return 'Internet Identity principal.\nDelegation lives in this browser; the server never sees your private key.\nLog out from the header to clear it.';
+  }
+  if (!iiConfigured.value) {
+    return 'Internet Identity is not configured for this deployment.\nLive ICP writes require ICP_II_PROVIDER_URL to be set on the server.';
+  }
+  return 'You are not signed in. Click "Sign in" to authenticate with Internet Identity.';
+});
+
+const displayUserId = computed(() => {
+  if (!isReady.value) return '…';
+  return isAuthenticated.value ? principal.value : 'anonymous';
+});
+
+// Detect identity divergence: the session locked in a principal from an earlier
+// sign-in, but the currently authenticated principal is different. Reads still
+// use the session principal; new writes use the current one until the session
+// resets. Only meaningful when the session has already adopted a browser principal.
 const identityDiverged = computed(() =>
   props.identity_source === 'browser' &&
   !!props.user_id &&
-  props.user_id !== principal
+  isAuthenticated.value &&
+  props.user_id !== principal.value
 );
 
 // ─── ICP memory writer (live mode only) ───────────────────────────
@@ -397,13 +546,63 @@ const icpMode     = computed(() => props.icp_mode);
 const canisterId  = computed(() => props.canister_id || '');
 const browserHost = computed(() => props.browser_host || 'http://localhost:4943');
 
+// Re-create the actor when identity changes (login/logout) so msg.caller
+// reflects the current principal. Cheap: actor creation is lazy inside the
+// composable; this just rebinds the identity reference.
 const icpMemory = computed(() =>
   useIcpMemory({
-    identity,
+    identity:   identity.value,
     canisterId: canisterId.value,
-    host: browserHost.value,
+    host:       browserHost.value,
   })
 );
+
+async function handleLogin() {
+  if (loggingIn.value || !iiConfigured.value) return;
+  loggingIn.value = true;
+  try {
+    await loginIdentity({ providerUrl: props.ii_provider_url });
+  } finally {
+    loggingIn.value = false;
+  }
+}
+
+async function handleLogout() {
+  if (loggingOut.value) return;
+  loggingOut.value = true;
+  logoutError.value = null;
+
+  // Logout must be atomic: the backend session forget happens FIRST. If that
+  // POST fails, we do not clear the II delegation and we do not navigate —
+  // otherwise the UI would say "signed out" while the Laravel session still
+  // held the old chat_user_id and the next /chat/send would retrieve under
+  // the stale principal. The user can retry from the same Sign out button.
+  try {
+    await axios.post('/chat/identity-logout');
+  } catch (err) {
+    console.warn('[chat] identity-logout backend call failed', err);
+    logoutError.value = 'Could not sign out of the chat session. You are still signed in. Please try again.';
+    loggingOut.value = false;
+    return;
+  }
+
+  // Backend session is cleared. Now safe to drop the local panel state, the
+  // II delegation, and navigate. The reload also clears any in-memory chat
+  // history bound to the previous principal.
+  showMyMemories.value    = false;
+  myMemories.value        = [];
+  myMemoriesError.value   = null;
+  myMemoriesLoading.value = false;
+  pendingApproval.value   = null;
+  memoryState.value       = null;
+
+  try {
+    await logoutIdentity();
+  } finally {
+    loggingOut.value = false;
+  }
+  router.visit('/chat', { preserveScroll: false, replace: true });
+}
 
 // ─── My Memories (owner-authenticated read, live mode only) ────────
 const showMyMemories     = ref(false);
@@ -411,13 +610,25 @@ const myMemories         = ref([]);
 const myMemoriesLoading  = ref(false);
 const myMemoriesError    = ref(null);  // string | null — distinct from "no records"
 
+// If the signed-in principal changes mid-session (delegation expiry, switch
+// between II accounts in the same tab), the panel's cached records belong to
+// the previous principal and must be discarded. The reload triggered by
+// handleLogout handles the explicit sign-out case; this watch covers the rest.
+watch(principal, (newPrincipal, oldPrincipal) => {
+  if (newPrincipal === oldPrincipal) return;
+  showMyMemories.value    = false;
+  myMemories.value        = [];
+  myMemoriesError.value   = null;
+  myMemoriesLoading.value = false;
+});
+
 async function toggleMyMemories() {
   showMyMemories.value = !showMyMemories.value;
   // Lazy-load on first open; refresh on subsequent opens to pick up new writes.
   if (showMyMemories.value) {
     myMemoriesLoading.value = true;
     myMemoriesError.value   = null;
-    const result = await icpMemory.value.getMyMemories(principal);
+    const result = await icpMemory.value.getMyMemories(principal.value);
     if (result.ok) {
       myMemories.value = result.records;
     } else {
@@ -475,7 +686,21 @@ function clearMemoryState(delay = 7000) {
 
 // Sign and write a memory to the canister from the browser.
 // Called for auto-signed public memories (live mode) and after manual approval (private/sensitive).
+// Refuses to call the canister when the user is signed out — the canister itself
+// also rejects anonymous writes (see icp/src/memory/main.mo), but stopping here
+// keeps the failure visible and the principal off the wire.
 async function writeMemoryToBrowser(content, type, metadata) {
+  if (!isAuthenticated.value) {
+    memoryState.value = {
+      status:  'blocked',
+      content,
+      reason:  iiConfigured.value
+        ? 'Sign in with Internet Identity to write memories to ICP.'
+        : 'Internet Identity is not configured for this deployment.',
+    };
+    clearMemoryState();
+    return;
+  }
   memoryState.value = { status: 'pending' };
   let effectiveType = type ?? 'public';
   const id = await icpMemory.value.storeMemory({
@@ -498,7 +723,7 @@ async function writeMemoryToBrowser(content, type, metadata) {
     memoryState.value = { status: 'success', content, source: 'browser', type: effectiveType };
     // Refresh the owner panel so the new record appears immediately.
     if (showMyMemories.value) {
-      const result = await icpMemory.value.getMyMemories(principal);
+      const result = await icpMemory.value.getMyMemories(principal.value);
       if (result.ok) {
         myMemories.value      = result.records;
         myMemoriesError.value = null;
@@ -548,6 +773,18 @@ async function send() {
   const text = input.value.trim();
   if (!text || loading.value) return;
 
+  // Defense in depth alongside the input-level `sendBlocked` gate: if the user
+  // somehow triggers send before II restoration finishes (programmatic call,
+  // race with template enabling), wait for it here so principal reflects the
+  // restored delegation rather than the anonymous fallback.
+  if (props.icp_mode === 'icp' && !isReady.value) {
+    try {
+      await initIdentity();
+    } catch (err) {
+      console.warn('[chat] II init failed in send guard', err);
+    }
+  }
+
   messages.value.push({ role: 'user', content: text });
   const userMessageIndex = messages.value.length - 1;
   input.value = '';
@@ -559,7 +796,7 @@ async function send() {
   try {
     const { data } = await axios.post('/chat/send', {
       message:   text,
-      principal: principal,
+      principal: isAuthenticated.value ? principal.value : null,
     });
 
     messages.value.push({ role: 'assistant', content: data.message });
@@ -616,7 +853,16 @@ function resetSession() {
   }
 }
 
-onMounted(() => scrollToBottom());
+onMounted(async () => {
+  // Restore any existing II session before we render writes. Failures are
+  // logged inside the composable — we still want the chat UI mounted either way.
+  try {
+    await initIdentity();
+  } catch (err) {
+    console.warn('[chat] II init failed:', err);
+  }
+  await scrollToBottom();
+});
 </script>
 
 <style scoped>

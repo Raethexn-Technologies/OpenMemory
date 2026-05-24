@@ -15,6 +15,9 @@ Route::get('/', fn () => redirect()->route('chat'));
 Route::get('/chat', [ChatController::class, 'index'])->name('chat');
 Route::post('/chat/send', [ChatController::class, 'send'])->name('chat.send');
 Route::post('/chat/reset', [ChatController::class, 'reset'])->name('chat.reset');
+// Browser calls this after Internet Identity sign-out so the Laravel session
+// stops binding /chat/send retrieval to the previous principal.
+Route::post('/chat/identity-logout', [ChatController::class, 'identityLogout'])->name('chat.identityLogout');
 // Browser calls this after user approves a Private/Sensitive memory in mock mode.
 // In live ICP mode the browser writes directly to the canister - this endpoint is not used.
 Route::post('/chat/store-memory', [ChatController::class, 'storeMemory'])->name('chat.storeMemory');
