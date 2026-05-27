@@ -57,7 +57,10 @@ PROMPT;
             ['role' => 'user', 'content' => "Memory fact: \"{$content}\""],
         ];
 
-        $raw = trim($this->llm->chat(self::EXTRACT_PROMPT, $messages));
+        // Graph extraction is the heaviest cognitive task in the ingest path —
+        // structured multi-field classification with downstream impact on every
+        // edge wired from this node. Route to the reason model.
+        $raw = trim($this->llm->chatFor(LlmService::TASK_REASON, self::EXTRACT_PROMPT, $messages));
 
         $result = [];
 

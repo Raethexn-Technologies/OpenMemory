@@ -17,4 +17,13 @@ interface LlmProviderInterface
      * Return a short identifier for this provider.
      */
     public function name(): string;
+
+    /**
+     * Return a clone of this provider configured to use a different model.
+     *
+     * Used by LlmService when routing a task (classify, summarize, reason)
+     * to a model other than the default. Passing null returns the provider
+     * unchanged so callers do not have to special-case "no override".
+     */
+    public function withModel(?string $model): self;
 }

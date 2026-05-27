@@ -62,7 +62,10 @@ PROMPT;
             ],
         ];
 
-        $result = trim($this->llm->chat(self::SUMMARIZE_PROMPT, $messages));
+        // This call is both a summarisation AND a classification, but the
+        // classification is what bounds cost — a single PUBLIC/PRIVATE/SENSITIVE
+        // label off a two-turn exchange. Route to the classify model.
+        $result = trim($this->llm->chatFor(LlmService::TASK_CLASSIFY, self::SUMMARIZE_PROMPT, $messages));
 
         if ($result === 'NO_MEMORY' || empty($result)) {
             return null;

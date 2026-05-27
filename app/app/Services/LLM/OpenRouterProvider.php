@@ -90,4 +90,19 @@ class OpenRouterProvider implements LlmProviderInterface
         // Include the model slug so the UI shows which model is active.
         return 'openrouter/' . $this->model;
     }
+
+    public function withModel(?string $model): self
+    {
+        if ($model === null || $model === $this->model) {
+            return $this;
+        }
+
+        return new self(
+            apiKey:    $this->apiKey,
+            model:     $model,
+            maxTokens: $this->maxTokens,
+            siteUrl:   $this->siteUrl,
+            siteName:  $this->siteName,
+        );
+    }
 }

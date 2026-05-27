@@ -36,11 +36,27 @@ return [
     ],
 
     // LLM — OpenRouter proxies 400+ models under one API key (openrouter.ai)
+    //
+    // task_models routes specific cognitive workloads to cheaper or stronger
+    // models than the default. Anything not listed here uses OPENROUTER_MODEL.
+    // Leaving an entry empty falls through to the default — no special-case
+    // logic needed on the caller side.
+    //
+    //   classify  — sensitivity tagging, short label decisions: cheap & fast.
+    //   summarize — single-item memory extraction: mid-tier is plenty.
+    //   reason    — graph extraction, consolidation: spend on the best model.
+    //   chat      — user-facing replies. Leave empty to use the default.
     'llm' => [
         'openrouter_api_key'  => env('OPENROUTER_API_KEY'),
         'openrouter_model'    => env('OPENROUTER_MODEL', 'anthropic/claude-sonnet-4.5'),
         'openrouter_site_url' => env('OPENROUTER_SITE_URL', ''),
         'openrouter_site_name'=> env('OPENROUTER_SITE_NAME', 'OpenMemory'),
+        'task_models' => [
+            'classify'  => env('LLM_MODEL_CLASSIFY',  'google/gemini-2.5-flash'),
+            'summarize' => env('LLM_MODEL_SUMMARIZE', 'google/gemini-2.5-flash'),
+            'reason'    => env('LLM_MODEL_REASON',    ''),
+            'chat'      => env('LLM_MODEL_CHAT',      ''),
+        ],
     ],
 
     // MCP server write endpoint — shared secret for X-OMA-API-Key auth

@@ -15,7 +15,7 @@ class GraphExtractionServiceTest extends TestCase
     public function test_extract_parses_and_normalizes_graph_fields(): void
     {
         $llm = Mockery::mock(LlmService::class);
-        $llm->shouldReceive('chat')->once()->andReturn(implode("\n", [
+        $llm->shouldReceive('chatFor')->once()->with(LlmService::TASK_REASON, Mockery::any(), Mockery::any())->andReturn(implode("\n", [
             'NODE_TYPE: project',
             'LABEL: Open Memory Agent',
             'TAGS: Memory, Graph, graph',
@@ -40,7 +40,7 @@ class GraphExtractionServiceTest extends TestCase
     public function test_extract_treats_none_lists_as_empty(): void
     {
         $llm = Mockery::mock(LlmService::class);
-        $llm->shouldReceive('chat')->once()->andReturn(implode("\n", [
+        $llm->shouldReceive('chatFor')->once()->with(LlmService::TASK_REASON, Mockery::any(), Mockery::any())->andReturn(implode("\n", [
             'NODE_TYPE: memory',
             'LABEL: General preference',
             'TAGS: NONE',
@@ -60,7 +60,7 @@ class GraphExtractionServiceTest extends TestCase
     public function test_extract_returns_null_when_node_type_is_missing(): void
     {
         $llm = Mockery::mock(LlmService::class);
-        $llm->shouldReceive('chat')->once()->andReturn(implode("\n", [
+        $llm->shouldReceive('chatFor')->once()->with(LlmService::TASK_REASON, Mockery::any(), Mockery::any())->andReturn(implode("\n", [
             'LABEL: Missing node type',
             'TAGS: graph',
             'PEOPLE: NONE',
