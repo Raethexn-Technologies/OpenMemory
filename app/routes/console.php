@@ -29,3 +29,21 @@ Schedule::command('memory:consolidate')->weekly();
 // Run monthly so the daily decay pass has time to identify truly dormant nodes.
 // See PruneMemoryNodes and DEVLOG Entry 019 for the design rationale.
 Schedule::command('memory:prune')->monthly();
+
+// Auto-ingest sweep: pull new commits from configured GitHub repos every 20
+// minutes, distil them into durable memories, write to ICP. Disabled by
+// default because it needs a user_id to attribute memories to and a repo
+// list to sweep — flip INGEST_SCHEDULE_ENABLED=true once both are configured.
+//
+// The 20-minute cadence mirrors the "continuous accumulation" pattern from
+// OpenHuman: the agent grows alongside the user's workflow rather than only
+// remembering what gets typed into chat. Adjust via the schedule frequency
+// helpers if a different cadence fits the deployment.
+if (config('services.ingest.schedule_enabled')) {
+    $userId = env('INGEST_USER_ID');
+    if (is_string($userId) && $userId !== '') {
+        Schedule::command("ingest:github --user={$userId}")
+            ->cron('*/20 * * * *')
+            ->withoutOverlapping(30);
+    }
+}

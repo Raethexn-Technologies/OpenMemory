@@ -4,6 +4,7 @@ use App\Http\Controllers\AgentController;
 use App\Http\Controllers\ChatController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\GraphController;
+use App\Http\Controllers\IngestController;
 use App\Http\Controllers\McpController;
 use App\Http\Controllers\MemoryController;
 use Illuminate\Support\Facades\Route;
@@ -49,6 +50,14 @@ Route::get('/api/graph/snapshots', [GraphController::class, 'snapshotIndex'])->n
 Route::get('/api/graph/snapshots/{snapshotId}', [GraphController::class, 'snapshotShow'])->name('api.graph.snapshots.show');
 Route::post('/api/graph/consolidate', [GraphController::class, 'consolidate'])->name('api.graph.consolidate');
 Route::post('/api/graph/prune', [GraphController::class, 'prune'])->name('api.graph.prune');
+
+// Auto-ingest from connected sources. POST triggers a manual sweep of the
+// configured (or passed-in) repos and writes new public memories straight to
+// ICP; private/sensitive items come back as pending_approval for the UI to
+// route through the same approval flow used by chat-derived memories.
+Route::post('/api/ingest/github', [IngestController::class, 'github'])
+    ->middleware('throttle:6,1')
+    ->name('ingest.github');
 
 // Document ingestion - second brain feature.
 // POST accepts a file upload (txt, md) or a raw text paste plus a title and sensitivity level.

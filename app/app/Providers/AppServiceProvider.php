@@ -5,6 +5,10 @@ namespace App\Providers;
 use App\Services\ClusterDetectionService;
 use App\Services\GraphExtractionService;
 use App\Services\IcpMemoryService;
+use App\Services\Ingest\ContentPreprocessor;
+use App\Services\Ingest\GitHubIngestService;
+use App\Services\Ingest\IngestPipeline;
+use App\Services\Ingest\IngestSummarizer;
 use App\Services\LLM\LlmProviderInterface;
 use App\Services\LLM\LlmService;
 use App\Services\LLM\OpenRouterProvider;
@@ -49,6 +53,23 @@ class AppServiceProvider extends ServiceProvider
 
         $this->app->singleton(MultiAgentGraphService::class, function ($app) {
             return new MultiAgentGraphService($app->make(MemoryGraphService::class));
+        });
+
+        $this->app->singleton(ContentPreprocessor::class);
+        $this->app->singleton(GitHubIngestService::class);
+
+        $this->app->singleton(IngestSummarizer::class, function ($app) {
+            return new IngestSummarizer($app->make(LlmService::class));
+        });
+
+        $this->app->singleton(IngestPipeline::class, function ($app) {
+            return new IngestPipeline(
+                $app->make(IngestSummarizer::class),
+                $app->make(IcpMemoryService::class),
+                $app->make(RedactionService::class),
+                $app->make(GraphExtractionService::class),
+                $app->make(MemoryGraphService::class),
+            );
         });
     }
 

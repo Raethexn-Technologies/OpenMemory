@@ -64,6 +64,27 @@ return [
         'api_key' => env('MCP_API_KEY', ''),
     ],
 
+    // GitHub ingest. A token is optional for public repos but raises the
+    // rate limit from 60 to 5000 requests/hour and is required for private
+    // repos. Create one at https://github.com/settings/tokens (read:repo scope).
+    'github' => [
+        'token' => env('GITHUB_INGEST_TOKEN', ''),
+    ],
+
+    // Auto-ingest: continuous accumulation from connected sources.
+    //
+    // schedule_enabled — when true, the Laravel scheduler runs ingest:github
+    //                    at the configured cadence. Off by default so the
+    //                    feature stays demo-able via the UI button alone;
+    //                    flip it on once a token + repo list are configured.
+    // repos            — comma-separated owner/repo slugs to sweep.
+    // per_repo_limit   — max commits to inspect per repo per run.
+    'ingest' => [
+        'schedule_enabled' => env('INGEST_SCHEDULE_ENABLED', false),
+        'repos'            => env('INGEST_GITHUB_REPOS', ''),
+        'per_repo_limit'   => (int) env('INGEST_PER_REPO_LIMIT', 20),
+    ],
+
     // ICP Memory Canister
     'icp' => [
         'endpoint'     => env('ICP_CANISTER_ENDPOINT', 'http://localhost:4943'),

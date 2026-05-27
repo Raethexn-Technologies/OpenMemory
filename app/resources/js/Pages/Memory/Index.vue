@@ -17,6 +17,17 @@
           </p>
         </div>
         <div class="flex items-center gap-2">
+          <!-- Auto-ingest trigger. Sweeps configured GitHub repos for new commits and
+               writes durable memories. Public items land in ICP immediately; private
+               and sensitive items show up under "Pending Approval" for user review. -->
+          <button
+            @click="ingestNow"
+            :disabled="ingesting"
+            class="text-xs px-3 py-1 rounded border border-violet-800/60 bg-violet-950/40 text-violet-300 hover:bg-violet-900/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Pull new commits from configured GitHub repos"
+          >
+            {{ ingesting ? 'Ingesting…' : 'Ingest Now' }}
+          </button>
           <!-- Graph explorer link -->
           <a
             href="/graph"
@@ -84,6 +95,36 @@
         >
           {{ statusLoading ? '…' : 'Check' }}
         </button>
+      </div>
+
+      <!-- Last ingest result. Only renders after the user triggers Ingest Now,
+           so the page is clean for first-time visitors. -->
+      <div
+        v-if="ingestResult"
+        class="rounded-xl p-4 border bg-violet-950/30 border-violet-800/30 text-sm space-y-1"
+      >
+        <p class="font-medium text-violet-300">
+          Ingest complete — {{ ingestResult.summary.stored }} stored, {{ ingestResult.summary.skipped }} skipped
+          <span v-if="ingestResult.summary.non_public_dropped > 0" class="text-amber-300">
+            · {{ ingestResult.summary.non_public_dropped }} non-public dropped
+          </span>
+          <span v-if="ingestResult.summary.errors > 0" class="text-red-400">· {{ ingestResult.summary.errors }} errors</span>
+        </p>
+        <p class="text-xs text-violet-500/80 font-mono">
+          Repos: {{ ingestResult.repos.join(', ') }} · Last run: {{ formatTime(ingestResult.last_run_at) }}
+        </p>
+        <p
+          v-if="ingestResult.summary.non_public_dropped > 0"
+          class="text-xs text-amber-400/80 pt-2 border-t border-violet-900/40 mt-2"
+        >
+          Items the LLM classified as private or sensitive were not stored — ingest does not yet have an approval flow, so they are discarded rather than published. Check the application log for diagnostics.
+        </p>
+      </div>
+      <div
+        v-if="ingestError"
+        class="rounded-xl p-4 border bg-red-950/30 border-red-800/30 text-sm text-red-300"
+      >
+        Ingest failed: {{ ingestError }}
       </div>
 
       <!-- Stats row -->
@@ -254,6 +295,9 @@ const refreshing = ref(false);
 const status = ref({ healthy: null, canister_id: '', count: null, error: null });
 const statusLoading = ref(false);
 const showMcpConfig = ref(false);
+const ingesting = ref(false);
+const ingestResult = ref(null);
+const ingestError = ref(null);
 
 const isMock = computed(() => props.icp_mode !== 'icp');
 const canisterId = computed(() => props.canister_id || '');
@@ -292,6 +336,23 @@ async function refresh() {
     if (data.memories) memories.value = data.memories;
   } finally {
     refreshing.value = false;
+  }
+}
+
+async function ingestNow() {
+  ingesting.value = true;
+  ingestError.value = null;
+  try {
+    const { data } = await axios.post('/api/ingest/github');
+    ingestResult.value = data;
+    // Surface freshly-stored items by refreshing the record list.
+    if (data.summary && data.summary.stored > 0) {
+      await refresh();
+    }
+  } catch (err) {
+    ingestError.value = err.response?.data?.error || err.message || 'Unknown error';
+  } finally {
+    ingesting.value = false;
   }
 }
 
