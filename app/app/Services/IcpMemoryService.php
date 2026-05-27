@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Services\Ingest\ContentPreprocessor;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
@@ -22,13 +23,19 @@ class IcpMemoryService
 {
     private string $baseUrl;
 
-    public function __construct()
-    {
+    public function __construct(
+        private readonly ContentPreprocessor $preprocessor = new ContentPreprocessor(),
+    ) {
         $this->baseUrl = rtrim(config('services.icp.endpoint', 'http://localhost:4943'), '/');
     }
 
     /**
      * Store a memory record in the ICP canister.
+     *
+     * Content is compressed by ContentPreprocessor before the write so that
+     * canister storage (metered in cycles) and adapter bandwidth both pay
+     * for semantic bytes only — HTML, padded whitespace, and tracking-laden
+     * URLs are stripped server-side.
      */
     public function storeMemory(
         string $userId,
@@ -37,6 +44,8 @@ class IcpMemoryService
         ?string $metadata = null,
         string $memoryType = 'public',
     ): string {
+        $content = $this->preprocessor->compressText($content);
+
         if ($this->isMockMode()) {
             return $this->mockStore($userId, $sessionId, $content, $metadata, $memoryType);
         }
