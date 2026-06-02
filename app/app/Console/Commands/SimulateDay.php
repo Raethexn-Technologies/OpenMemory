@@ -195,7 +195,7 @@ class SimulateDay extends Command
             $byTag('atlas'),                  // sprint planning session
             array_merge($byTag('database'), $byTag('performance')),  // performance investigation
             $byTag('research'),               // reading / concept exploration
-            array_merge($byType('person'), $byTag('atlas')),         // team meeting
+            array_merge($byType('person'), $byTag('atlas')),         // team sync
             array_merge($byTag('workflow'), $byType('task')),        // end-of-day review
         ];
 
@@ -517,7 +517,7 @@ class SimulateDay extends Command
             ],
             [
                 'type' => 'memory', 'sensitivity' => 'private',
-                'label' => 'Standup meetings should stay under 15 minutes',
+                'label' => 'Standups should stay under 15 minutes',
                 'content' => 'Standups that run over 15 minutes consistently lose the thread. The format that works: what did yesterday produce, what is today\'s one thing, and what is blocked. No design discussions in standup.',
                 'tags' => ['workflow', 'preference', 'team'],
                 'people' => [], 'projects' => [],
@@ -546,7 +546,7 @@ class SimulateDay extends Command
             [
                 'type' => 'person', 'sensitivity' => 'public',
                 'label' => 'Alice is the project lead for Atlas',
-                'content' => 'Alice owns the Atlas project roadmap and final call on architectural decisions. She prefers async communication over meetings when possible and wants all significant decisions recorded in DEVLOG before they are implemented.',
+                'content' => 'Alice owns the Atlas project roadmap and final call on architectural decisions. She prefers async communication over syncs when possible and wants all significant decisions recorded in DEVLOG before they are implemented.',
                 'tags' => ['team', 'atlas', 'workflow'],
                 'people' => ['Alice'], 'projects' => ['Atlas'],
             ],

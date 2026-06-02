@@ -53,16 +53,16 @@
       "created_days_ago": 30
     },
     {
-      "content": "Brightfield Co kickoff meeting went well. Project: rebuild their internal reporting dashboard. Timeline is 10 weeks. Team assigned: Maria as lead.",
+      "content": "Brightfield Co kickoff call went well. Project: rebuild their internal reporting dashboard. Timeline is 10 weeks. Team assigned: Maria as lead.",
       "type": "event",
       "label": "Brightfield kickoff complete",
       "tags": ["brightfield", "kickoff", "dashboard", "project", "maria", "timeline"],
       "created_days_ago": 28
     },
     {
-      "content": "Foxhaven Insurance first meeting scheduled. They are evaluating 3 vendors. Our key differentiator is compliance domain expertise from the Meridian engagement.",
+      "content": "Foxhaven Insurance first call scheduled. They are evaluating 3 vendors. Our key differentiator is compliance domain expertise from the Meridian engagement.",
       "type": "event",
-      "label": "Foxhaven vendor evaluation meeting",
+      "label": "Foxhaven vendor evaluation call",
       "tags": ["foxhaven", "sales", "evaluation", "compliance", "differentiator"],
       "created_days_ago": 25
     },
@@ -74,7 +74,7 @@
       "created_days_ago": 22
     },
     {
-      "content": "Foxhaven meeting outcome: went well. They want a detailed proposal covering regulatory change tracking, automated audit reports, and a compliance dashboard. Deadline: end of month.",
+      "content": "Foxhaven call outcome: went well. They want a detailed proposal covering regulatory change tracking, automated audit reports, and a compliance dashboard. Deadline: end of month.",
       "type": "event",
       "label": "Foxhaven proposal requested",
       "tags": ["foxhaven", "proposal", "sales", "deadline", "compliance"],

@@ -11,7 +11,7 @@
       "created_days_ago": 90
     },
     {
-      "content": "Advisor meeting: paper topic approved - Privacy Guarantees in Federated Learning Without Centralized Data. Scope confirmed.",
+      "content": "Advisor sync: paper topic approved - Privacy Guarantees in Federated Learning Without Centralized Data. Scope confirmed.",
       "type": "event",
       "label": "Paper topic approved by advisor",
       "tags": ["research", "advisor", "paper-topic", "federated-learning", "approval"],
@@ -39,10 +39,10 @@
       "created_days_ago": 70
     },
     {
-      "content": "Introduced to Dr. Reyes, a cryptographer who can review the secure aggregation proofs in the paper. Will meet bi-weekly.",
+      "content": "Introduced to Dr. Reyes, a cryptographer who can review the secure aggregation proofs in the paper. Will review bi-weekly.",
       "type": "person",
       "label": "Dr. Reyes - cryptography collaborator",
-      "tags": ["collaborator", "dr-reyes", "cryptography", "research", "meetings"],
+      "tags": ["collaborator", "dr-reyes", "cryptography", "research", "syncs"],
       "created_days_ago": 65
     },
     {

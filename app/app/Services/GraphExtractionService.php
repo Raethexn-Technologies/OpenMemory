@@ -29,7 +29,7 @@ Classification guide:
   project   — the fact is primarily about a named project or product
   document  — the fact refers to a specific file, document, or artifact
   task      — the fact is about something to do or in progress
-  event     — the fact is about a specific event, meeting, or occurrence
+  event     — the fact is about a specific event, milestone, or occurrence
   concept   — an abstract idea, preference, or belief
   goal      — a declared aspiration, outcome, or intention the user is working toward
 

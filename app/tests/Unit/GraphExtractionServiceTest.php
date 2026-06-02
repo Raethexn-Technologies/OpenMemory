@@ -50,7 +50,7 @@ class GraphExtractionServiceTest extends TestCase
 
         $service = new GraphExtractionService($llm);
 
-        $result = $service->extract('I prefer short meetings.', 'public');
+        $result = $service->extract('I prefer short syncs.', 'public');
 
         $this->assertSame([], $result['tags']);
         $this->assertSame([], $result['people']);
