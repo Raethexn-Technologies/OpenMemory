@@ -2,10 +2,10 @@
 
 namespace Tests\Feature;
 
-use App\Models\MemoryEdge;
 use App\Models\MemoryNode;
 use App\Services\DocumentChunkerService;
 use App\Services\DocumentIngestionService;
+use App\Services\EvidenceFactExtractionService;
 use App\Services\GraphExtractionService;
 use App\Services\MemoryGraphService;
 use App\Services\RedactionService;
@@ -28,9 +28,9 @@ class DocumentIngestionTest extends TestCase
 
         $this->assertArrayHasKey('document_node_id', $result);
         $this->assertDatabaseHas('memory_nodes', [
-            'id'     => $result['document_node_id'],
+            'id' => $result['document_node_id'],
             'source' => 'document_anchor',
-            'type'   => 'document',
+            'type' => 'document',
             'user_id' => 'user-1',
         ]);
     }
@@ -77,7 +77,7 @@ class DocumentIngestionTest extends TestCase
         foreach ($chunkNodes as $chunkId) {
             $this->assertDatabaseHas('memory_edges', [
                 'from_node_id' => $chunkId,
-                'to_node_id'   => $anchorId,
+                'to_node_id' => $anchorId,
                 'relationship' => 'part_of',
             ]);
         }
@@ -173,16 +173,50 @@ class DocumentIngestionTest extends TestCase
         $this->assertSame($result['chunks_total'], $result['nodes_created'] + $result['chunks_skipped']);
     }
 
+    public function test_ingest_extracts_evidence_facts_for_each_created_chunk(): void
+    {
+        $extractor = $this->mockExtractor('concept');
+        $factExtractor = Mockery::mock(EvidenceFactExtractionService::class);
+        $factExtractor->shouldReceive('extractAndStoreForNode')
+            ->atLeast()
+            ->once()
+            ->with(
+                'user-1',
+                Mockery::type(MemoryNode::class),
+                Mockery::type(MemoryNode::class),
+                Mockery::type('string'),
+                Mockery::type('int'),
+            )
+            ->andReturn(2);
+
+        $service = $this->service($extractor, $factExtractor);
+
+        $result = $service->ingest('user-1', 'My Goals', $this->multiParagraphText(), 'public');
+
+        $this->assertSame($result['nodes_created'] * 2, $result['facts_created']);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private function service(GraphExtractionService $extractor): DocumentIngestionService
-    {
+    private function service(
+        GraphExtractionService $extractor,
+        ?EvidenceFactExtractionService $factExtractor = null,
+    ): DocumentIngestionService {
         return new DocumentIngestionService(
-            new DocumentChunkerService(),
+            new DocumentChunkerService,
             $extractor,
-            new MemoryGraphService(),
-            new RedactionService(),
+            new MemoryGraphService,
+            new RedactionService,
+            $factExtractor ?? $this->mockFactExtractor(),
         );
+    }
+
+    private function mockFactExtractor(): EvidenceFactExtractionService
+    {
+        $extractor = Mockery::mock(EvidenceFactExtractionService::class);
+        $extractor->shouldReceive('extractAndStoreForNode')->andReturn(0);
+
+        return $extractor;
     }
 
     private function mockExtractor(string $type): GraphExtractionService
@@ -190,11 +224,11 @@ class DocumentIngestionTest extends TestCase
         $extractor = Mockery::mock(GraphExtractionService::class);
         $extractor->shouldReceive('extract')->andReturnUsing(
             fn (string $content, string $sensitivity) => [
-                'type'        => $type,
-                'label'       => mb_substr($content, 0, 40),
-                'tags'        => ['test', 'ingested'],
-                'people'      => [],
-                'projects'    => [],
+                'type' => $type,
+                'label' => mb_substr($content, 0, 40),
+                'tags' => ['test', 'ingested'],
+                'people' => [],
+                'projects' => [],
                 'sensitivity' => $sensitivity,
             ]
         );

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Message;
+use App\Services\EvidenceRetrievalService;
 use App\Services\GraphExtractionService;
 use App\Services\IcpMemoryService;
 use App\Services\LLM\LlmService;
@@ -26,6 +27,7 @@ class ChatController extends Controller
         private readonly GraphExtractionService $graphExtractor,
         private readonly MemoryGraphService $graphService,
         private readonly RedactionService $redactor,
+        private readonly EvidenceRetrievalService $evidenceRetrieval,
     ) {}
 
     /**
@@ -133,17 +135,32 @@ class ChatController extends Controller
         // Cold start (no graph nodes yet): fall back to flat ICP recall so the first
         // few turns still inject memory context while the graph is being built.
         $graphContext = $this->graphService->retrieveContext($userId);
+        $groundedMode = (bool) config('services.grounded.enabled', false);
+        $groundedEvidence = [];
 
         if (! empty($graphContext)) {
             $loadedNodeIds = array_column($graphContext, 'id');
             $this->graphService->reinforce($loadedNodeIds, $userId);
-            $graphContext = $this->redactMemoryRecords($graphContext, $userId);
-            $systemPrompt = $this->llm->buildSystemPrompt($graphContext);
+
+            if ($groundedMode) {
+                $groundedEvidence = $this->evidenceRetrieval->retrieve(
+                    userId: $userId,
+                    query: $safeUserMessage,
+                    sourceNodeIds: $loadedNodeIds,
+                    limit: max(1, (int) config('services.grounded.evidence_limit', 8)),
+                );
+                $systemPrompt = $this->llm->buildGroundedSystemPrompt($groundedEvidence);
+            } else {
+                $graphContext = $this->redactMemoryRecords($graphContext, $userId);
+                $systemPrompt = $this->llm->buildSystemPrompt($graphContext);
+            }
         } else {
             // Cold start: graph is empty; fall back to flat ICP recall.
             $memories = $this->redactMemoryRecords($this->icp->getPublicMemories($userId), $userId);
             $loadedNodeIds = $this->graphService->reinforceFromMemories($memories, $userId);
-            $systemPrompt = $this->llm->buildSystemPrompt($memories);
+            $systemPrompt = $groundedMode
+                ? $this->llm->buildGroundedSystemPrompt([])
+                : $this->llm->buildSystemPrompt($memories);
         }
 
         // Get recent conversation history for context
@@ -155,6 +172,13 @@ class ChatController extends Controller
                 'content' => $this->redactor->redact($m->content, $userId)->text,
             ])
             ->toArray();
+
+        if ($groundedMode) {
+            $history = [[
+                'role' => 'user',
+                'content' => $safeUserMessage,
+            ]];
+        }
 
         // Generate AI response
         $aiResponse = $this->llm->chat($systemPrompt, $history);
@@ -237,6 +261,8 @@ class ChatController extends Controller
             // The Three.js visualization uses these to highlight active nodes
             // and the graph API uses them to show which memories were retrieved.
             'active_node_ids' => $loadedNodeIds,
+            'grounded_retrieval' => $groundedMode,
+            'evidence_fact_ids' => array_column($groundedEvidence, 'fact_id'),
         ]);
     }
 
@@ -375,8 +401,7 @@ class ChatController extends Controller
         string $memoryType,
         ?string $sessionId = null,
         array $metadata = [],
-    ): void
-    {
+    ): void {
         $contentRedaction = $this->redactor->redact($content, $userId);
         $content = $contentRedaction->text;
         $memoryType = $this->redactor->enforceSensitivity($memoryType, $contentRedaction);
@@ -464,6 +489,7 @@ class ChatController extends Controller
             $values = $extracted[$field] ?? [];
             if (! is_array($values)) {
                 $extracted[$field] = [];
+
                 continue;
             }
 

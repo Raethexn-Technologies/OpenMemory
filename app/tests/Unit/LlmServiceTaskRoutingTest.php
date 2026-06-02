@@ -73,15 +73,48 @@ class LlmServiceTaskRoutingTest extends TestCase
         $this->assertSame(1, $provider->chatCalls);
     }
 
+    public function test_build_grounded_system_prompt_lists_evidence_with_citation_ids(): void
+    {
+        $service = new LlmService($this->fakeProvider());
+
+        $prompt = $service->buildGroundedSystemPrompt([
+            [
+                'fact_id' => 'fact-1',
+                'fact_text' => 'The policy requires quarterly access reviews.',
+                'source_label' => 'Security Policy',
+                'span_start' => 12,
+                'span_end' => 54,
+            ],
+        ]);
+
+        $this->assertStringContainsString('corpus-grounded document QA assistant', $prompt);
+        $this->assertStringContainsString('[EVID:fact-1] The policy requires quarterly access reviews.', $prompt);
+        $this->assertStringContainsString('source: Security Policy; span 12-54', $prompt);
+        $this->assertStringContainsString('Every factual sentence must include', $prompt);
+    }
+
+    public function test_build_grounded_system_prompt_refuses_when_no_evidence_exists(): void
+    {
+        $service = new LlmService($this->fakeProvider());
+
+        $prompt = $service->buildGroundedSystemPrompt([]);
+
+        $this->assertStringContainsString("I can't find that in the provided corpus.", $prompt);
+        $this->assertStringContainsString('No evidence facts were retrieved', $prompt);
+    }
+
     private function fakeProvider(): LlmProviderInterface
     {
-        return new class implements LlmProviderInterface {
+        return new class implements LlmProviderInterface
+        {
             public array $withModelCalls = [];
+
             public int $chatCalls = 0;
 
             public function chat(string $systemPrompt, array $messages): string
             {
                 $this->chatCalls++;
+
                 return 'ok';
             }
 
@@ -93,6 +126,7 @@ class LlmServiceTaskRoutingTest extends TestCase
             public function withModel(?string $model): self
             {
                 $this->withModelCalls[] = $model;
+
                 return $this;
             }
         };

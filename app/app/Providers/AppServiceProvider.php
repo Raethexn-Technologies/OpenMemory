@@ -3,6 +3,8 @@
 namespace App\Providers;
 
 use App\Services\ClusterDetectionService;
+use App\Services\EvidenceFactExtractionService;
+use App\Services\EvidenceRetrievalService;
 use App\Services\GraphExtractionService;
 use App\Services\IcpMemoryService;
 use App\Services\Ingest\ContentPreprocessor;
@@ -46,6 +48,12 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(GraphExtractionService::class, function ($app) {
             return new GraphExtractionService($app->make(LlmService::class));
         });
+
+        $this->app->singleton(EvidenceFactExtractionService::class, function ($app) {
+            return new EvidenceFactExtractionService($app->make(LlmService::class));
+        });
+
+        $this->app->singleton(EvidenceRetrievalService::class);
 
         $this->app->singleton(MemoryGraphService::class);
 

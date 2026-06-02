@@ -42,6 +42,7 @@ class DocumentIngestionService
         private readonly GraphExtractionService $graphExtractor,
         private readonly MemoryGraphService $graphService,
         private readonly RedactionService $redactor,
+        private readonly EvidenceFactExtractionService $factExtractor,
     ) {}
 
     /**
@@ -53,6 +54,7 @@ class DocumentIngestionService
      *   chunks_total: int,
      *   nodes_created: int,
      *   chunks_skipped: int,
+     *   facts_created: int,
      * }
      */
     public function ingest(
@@ -78,6 +80,7 @@ class DocumentIngestionService
 
         $nodesCreated = 0;
         $skipped = 0;
+        $factsCreated = 0;
 
         foreach ($chunks as $index => $chunk) {
             $extracted = $this->graphExtractor->extract($chunk, $sensitivity);
@@ -87,21 +90,22 @@ class DocumentIngestionService
                 // store a malformed node. Logged inside GraphExtractionService.
                 Log::warning('DocumentIngestionService: skipping chunk after extraction failure', [
                     'document_node_id' => $anchorNode->id,
-                    'chunk_index'      => $index,
-                    'chunk_preview'    => mb_substr($chunk, 0, 80),
+                    'chunk_index' => $index,
+                    'chunk_preview' => mb_substr($chunk, 0, 80),
                 ]);
                 $skipped++;
+
                 continue;
             }
 
             $chunkNode = $this->graphService->storeNode(
-                userId:    $userId,
-                content:   $chunk,
+                userId: $userId,
+                content: $chunk,
                 extracted: $this->sanitizeExtractedMetadata($extracted, $userId),
-                source:    'document',
-                metadata:  [
+                source: 'document',
+                metadata: [
                     'source_document_id' => $anchorNode->id,
-                    'chunk_index'        => $index,
+                    'chunk_index' => $index,
                     ...($redaction->applied() ? ['redaction' => $redaction->toMetadata()] : []),
                 ],
             );
@@ -111,11 +115,19 @@ class DocumentIngestionService
             // BFS from any chunk node - useful for the graph explorer's
             // neighborhood expansion and for future document-scoped retrieval.
             $this->graphService->createRelationship(
-                userId:       $userId,
-                fromNodeId:   $chunkNode->id,
-                toNodeId:     $anchorNode->id,
+                userId: $userId,
+                fromNodeId: $chunkNode->id,
+                toNodeId: $anchorNode->id,
                 relationship: 'part_of',
-                weight:       0.9,
+                weight: 0.9,
+            );
+
+            $factsCreated += $this->factExtractor->extractAndStoreForNode(
+                userId: $userId,
+                sourceNode: $chunkNode,
+                sourceDocument: $anchorNode,
+                chunk: $chunk,
+                chunkIndex: $index,
             );
 
             $nodesCreated++;
@@ -123,10 +135,11 @@ class DocumentIngestionService
 
         return [
             'document_node_id' => $anchorNode->id,
-            'document_label'   => $anchorNode->label,
-            'chunks_total'     => $total,
-            'nodes_created'    => $nodesCreated,
-            'chunks_skipped'   => $skipped,
+            'document_label' => $anchorNode->label,
+            'chunks_total' => $total,
+            'nodes_created' => $nodesCreated,
+            'chunks_skipped' => $skipped,
+            'facts_created' => $factsCreated,
             'effective_sensitivity' => $sensitivity,
             'redaction' => $redaction->applied() ? $redaction->toMetadata() : ['applied' => false],
         ];
@@ -157,14 +170,14 @@ class DocumentIngestionService
         // unrelated document anchors via the structural tags 'document'/'ingested'.
         // Cross-document connections emerge through chunk nodes, not anchors.
         return $this->graphService->storeNode(
-            userId:    $userId,
-            content:   "Document: {$label}. {$preview}",
+            userId: $userId,
+            content: "Document: {$label}. {$preview}",
             extracted: [
-                'type'        => 'document',
-                'label'       => $label,
-                'tags'        => [],
-                'people'      => [],
-                'projects'    => [],
+                'type' => 'document',
+                'label' => $label,
+                'tags' => [],
+                'people' => [],
+                'projects' => [],
                 'sensitivity' => $sensitivity,
             ],
             source: 'document_anchor',
@@ -186,6 +199,7 @@ class DocumentIngestionService
             $values = $extracted[$field] ?? [];
             if (! is_array($values)) {
                 $extracted[$field] = [];
+
                 continue;
             }
 

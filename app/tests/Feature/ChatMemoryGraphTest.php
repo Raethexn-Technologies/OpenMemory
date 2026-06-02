@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\MemoryEdge;
 use App\Models\MemoryNode;
+use App\Services\EvidenceRetrievalService;
 use App\Services\GraphExtractionService;
 use App\Services\IcpMemoryService;
 use App\Services\LLM\LlmService;
@@ -380,6 +381,110 @@ class ChatMemoryGraphTest extends TestCase
         $this->assertEqualsWithDelta(0.6, $edge->weight, 0.0001);
     }
 
+    public function test_send_uses_grounded_evidence_prompt_when_flag_is_enabled(): void
+    {
+        config([
+            'services.grounded.enabled' => true,
+            'services.grounded.evidence_limit' => 4,
+        ]);
+
+        $first = MemoryNode::create([
+            'user_id' => 'user-1',
+            'type' => 'concept',
+            'sensitivity' => 'public',
+            'label' => 'Policy chunk',
+            'content' => 'Policy chunk content.',
+            'tags' => ['policy'],
+            'confidence' => 1.0,
+            'source' => 'document',
+        ]);
+        $second = MemoryNode::create([
+            'user_id' => 'user-1',
+            'type' => 'concept',
+            'sensitivity' => 'public',
+            'label' => 'Related chunk',
+            'content' => 'Related chunk content.',
+            'tags' => ['policy'],
+            'confidence' => 1.0,
+            'source' => 'document',
+        ]);
+        MemoryEdge::create([
+            'user_id' => 'user-1',
+            'from_node_id' => $first->id,
+            'to_node_id' => $second->id,
+            'relationship' => 'same_topic_as',
+            'weight' => 0.5,
+        ]);
+
+        $evidence = [[
+            'fact_id' => 'fact-1',
+            'fact_text' => 'The policy requires quarterly access reviews.',
+            'source_node_id' => $first->id,
+            'source_document_id' => null,
+            'source_label' => 'Policy chunk',
+            'span_start' => 0,
+            'span_end' => 48,
+            'confidence' => 1.0,
+            'score' => 5.0,
+            'metadata' => [],
+        ]];
+
+        $evidenceRetrieval = Mockery::mock(EvidenceRetrievalService::class);
+        $evidenceRetrieval->shouldReceive('retrieve')
+            ->once()
+            ->with('user-1', 'What does the policy require?', Mockery::on(function (array $nodeIds) use ($first, $second) {
+                sort($nodeIds);
+                $expected = [$first->id, $second->id];
+                sort($expected);
+
+                return $nodeIds === $expected;
+            }), 4)
+            ->andReturn($evidence);
+        $this->app->instance(EvidenceRetrievalService::class, $evidenceRetrieval);
+
+        $llm = Mockery::mock(LlmService::class);
+        $llm->shouldReceive('buildGroundedSystemPrompt')->once()->with($evidence)->andReturn('grounded system prompt');
+        $llm->shouldNotReceive('buildSystemPrompt');
+        $llm->shouldReceive('chat')
+            ->once()
+            ->with('grounded system prompt', [[
+                'role' => 'user',
+                'content' => 'What does the policy require?',
+            ]])
+            ->andReturn('Grounded answer. [EVID:fact-1]');
+        $llm->shouldReceive('provider')->andReturn('test-provider');
+        $this->app->instance(LlmService::class, $llm);
+
+        $memorability = Mockery::mock(MemorabilityService::class);
+        $memorability->shouldReceive('evaluate')->once()->andReturn([
+            'decision' => 'skip',
+            'node_id' => null,
+        ]);
+        $this->app->instance(MemorabilityService::class, $memorability);
+
+        $summarizer = Mockery::mock(MemorySummarizationService::class);
+        $summarizer->shouldNotReceive('extract');
+        $this->app->instance(MemorySummarizationService::class, $summarizer);
+
+        $icp = Mockery::mock(IcpMemoryService::class);
+        $icp->shouldIgnoreMissing();
+        $icp->shouldNotReceive('getPublicMemories');
+        $icp->shouldReceive('mode')->andReturn('mock');
+        $this->app->instance(IcpMemoryService::class, $icp);
+
+        $response = $this->withSession([
+            'chat_session_id' => 'session-1',
+            'chat_user_id' => 'user-1',
+        ])->postJson('/chat/send', [
+            'message' => 'What does the policy require?',
+        ]);
+
+        $response->assertOk();
+        $response->assertJsonPath('grounded_retrieval', true);
+        $response->assertJsonPath('evidence_fact_ids', ['fact-1']);
+        $response->assertJsonPath('message', 'Grounded answer. [EVID:fact-1]');
+    }
+
     public function test_send_falls_back_to_icp_when_graph_is_empty(): void
     {
         // Cold start: no graph nodes exist. The system falls back to flat ICP recall.
@@ -473,7 +578,7 @@ class ChatMemoryGraphTest extends TestCase
         $memorability = Mockery::mock(MemorabilityService::class);
         $memorability->shouldReceive('evaluate')->once()->andReturn([
             'decision' => 'store_new',
-            'node_id'  => null,
+            'node_id' => null,
         ]);
         $this->app->instance(MemorabilityService::class, $memorability);
     }
@@ -503,13 +608,13 @@ class ChatMemoryGraphTest extends TestCase
 
         \App\Models\Message::create([
             'session_id' => 'session-1',
-            'role'       => 'user',
-            'content'    => 'Previous principal said this.',
+            'role' => 'user',
+            'content' => 'Previous principal said this.',
         ]);
 
         $response = $this->withSession([
             'chat_session_id' => 'session-1',
-            'chat_user_id'    => 'previous-principal',
+            'chat_user_id' => 'previous-principal',
             'identity_source' => 'browser',
         ])->postJson('/chat/identity-logout');
 

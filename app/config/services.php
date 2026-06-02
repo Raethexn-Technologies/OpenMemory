@@ -47,15 +47,15 @@ return [
     //   reason    — graph extraction, consolidation: spend on the best model.
     //   chat      — user-facing replies. Leave empty to use the default.
     'llm' => [
-        'openrouter_api_key'  => env('OPENROUTER_API_KEY'),
-        'openrouter_model'    => env('OPENROUTER_MODEL', 'anthropic/claude-sonnet-4.5'),
+        'openrouter_api_key' => env('OPENROUTER_API_KEY'),
+        'openrouter_model' => env('OPENROUTER_MODEL', 'anthropic/claude-sonnet-4.5'),
         'openrouter_site_url' => env('OPENROUTER_SITE_URL', ''),
-        'openrouter_site_name'=> env('OPENROUTER_SITE_NAME', 'OpenMemory'),
+        'openrouter_site_name' => env('OPENROUTER_SITE_NAME', 'OpenMemory'),
         'task_models' => [
-            'classify'  => env('LLM_MODEL_CLASSIFY',  'google/gemini-2.5-flash'),
+            'classify' => env('LLM_MODEL_CLASSIFY', 'google/gemini-2.5-flash'),
             'summarize' => env('LLM_MODEL_SUMMARIZE', 'google/gemini-2.5-flash'),
-            'reason'    => env('LLM_MODEL_REASON',    ''),
-            'chat'      => env('LLM_MODEL_CHAT',      ''),
+            'reason' => env('LLM_MODEL_REASON', ''),
+            'chat' => env('LLM_MODEL_CHAT', ''),
         ],
     ],
 
@@ -81,15 +81,23 @@ return [
     // per_repo_limit   — max commits to inspect per repo per run.
     'ingest' => [
         'schedule_enabled' => env('INGEST_SCHEDULE_ENABLED', false),
-        'repos'            => env('INGEST_GITHUB_REPOS', ''),
-        'per_repo_limit'   => (int) env('INGEST_PER_REPO_LIMIT', 20),
+        'repos' => env('INGEST_GITHUB_REPOS', ''),
+        'per_repo_limit' => (int) env('INGEST_PER_REPO_LIMIT', 20),
+    ],
+
+    // Corpus-grounded document QA. When enabled, chat responses are built from
+    // evidence_facts selected from graph-retrieved public document chunks. If
+    // no evidence facts match the query, the assistant is instructed to refuse.
+    'grounded' => [
+        'enabled' => env('GROUNDED_RETRIEVAL', false),
+        'evidence_limit' => (int) env('GROUNDED_EVIDENCE_LIMIT', 8),
     ],
 
     // ICP Memory Canister
     'icp' => [
-        'endpoint'     => env('ICP_CANISTER_ENDPOINT', 'http://localhost:4943'),
-        'canister_id'  => env('ICP_CANISTER_ID', ''),
-        'mock'         => env('ICP_MOCK_MODE', true),
+        'endpoint' => env('ICP_CANISTER_ENDPOINT', 'http://localhost:4943'),
+        'canister_id' => env('ICP_CANISTER_ID', ''),
+        'mock' => env('ICP_MOCK_MODE', true),
         // ICP_BROWSER_HOST: the URL the user's browser uses to reach the dfx replica or
         // ICP mainnet gateway. Separate from ICP_CANISTER_ENDPOINT (Laravel→adapter).
         // Local default: http://localhost:4943  |  Mainnet: https://ic0.app

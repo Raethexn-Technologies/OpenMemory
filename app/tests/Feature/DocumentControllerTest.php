@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\MemoryNode;
+use App\Services\EvidenceFactExtractionService;
 use App\Services\GraphExtractionService;
 use App\Services\IcpMemoryService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -15,6 +16,15 @@ class DocumentControllerTest extends TestCase
     use MockeryPHPUnitIntegration;
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $factExtractor = Mockery::mock(EvidenceFactExtractionService::class);
+        $factExtractor->shouldReceive('extractAndStoreForNode')->andReturn(0);
+        $this->app->instance(EvidenceFactExtractionService::class, $factExtractor);
+    }
+
     // ── POST /api/documents/ingest ────────────────────────────────────────────
 
     public function test_ingest_requires_session(): void
@@ -23,7 +33,7 @@ class DocumentControllerTest extends TestCase
 
         $response = $this->postJson('/api/documents/ingest', [
             'title' => 'My Goals',
-            'text'  => $this->sampleText(),
+            'text' => $this->sampleText(),
         ]);
 
         $response->assertStatus(422);
@@ -60,11 +70,11 @@ class DocumentControllerTest extends TestCase
         $this->mockExtractor();
 
         $response = $this->withSession([
-            'chat_user_id'    => 'user-1',
+            'chat_user_id' => 'user-1',
             'chat_session_id' => 'session-1',
         ])->postJson('/api/documents/ingest', [
-            'title'       => 'My Goals',
-            'text'        => $this->sampleText(),
+            'title' => 'My Goals',
+            'text' => $this->sampleText(),
             'sensitivity' => 'private',
         ]);
 
@@ -84,11 +94,11 @@ class DocumentControllerTest extends TestCase
         $this->mockExtractor();
 
         $response = $this->withSession([
-            'chat_user_id'    => 'user-1',
+            'chat_user_id' => 'user-1',
             'chat_session_id' => 'session-1',
         ])->postJson('/api/documents/ingest', [
-            'title'       => 'Public Doc',
-            'text'        => $this->sampleText(),
+            'title' => 'Public Doc',
+            'text' => $this->sampleText(),
             'sensitivity' => 'public',
         ]);
 
@@ -107,11 +117,11 @@ class DocumentControllerTest extends TestCase
         $this->mockExtractor();
 
         $response = $this->withSession([
-            'chat_user_id'    => 'user-1',
+            'chat_user_id' => 'user-1',
             'chat_session_id' => 'session-1',
         ])->postJson('/api/documents/ingest', [
-            'title'       => 'Private Doc',
-            'text'        => $this->sampleText(),
+            'title' => 'Private Doc',
+            'text' => $this->sampleText(),
             'sensitivity' => 'private',
         ]);
 
@@ -171,11 +181,11 @@ class DocumentControllerTest extends TestCase
         $this->mockExtractor();
 
         $this->withSession([
-            'chat_user_id'    => 'user-1',
+            'chat_user_id' => 'user-1',
             'chat_session_id' => 'session-1',
         ])->postJson('/api/documents/ingest', [
             'title' => 'Default Sensitivity',
-            'text'  => $this->sampleText(),
+            'text' => $this->sampleText(),
         ]);
 
         $nodes = MemoryNode::where('user_id', 'user-1')->get();
@@ -197,26 +207,26 @@ class DocumentControllerTest extends TestCase
     {
         // Anchor node — should appear in the list.
         MemoryNode::create([
-            'user_id'     => 'user-1',
-            'type'        => 'document',
+            'user_id' => 'user-1',
+            'type' => 'document',
             'sensitivity' => 'public',
-            'label'       => 'Anchor Node',
-            'content'     => 'Document: Anchor Node.',
-            'tags'        => [],
-            'confidence'  => 1.0,
-            'source'      => 'document_anchor',
+            'label' => 'Anchor Node',
+            'content' => 'Document: Anchor Node.',
+            'tags' => [],
+            'confidence' => 1.0,
+            'source' => 'document_anchor',
         ]);
 
         // Chunk the LLM classified as type='document' — must NOT appear in the list.
         MemoryNode::create([
-            'user_id'     => 'user-1',
-            'type'        => 'document',
+            'user_id' => 'user-1',
+            'type' => 'document',
             'sensitivity' => 'public',
-            'label'       => 'Chunk Classified As Document',
-            'content'     => 'Some chunk content the extractor classified as a document node.',
-            'tags'        => ['document'],
-            'confidence'  => 1.0,
-            'source'      => 'document',
+            'label' => 'Chunk Classified As Document',
+            'content' => 'Some chunk content the extractor classified as a document node.',
+            'tags' => ['document'],
+            'confidence' => 1.0,
+            'source' => 'document',
         ]);
 
         $response = $this->withSession(['chat_user_id' => 'user-1'])
@@ -231,14 +241,14 @@ class DocumentControllerTest extends TestCase
     public function test_index_excludes_other_users_documents(): void
     {
         MemoryNode::create([
-            'user_id'     => 'user-other',
-            'type'        => 'document',
+            'user_id' => 'user-other',
+            'type' => 'document',
             'sensitivity' => 'public',
-            'label'       => 'Other User Doc',
-            'content'     => 'Document: Other User Doc.',
-            'tags'        => [],
-            'confidence'  => 1.0,
-            'source'      => 'document_anchor',
+            'label' => 'Other User Doc',
+            'content' => 'Document: Other User Doc.',
+            'tags' => [],
+            'confidence' => 1.0,
+            'source' => 'document_anchor',
         ]);
 
         $response = $this->withSession(['chat_user_id' => 'user-1'])
@@ -268,11 +278,11 @@ class DocumentControllerTest extends TestCase
         $extractor = Mockery::mock(GraphExtractionService::class);
         $extractor->shouldReceive('extract')->andReturnUsing(
             fn (string $content, string $sensitivity) => [
-                'type'        => 'concept',
-                'label'       => mb_substr($content, 0, 40),
-                'tags'        => ['goal', 'memory'],
-                'people'      => [],
-                'projects'    => [],
+                'type' => 'concept',
+                'label' => mb_substr($content, 0, 40),
+                'tags' => ['goal', 'memory'],
+                'people' => [],
+                'projects' => [],
                 'sensitivity' => $sensitivity,
             ]
         );
