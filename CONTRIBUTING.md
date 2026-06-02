@@ -55,9 +55,10 @@ For contributors who want to test the live canister path, the full setup steps a
 ```bash
 cd app
 php artisan test
+npm run test:front
 ```
 
-The test suite uses SQLite in-memory and mock mode throughout, so no API key or canister is needed to run it.
+The backend test suite uses SQLite in-memory and mock mode throughout, so no API key or canister is needed to run it. The frontend suite runs Vitest against the Vue components and browser identity flow.
 
 ---
 

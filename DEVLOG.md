@@ -18,6 +18,33 @@ The log is append-only. Entries are not edited after the fact.
 
 ---
 
+## Entry 029 - 2026-06-02
+### Grounded document QA starts with evidence facts
+
+#### What was built
+
+Document ingestion now creates a second layer beneath graph chunks: source-backed evidence facts. `EvidenceFactExtractionService` runs after a document chunk node is stored. It asks the model for atomic facts and exact supporting quotes, then computes character offsets locally by locating the quote in the redacted chunk. Stored rows live in `evidence_facts` with `source_node_id`, `source_document_id`, `fact_text`, `span_start`, `span_end`, `observed_at`, confidence, and metadata. The fact layer is scoped to document chunks in this implementation. Chat memories continue to enter the graph as before.
+
+`EvidenceRetrievalService` provides the first query-aware evidence selector. It takes the current user question and the node IDs returned by `MemoryGraphService::retrieveContext()`, loads public document facts from those candidate chunks, and ranks them with deterministic lexical scoring. This is intentionally simple. It gives the system a working and testable bridge from graph retrieval to evidence-grounded prompting before adding embeddings or normalized fact triples.
+
+`LlmService::buildGroundedSystemPrompt()` adds the strict answer policy. In grounded mode, every factual sentence must cite `[EVID:<id>]`, unsupported questions must be refused, partial evidence must be described as partial, and conflicts must be cited rather than hidden. `ChatController` switches into this path when `GROUNDED_RETRIEVAL=true`. In that mode the model receives only the grounded system prompt and the current redacted user question, not the full chat history. The response payload includes `grounded_retrieval` and `evidence_fact_ids`.
+
+#### Scope boundary
+
+This implementation creates source-backed evidence facts and a constrained prompt path. It does not claim token-level lineage, one-to-one matching between evidence and generated words, or any bypass of the model's attention mechanism. It still uses a normal LLM prompt and relies on instruction following, with source-backed evidence made explicit.
+
+The useful claim is narrower: OpenMemory now has a corpus-grounded document QA mode whose facts have source node lineage and quote-derived spans. That gives the project something concrete to evaluate: citation accuracy, unsupported claim rate, false refusal rate, and conflict handling.
+
+#### Verification
+
+`php artisan test` passes with 242 tests and 777 assertions. New backend coverage checks evidence fact extraction, quote span derivation, query-aware evidence retrieval, grounded prompt construction, and the chat-controller switch into grounded mode. `npm run test:front` remains part of the verification surface for UI behavior, although this change did not alter frontend code.
+
+#### What remains open
+
+The retrieval scorer is lexical. It should be replaced or complemented with embeddings once there is a stable corpus for measuring precision and recall. Facts are stored as text, not normalized triples, so conflict detection is not implemented yet. The prompt requires citations, but there is no post-generation verifier that splits the answer into claims and checks each claim against selected evidence. The next implementation should add `grounded_answer_traces` and a claim verifier so grounded mode becomes auditable rather than only constrained by prompt policy.
+
+---
+
 ## Entry 028 - 2026-05-23
 ### Internet Identity replaces the browser-key principal
 

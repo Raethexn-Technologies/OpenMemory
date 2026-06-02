@@ -20,13 +20,15 @@ The application is a standard Laravel and Vue web app. The interesting parts are
 
 **Memory records.** When a redacted turn passes the storage trigger, the server summarizes it, classifies it as public, private, or sensitive, applies a second deterministic redaction pass to the summary, and proceeds down the write path. Redaction findings can only raise sensitivity, never lower it. In the browser chat UI, private and sensitive records require user approval before the browser signs the write with the Internet Identity delegation and sends it directly to the ICP canister. The canister records `msg.caller` as the owner of that record and rejects writes from anonymous principals, so a signed-out browser cannot store memories. CLI tools writing through the MCP server POST to the Laravel `/mcp/store` endpoint in mock mode, which handles redaction, graph extraction, and node storage server-side without a browser session.
 
-**Document ingestion.** `POST /api/documents/ingest` accepts pasted text or Markdown files, redacts the source text, creates a document anchor node, chunks the redacted source with `DocumentChunkerService`, and runs each chunk through the same `GraphExtractionService` used for chat memories. Chunk nodes are stored with `source = 'document'` and connected back to the anchor with `part_of` edges, so uploaded knowledge enters the same graph primitives as chat-derived memory. `GET /api/documents` lists the document anchors for the current user. The HTTP API defaults ingested documents to `public` because graph-guided retrieval only loads public nodes into the LLM context window; redaction findings can escalate the effective sensitivity to `private` or `sensitive`.
+**Document ingestion.** `POST /api/documents/ingest` accepts pasted text or Markdown files, redacts the source text, creates a document anchor node, chunks the redacted source with `DocumentChunkerService`, and runs each chunk through the same `GraphExtractionService` used for chat memories. Chunk nodes are stored with `source = 'document'` and connected back to the anchor with `part_of` edges, so uploaded knowledge enters the same graph primitives as chat-derived memory. `EvidenceFactExtractionService` also extracts smaller source-backed facts from each successfully stored chunk and writes them to `evidence_facts` with `source_node_id`, `source_document_id`, quote-derived character spans, confidence, and chunk metadata. `GET /api/documents` lists the document anchors for the current user. The HTTP API defaults ingested documents to `public` because graph-guided retrieval and grounded document QA only load public nodes into the LLM context window; redaction findings can escalate the effective sensitivity to `private` or `sensitive`.
 
 **The memory graph.** After every confirmed memory write or document ingest, an LLM call extracts a node type (memory, person, project, document, task, event, concept, or goal), a label, semantic tags, named people, and named projects from the redacted memory content. Extracted labels and entity fields are sanitized again before storage so redaction placeholders do not become person or project anchors. This data creates a typed graph node in PostgreSQL and auto-wires edges to related existing nodes: tag overlap produces `same_topic_as` edges; named people produce `about_person` edges to person anchor nodes; named projects produce `part_of` edges to project anchor nodes.
 
 **Physarum dynamics.** Edge weights are not static. When the LLM retrieves a set of memory nodes to build a response, all edges between those co-accessed nodes receive a conductance increment of ALPHA = 0.10, clamped to 1.0. A daily scheduled command applies a decay factor of RHO = 0.97 to all edges, floored at 0.05. Edges that are traversed together regularly accumulate weight; edges between memories that the agent never retrieves together decay toward the floor. This implements the discrete form of the Tero et al. (2010) slime mold conductance model: paths the organism uses frequently develop higher conductance, and paths that carry no flux thin out.
 
-**LLM recall.** Only public memories are loaded into the LLM context. Within that public set, `findContextSeeds()` seeds public `goal` nodes first and fills the remaining seed slots by total connected edge weight from the same bounded candidate pool. Retrieved records are redacted again before prompt injection, which protects legacy records or external writes that predate the redaction layer. Retrieval is therefore goal-biased, but it is not query-aware yet. Private and sensitive records are gated by `msg.caller` on the canister: anonymous callers (the server adapter, the MCP server, and external HTTP clients) receive only public records.
+**LLM recall.** Only public memories are loaded into the LLM context. Within that public set, `findContextSeeds()` seeds public `goal` nodes first and fills the remaining seed slots by total connected edge weight from the same bounded candidate pool. Retrieved records are redacted again before prompt injection, which protects legacy records or external writes that predate the redaction layer. Retrieval is therefore goal-biased, but the normal memory prompt still injects retrieved nodes as natural-language context. Private and sensitive records are gated by `msg.caller` on the canister: anonymous callers (the server adapter, the MCP server, and external HTTP clients) receive only public records.
+
+**Grounded document QA.** Setting `GROUNDED_RETRIEVAL=true` switches chat response generation into a corpus-grounded document mode. The graph still selects candidate public document chunks, then `EvidenceRetrievalService` performs query-aware lexical scoring over `evidence_facts` from those chunks. `LlmService::buildGroundedSystemPrompt()` then gives the model only the current redacted user question and the selected evidence facts. The prompt requires every factual sentence to cite `[EVID:<id>]` and instructs refusal when no evidence supports the question. This is not an attention-bypass architecture and does not prove zero hallucination; it is a constrained prompt path that makes unsupported claims easier to detect and evaluate.
 
 **Active node IDs.** The `/chat/send` response includes an `active_node_ids` field listing the graph nodes loaded into context that turn. The Three.js mission control surface at `/3d` reads this field to highlight which nodes were active on the most recent turn.
 
@@ -68,6 +70,7 @@ The redaction layer sits beside this access-control model. Access control decide
 | Redaction | `RedactionService`, `redaction_policies`, `config/redaction.php`, deterministic local checks before LLM and storage boundaries |
 | Memory records | ICP canister (Motoko), browser-signed writes (chat UI), MCP server writes (CLI tools), Node.js adapter for server reads |
 | Memory graph | PostgreSQL tables (`memory_nodes`, `memory_edges`), Physarum dynamics, D3 force-directed explorer at `/graph` |
+| Evidence facts | PostgreSQL table (`evidence_facts`), source-backed document facts with quote-derived spans for grounded document QA |
 | Graph partition layer | PostgreSQL tables (`agents`, `shared_memory_edges`, `graph_snapshots`), collective Physarum dynamics across named partitions, Three.js mission control surface at `/3d` |
 
 ---
@@ -125,6 +128,21 @@ OPENROUTER_MODEL=meta-llama/llama-4-scout:free   # free tier, rate-limited
 ```
 
 The memory layer and graph layer store identical records regardless of which model is in use.
+
+---
+
+## Grounded document QA
+
+Grounded document QA is disabled by default. Enable it when chat answers should be constrained to public ingested document evidence rather than the usual memory prompt.
+
+```env
+GROUNDED_RETRIEVAL=true
+GROUNDED_EVIDENCE_LIMIT=8
+```
+
+When enabled, the chat path works in four stages. First, `MemoryGraphService::retrieveContext()` selects public graph nodes as usual. Second, `EvidenceRetrievalService` loads matching `evidence_facts` from the retrieved public document chunks and ranks them against the current user question. Third, `LlmService::buildGroundedSystemPrompt()` builds a strict evidence prompt. Fourth, the model receives only that prompt and the current redacted user question, not the full prior chat history.
+
+The response JSON includes `grounded_retrieval` and `evidence_fact_ids` so tests and future audit tooling can see whether grounded mode ran and which facts were supplied. The current retrieval scorer is lexical, not embedding-based, and the current verifier is prompt-level only. Post-generation claim verification and `grounded_answer_traces` remain future work.
 
 ---
 
@@ -305,7 +323,7 @@ php artisan test
 npm run test:front
 ```
 
-The backend test suite runs against SQLite in-memory and mock mode throughout. No API key or canister is required. Coverage includes deterministic redaction policy and floor behavior, per-user redaction policy loading, redaction in chat storage, redaction in MCP writes, redaction in document ingestion, the storage trigger (MemorabilityService decisions, hallucinated node ID rejection, consolidated node exclusion), document chunking and ingestion, document controller routes, goal-biased retrieval seed selection, graph and recency retrieval strategy selection, benchmark cleanup behavior, goal ablation and `goals_excluded` metadata, graph reinforcement, edge decay, neighborhood traversal, cluster detection determinism, graph snapshot storage and pruning, agent alignment Jaccard calculation, the memory approval flow, the `active_node_ids` response field, consolidation pipeline (concept node creation, supersedes edges, sensitivity inheritance, re-consolidation prevention), node pruning (floor-weight detection, idle window, edge cascade delete, user scoping, dry-run), the MCP store endpoint (API key auth, graph node creation), and the ThreeD page load with agent scoping. The frontend Vitest coverage checks redacted chat rendering, sensitive-memory approval, and live browser graph sync typing.
+The backend test suite runs against SQLite in-memory and mock mode throughout. No API key or canister is required. Coverage includes deterministic redaction policy and floor behavior, per-user redaction policy loading, redaction in chat storage, redaction in MCP writes, redaction in document ingestion, the storage trigger (MemorabilityService decisions, hallucinated node ID rejection, consolidated node exclusion), document chunking and ingestion, evidence fact extraction and quote span derivation, query-aware evidence retrieval, grounded prompt construction, the grounded chat switch, document controller routes, goal-biased retrieval seed selection, graph and recency retrieval strategy selection, benchmark cleanup behavior, goal ablation and `goals_excluded` metadata, graph reinforcement, edge decay, neighborhood traversal, cluster detection determinism, graph snapshot storage and pruning, agent alignment Jaccard calculation, the memory approval flow, the `active_node_ids` response field, consolidation pipeline (concept node creation, supersedes edges, sensitivity inheritance, re-consolidation prevention), node pruning (floor-weight detection, idle window, edge cascade delete, user scoping, dry-run), the MCP store endpoint (API key auth, graph node creation), and the ThreeD page load with agent scoping. The frontend Vitest coverage checks redacted chat rendering, sensitive-memory approval, and live browser graph sync typing.
 
 ---
 
@@ -334,6 +352,8 @@ OpenMemory/
 │   │   │   ├── IcpMemoryService.php         # fetches public records for LLM context
 │   │   │   ├── DocumentChunkerService.php   # paragraph-aware document chunking for graph extraction
 │   │   │   ├── DocumentIngestionService.php # document anchor creation, chunk ingest, part_of wiring
+│   │   │   ├── EvidenceFactExtractionService.php # source-backed fact extraction from document chunks
+│   │   │   ├── EvidenceRetrievalService.php # query-aware fact selection for grounded document QA
 │   │   │   ├── MemorabilityService.php      # storage trigger: evaluates novelty/significance before writing
 │   │   │   ├── MemorySummarizationService.php
 │   │   │   ├── RedactionService.php          # deterministic PII, financial, and credential redaction
@@ -350,6 +370,7 @@ OpenMemory/
 │   │   │       └── OpenRouterProvider.php
 │   │   └── Models/
 │   │       ├── Message.php
+│   │       ├── EvidenceFact.php             # source-backed fact with quote span metadata
 │   │       ├── MemoryNode.php               # typed graph node with access tracking
 │   │       ├── MemoryEdge.php               # directed edge with Physarum weight
 │   │       ├── RedactionPolicy.php          # per-user redaction preset and overrides
@@ -365,7 +386,8 @@ OpenMemory/
 │   │   ├── ..._create_redaction_policies_table.php
 │   │   ├── ..._create_agents_table.php
 │   │   ├── ..._create_shared_memory_edges_table.php
-│   │   └── ..._create_graph_snapshots_table.php
+│   │   ├── ..._create_graph_snapshots_table.php
+│   │   └── ..._create_evidence_facts_table.php
 │   ├── database/benchmarks/
 │   │   ├── corpus_01_software_developer.json
 │   │   ├── corpus_02_researcher.json
@@ -422,6 +444,8 @@ The benchmark corpora live in `app/database/benchmarks/`. Corpora 01-03 are the 
 | MemorabilityService | Pre-write filter evaluating novelty, significance, durability, and connection richness; returns store/update/skip |
 | DocumentChunkerService | Splits pasted text or Markdown into paragraph-aware chunks sized for graph extraction |
 | DocumentIngestionService | Redacts document text, creates document anchor nodes, stores chunk nodes, and wires `part_of` edges back to the source document |
+| EvidenceFactExtractionService | Extracts source-backed facts from document chunks and stores quote-derived span metadata |
+| EvidenceRetrievalService | Selects evidence facts from graph-retrieved document chunks for grounded document QA |
 | GraphExtractionService | LLM pass after each confirmed memory write or document chunk; extracts node type, label, tags, people, projects |
 | MemoryGraphService | Creates nodes, auto-wires edges, applies Hebbian reinforcement, runs Physarum decay |
 | BenchmarkService | Seeds isolated corpora and scores retrieval strategies with an LLM-as-judge rubric |
