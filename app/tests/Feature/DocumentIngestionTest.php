@@ -205,7 +205,7 @@ class DocumentIngestionTest extends TestCase
         return new DocumentIngestionService(
             new DocumentChunkerService,
             $extractor,
-            new MemoryGraphService,
+            new MemoryGraphService(new \App\Services\QueryRelevanceScorer),
             new RedactionService,
             $factExtractor ?? $this->mockFactExtractor(),
         );

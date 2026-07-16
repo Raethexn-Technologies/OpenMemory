@@ -95,6 +95,27 @@ class GraphGuidedRetrievalTest extends TestCase
         $this->assertLessThanOrEqual(5, count($result));
     }
 
+    public function test_retrieve_context_respects_limit_when_seed_count_is_larger_than_limit(): void
+    {
+        for ($i = 1; $i <= 4; $i++) {
+            MemoryNode::create([
+                'user_id' => 'user-small-limit',
+                'type' => 'goal',
+                'sensitivity' => 'public',
+                'label' => "Goal {$i}",
+                'content' => "Goal {$i}: keep retrieval bounded.",
+                'tags' => ['goal'],
+                'confidence' => 1.0,
+                'source' => 'chat',
+            ]);
+        }
+
+        $service = app(MemoryGraphService::class);
+        $result = $service->retrieveContext('user-small-limit', 1, 'goal_graph');
+
+        $this->assertCount(1, $result);
+    }
+
     public function test_retrieve_context_preserves_edge_weight_order_when_expanding_neighbors(): void
     {
         $hub = $this->makeNode('user-order', 'Hub memory');

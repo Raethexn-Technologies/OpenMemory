@@ -11,6 +11,7 @@ use App\Services\LLM\LlmService;
 use App\Services\MemorabilityService;
 use App\Services\MemorySummarizationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Log;
 use Mockery;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Tests\TestCase;
@@ -562,6 +563,97 @@ class ChatMemoryGraphTest extends TestCase
         ]);
 
         $response->assertOk();
+    }
+
+    public function test_send_uses_configured_retrieval_strategy_with_query(): void
+    {
+        config(['services.retrieval.strategy' => 'query_graph']);
+
+        $this->bindRetrievalOnlySendDoubles();
+
+        $relevant = MemoryNode::create([
+            'user_id' => 'user-1', 'type' => 'memory', 'sensitivity' => 'public',
+            'label' => 'PostgreSQL decision', 'content' => 'Chose postgresql for reporting joins.',
+            'tags' => ['postgresql'], 'confidence' => 1.0, 'source' => 'chat',
+        ]);
+        $hub = MemoryNode::create([
+            'user_id' => 'user-1', 'type' => 'memory', 'sensitivity' => 'public',
+            'label' => 'Standup notes', 'content' => 'Standup moved earlier this week.',
+            'tags' => ['ops'], 'confidence' => 1.0, 'source' => 'chat',
+        ]);
+        MemoryEdge::create([
+            'user_id' => 'user-1', 'from_node_id' => $hub->id, 'to_node_id' => $hub->id,
+            'relationship' => 'related_to', 'weight' => 1.0,
+        ]);
+
+        $response = $this->withSession([
+            'chat_session_id' => 'session-1',
+            'chat_user_id' => 'user-1',
+        ])->postJson('/chat/send', [
+            'message' => 'Remind me why we chose postgresql?',
+        ]);
+
+        $response->assertOk();
+        $activeIds = $response->json('active_node_ids');
+        $this->assertContains($relevant->id, $activeIds, 'query_graph must surface the query-relevant node.');
+    }
+
+    public function test_invalid_configured_strategy_falls_back_to_goal_graph(): void
+    {
+        config(['services.retrieval.strategy' => 'not-a-strategy']);
+        Log::shouldReceive('warning')
+            ->once()
+            ->with(
+                'Invalid RETRIEVAL_STRATEGY configured; falling back to default.',
+                Mockery::on(fn (array $context) => $context['key'] === 'RETRIEVAL_STRATEGY'
+                    && $context['invalid_value'] === 'not-a-strategy'
+                    && $context['fallback'] === 'goal_graph'),
+            );
+
+        $this->bindRetrievalOnlySendDoubles();
+
+        MemoryNode::create([
+            'user_id' => 'user-1', 'type' => 'memory', 'sensitivity' => 'public',
+            'label' => 'Any memory', 'content' => 'Any public memory content.',
+            'tags' => [], 'confidence' => 1.0, 'source' => 'chat',
+        ]);
+
+        $response = $this->withSession([
+            'chat_session_id' => 'session-1',
+            'chat_user_id' => 'user-1',
+        ])->postJson('/chat/send', [
+            'message' => 'Hello there, what do you remember?',
+        ]);
+
+        $response->assertOk();
+        $this->assertNotEmpty($response->json('active_node_ids'));
+    }
+
+    /**
+     * Doubles for send tests that only exercise retrieval. Memorability returns
+     * skip so no summarization or storage runs after the assistant reply, which
+     * keeps these tests focused on context selection alone.
+     */
+    private function bindRetrievalOnlySendDoubles(): void
+    {
+        $llm = Mockery::mock(LlmService::class);
+        $llm->shouldReceive('buildSystemPrompt')->once()->andReturn('system prompt');
+        $llm->shouldReceive('chat')->once()->andReturn('assistant reply');
+        $llm->shouldReceive('provider')->andReturn('test-provider');
+        $this->app->instance(LlmService::class, $llm);
+
+        $memorability = Mockery::mock(MemorabilityService::class);
+        $memorability->shouldReceive('evaluate')->once()->andReturn([
+            'decision' => 'skip',
+            'node_id' => null,
+        ]);
+        $this->app->instance(MemorabilityService::class, $memorability);
+
+        $icp = Mockery::mock(IcpMemoryService::class);
+        $icp->shouldIgnoreMissing();
+        $icp->shouldReceive('mode')->andReturn('mock');
+        $icp->shouldReceive('isMockMode')->andReturn(true);
+        $this->app->instance(IcpMemoryService::class, $icp);
     }
 
     private function bindLlmForSend(): void

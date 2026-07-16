@@ -283,10 +283,17 @@ class GraphControllerTest extends TestCase
         $response->assertOk();
         $response->assertJsonPath('phases.0.kind', 'goal_seed');
         $response->assertJsonPath('phases.1.kind', 'weight_seed');
-        $response->assertJsonPath('phases.' . (count($response->json('phases')) - 2) . '.kind', 'context_assembled');
-        $response->assertJsonPath('phases.' . (count($response->json('phases')) - 1) . '.kind', 'reinforce');
+        $response->assertJsonPath('phases.'.(count($response->json('phases')) - 2).'.kind', 'context_assembled');
+        $response->assertJsonPath('phases.'.(count($response->json('phases')) - 1).'.kind', 'reinforce');
         $this->assertSame($expectedIds, $response->json('active_node_ids'));
         $this->assertNotContains($private->id, $response->json('active_node_ids'));
+        $encodedPhases = json_encode($response->json('phases'));
+        $this->assertStringNotContainsString($private->id, $encodedPhases);
+
+        $bfsHop = collect($response->json('phases'))->firstWhere('kind', 'bfs_hop');
+        $this->assertIsArray($bfsHop);
+        $this->assertArrayHasKey('rejected_neighbor_count', $bfsHop);
+        $this->assertArrayNotHasKey('rejected_neighbor_ids', $bfsHop);
 
         $goalEdge->refresh();
         $neighborEdge->refresh();

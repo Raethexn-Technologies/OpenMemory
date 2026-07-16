@@ -85,6 +85,15 @@ return [
         'per_repo_limit' => (int) env('INGEST_PER_REPO_LIMIT', 20),
     ],
 
+    // Memory retrieval strategy for the chat path. One of the strategies in
+    // MemoryGraphService::STRATEGIES. goal_graph preserves the pre-existing
+    // behaviour; query_lexical returns direct lexical matches; query_graph and
+    // hybrid_query_graph seed graph traversal from the current redacted user
+    // message using deterministic lexical scoring.
+    'retrieval' => [
+        'strategy' => env('RETRIEVAL_STRATEGY', 'goal_graph'),
+    ],
+
     // Corpus-grounded document QA. When enabled, chat responses are built from
     // evidence_facts selected from graph-retrieved public document chunks. If
     // no evidence facts match the query, the assistant is instructed to refuse.

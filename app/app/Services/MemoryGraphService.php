@@ -18,6 +18,23 @@ use Illuminate\Support\Facades\DB;
 class MemoryGraphService
 {
     /**
+     * Retrieval strategies supported by retrieveContext().
+     *
+     *   'recency': most recently created public nodes, no graph traversal.
+     *   'graph': BFS from weight-ranked seeds, goal nodes treated as ordinary candidates.
+     *   'goal_graph': BFS from goal-node seeds first, then weight-ranked seeds.
+     *   'query_lexical': top query-relevant nodes directly, no graph traversal.
+     *   'query_graph': BFS from seeds ranked by lexical relevance to the current query.
+     *   'hybrid_query_graph': BFS from seeds ranked by a combined query, weight, and
+     *      recency score, with goal seeds admitted only when lexically query-relevant.
+     */
+    public const STRATEGIES = ['recency', 'graph', 'goal_graph', 'query_lexical', 'query_graph', 'hybrid_query_graph'];
+
+    public function __construct(
+        private readonly QueryRelevanceScorer $queryScorer,
+    ) {}
+
+    /**
      * Store a memory node and auto-wire edges to related existing nodes.
      *
      * @param  array  $extracted  Output from GraphExtractionService::extract()
@@ -246,10 +263,11 @@ class MemoryGraphService
      * Seeds are the public nodes with the highest accumulated edge weight. BFS from
      * those seeds collects neighbours in weight-descending order up to $limit.
      *
-     * Three strategies are supported via the $strategy parameter:
-     *   'recency': most recently created public nodes, no graph traversal.
-     *   'graph': BFS from weight-ranked seeds, goal nodes treated as ordinary candidates.
-     *   'goal_graph': BFS from goal-node seeds first, then weight-ranked seeds.
+     * The strategies in self::STRATEGIES are supported via the $strategy parameter.
+     * The graph strategies differ only in seed selection; BFS expansion is shared.
+     * query_lexical is the query-aware non-graph control and returns direct matches.
+     * $query is the current redacted user message. It affects seed selection for the
+     * query-aware strategies and is ignored by 'recency', 'graph', and 'goal_graph'.
      *
      * Returns an empty array on cold start (no public nodes in the graph yet). The caller
      * is responsible for falling back to flat ICP recall in that case. Returns records in
@@ -257,35 +275,167 @@ class MemoryGraphService
      *
      * @return array<int, array{id: string, content: string, timestamp: string}>
      */
-    public function retrieveContext(string $userId, int $limit = 12, string $strategy = 'goal_graph'): array
+    public function retrieveContext(string $userId, int $limit = 12, string $strategy = 'goal_graph', ?string $query = null): array
     {
-        if (! in_array($strategy, ['recency', 'graph', 'goal_graph'], true)) {
+        return $this->retrieveContextTraced($userId, $limit, $strategy, $query)['records'];
+    }
+
+    /**
+     * Retrieve context and return the seed-selection trace alongside the records.
+     *
+     * The trace explains why each seed entered the retrieval frontier: its lexical
+     * query score, its accumulated edge weight, and the combined score where the
+     * hybrid strategy applies. The benchmark stores this trace with every judged
+     * result so a score can be audited back to the exact seed decision. Content is
+     * not duplicated into the trace; only node IDs, types, and score components.
+     *
+     * @return array{
+     *   records: array<int, array{id: string, content: string, timestamp: string}>,
+     *   trace: array{strategy: string, query_terms: string[], seed_fallback: string|null, seeds: array, retrieved_ids: string[]}
+     * }
+     */
+    public function retrieveContextTraced(string $userId, int $limit = 12, string $strategy = 'goal_graph', ?string $query = null): array
+    {
+        if (! in_array($strategy, self::STRATEGIES, true)) {
             throw new \InvalidArgumentException("Unknown retrieval strategy: {$strategy}");
         }
 
+        $terms = $query !== null ? $this->queryScorer->terms($query) : [];
+
+        $trace = [
+            'strategy' => $strategy,
+            'strategy_config' => [
+                'context_limit' => $limit,
+                'seed_count' => min(self::SEED_COUNT, max(0, $limit)),
+                'query_pool' => self::QUERY_POOL,
+            ],
+            'query_terms' => $terms,
+            'seed_fallback' => null,
+            'seeds' => [],
+            'candidate_count' => 0,
+            'matched_candidate_count' => 0,
+            'candidate_scores' => [],
+            'selected_ids' => [],
+            'direct_lexical_ids' => [],
+            'graph_added_ids' => [],
+            'traversal_depth' => 0,
+            'traversed_edge_count' => 0,
+            'retrieved_ids' => [],
+        ];
+
         if ($strategy === 'recency') {
-            return $this->retrieveByRecency($userId, $limit);
+            $records = $this->retrieveByRecency($userId, $limit);
+            $trace['selected_ids'] = array_column($records, 'id');
+            $trace['retrieved_ids'] = array_column($records, 'id');
+
+            return ['records' => $records, 'trace' => $trace];
         }
 
-        $goalSeeding = $strategy === 'goal_graph';
-        $seeds = $this->findContextSeeds($userId, 4, $goalSeeding);
+        if ($strategy === 'query_lexical') {
+            [$records, $lexicalTrace] = $this->retrieveByQueryLexical($userId, $limit, $terms);
+            $trace = array_merge($trace, $lexicalTrace);
+            $trace['retrieved_ids'] = array_column($records, 'id');
+
+            return ['records' => $records, 'trace' => $trace];
+        }
+
+        [$seeds, $seedDetail, $fallback, $candidateScores, $candidateCount, $matchedCandidateCount] = $this->selectSeeds(
+            $userId,
+            $strategy,
+            $terms,
+            min(self::SEED_COUNT, max(0, $limit)),
+        );
+        $trace['seeds'] = $seedDetail;
+        $trace['seed_fallback'] = $fallback;
+        $trace['candidate_scores'] = $candidateScores;
+        $trace['candidate_count'] = $candidateCount;
+        $trace['matched_candidate_count'] = $matchedCandidateCount;
+        $trace['direct_lexical_ids'] = $this->directLexicalSeedIds($seedDetail);
 
         if ($seeds->isEmpty()) {
-            return [];
+            return ['records' => [], 'trace' => $trace];
         }
 
-        $collected = collect($seeds);
+        $expanded = $this->expandFromSeeds($userId, $seeds, $limit);
+        $collected = $expanded['nodes'];
+
+        $records = $this->nodesToRecords($collected);
+
+        $trace['selected_ids'] = array_column($records, 'id');
+        $trace['graph_added_ids'] = $expanded['expanded_ids'];
+        $trace['traversal_depth'] = $expanded['traversal_depth'];
+        $trace['traversed_edge_count'] = $expanded['traversed_edge_count'];
+        $trace['retrieved_ids'] = array_column($records, 'id');
+
+        return ['records' => $records, 'trace' => $trace];
+    }
+
+    /**
+     * Select BFS seeds for one graph strategy.
+     *
+     * Deterministic fallbacks keep every strategy usable on every input:
+     * a query-aware strategy without usable query terms degrades to its
+     * query-blind counterpart ('graph' for query_graph, 'goal_graph' for
+     * hybrid_query_graph), and a query that matches nothing degrades the
+     * same way. The fallback taken is reported in the trace.
+     *
+     * @param  string[]  $terms
+     * @return array{0: \Illuminate\Support\Collection, 1: array, 2: string|null, 3: array, 4: int, 5: int}
+     */
+    private function selectSeeds(string $userId, string $strategy, array $terms, int $seedCount): array
+    {
+        if ($strategy === 'graph' || $strategy === 'goal_graph') {
+            $seeds = $this->findContextSeeds($userId, $seedCount, $strategy === 'goal_graph');
+
+            return [$seeds, $this->describeSeeds($seeds), null, [], 0, 0];
+        }
+
+        if ($terms === []) {
+            $goalSeeding = $strategy === 'hybrid_query_graph';
+            $seeds = $this->findContextSeeds($userId, $seedCount, $goalSeeding);
+
+            return [$seeds, $this->describeSeeds($seeds), 'no_query_terms', [], 0, 0];
+        }
+
+        [$seeds, $seedDetail, $candidateScores, $candidateCount, $matchedCandidateCount] = $strategy === 'query_graph'
+            ? $this->findQuerySeeds($userId, $seedCount, $terms)
+            : $this->findHybridSeeds($userId, $seedCount, $terms);
+
+        if ($seeds->isEmpty()) {
+            $goalSeeding = $strategy === 'hybrid_query_graph';
+            $seeds = $this->findContextSeeds($userId, $seedCount, $goalSeeding);
+
+            return [$seeds, $this->describeSeeds($seeds), 'no_lexical_match', $candidateScores, $candidateCount, $matchedCandidateCount];
+        }
+
+        return [$seeds, $seedDetail, null, $candidateScores, $candidateCount, $matchedCandidateCount];
+    }
+
+    /**
+     * BFS expansion shared by all graph strategies. Neighbours are admitted in
+     * edge-weight order and must be public and unconsolidated; private, sensitive,
+     * and consolidated nodes are filtered at every hop regardless of strategy.
+     */
+    private function expandFromSeeds(string $userId, \Illuminate\Support\Collection $seeds, int $limit): array
+    {
+        $collected = collect($seeds)->unique('id')->take($limit)->values();
         $visited = $seeds->pluck('id');
-        $frontier = $seeds->pluck('id');
+        $frontier = $collected->pluck('id');
+        $expandedIds = [];
+        $traversalDepth = 0;
+        $traversedEdgeCount = 0;
 
         while ($collected->count() < $limit && $frontier->isNotEmpty()) {
+            $traversalDepth++;
             $edges = MemoryEdge::where('user_id', $userId)
                 ->where(function ($q) use ($frontier) {
                     $q->whereIn('from_node_id', $frontier)
                         ->orWhereIn('to_node_id', $frontier);
                 })
                 ->orderByDesc('weight')
+                ->orderBy('id')
                 ->get();
+            $traversedEdgeCount += $edges->count();
 
             $neighborIds = $edges
                 ->flatMap(fn ($e) => [$e->from_node_id, $e->to_node_id])
@@ -305,21 +455,23 @@ class MemoryGraphService
 
             $neighbors = $neighborIds
                 ->map(fn ($id) => $neighborsById->get($id))
-                ->filter();
+                ->filter()
+                ->values();
 
-            $collected = $collected->merge($neighbors)->unique('id')->take($limit);
+            $admitted = $neighbors->take($limit - $collected->count())->values();
+            $expandedIds = array_values(array_unique(array_merge($expandedIds, $admitted->pluck('id')->all())));
+
+            $collected = $collected->merge($admitted)->unique('id')->take($limit)->values();
             $visited = $visited->merge($neighbors->pluck('id'))->unique();
-            $frontier = $neighbors->pluck('id');
+            $frontier = $admitted->pluck('id');
         }
 
-        return $collected
-            ->map(fn ($n) => [
-                'id' => $n->id,
-                'content' => $n->content,
-                'timestamp' => $n->created_at?->toIso8601String() ?? now()->toIso8601String(),
-            ])
-            ->values()
-            ->all();
+        return [
+            'nodes' => $collected,
+            'expanded_ids' => $expandedIds,
+            'traversal_depth' => $traversalDepth,
+            'traversed_edge_count' => $traversedEdgeCount,
+        ];
     }
 
     /**
@@ -344,6 +496,8 @@ class MemoryGraphService
                 ->where('type', 'goal')
                 ->where('sensitivity', 'public')
                 ->whereNull('consolidated_at')
+                ->orderByDesc('created_at')
+                ->orderBy('id')
                 ->get()
             : collect();
 
@@ -361,7 +515,8 @@ class MemoryGraphService
             ->where('sensitivity', 'public')
             ->whereNull('consolidated_at')
             ->when($goalIds->isNotEmpty(), fn ($q) => $q->whereNotIn('id', $goalIds))
-            ->latest()
+            ->orderByDesc('created_at')
+            ->orderBy('id')
             ->limit(60)
             ->get();
 
@@ -391,7 +546,7 @@ class MemoryGraphService
                     return $scoreComparison;
                 }
 
-                return ($right->created_at?->getTimestamp() ?? 0) <=> ($left->created_at?->getTimestamp() ?? 0);
+                return $this->compareByRecencyThenId($left, $right);
             })
             ->take($remaining)
             ->values();
@@ -400,12 +555,332 @@ class MemoryGraphService
     }
 
     /**
+     * Find seeds ranked purely by lexical relevance to the current query.
+     *
+     * The candidate pool is the QUERY_POOL most recently created public,
+     * unconsolidated nodes. Only nodes with a nonzero lexical score qualify;
+     * ties break on creation time (newer first). Goal nodes receive no special
+     * treatment: they are seeded only when the query mentions them.
+     *
+     * @param  string[]  $terms
+     * @return array{0: \Illuminate\Support\Collection, 1: array, 2: array, 3: int, 4: int}
+     */
+    private function findQuerySeeds(string $userId, int $count, array $terms): array
+    {
+        [$candidates, $scores, $ranked] = $this->rankQueryCandidates($userId, $terms);
+
+        $seeds = $ranked->take($count)->values();
+        $seedIds = $seeds->pluck('id')->flip();
+
+        $detail = $seeds->map(fn ($node) => [
+            'node_id' => $node->id,
+            'type' => $node->type,
+            'selected_by' => 'query',
+            'query_score' => $scores[$node->id],
+        ])->all();
+
+        $candidateScores = $ranked
+            ->take(20)
+            ->map(fn ($node) => [
+                'node_id' => $node->id,
+                'type' => $node->type,
+                'query_score' => $scores[$node->id],
+                'selected' => $seedIds->has($node->id),
+            ])
+            ->values()
+            ->all();
+
+        return [$seeds, $detail, $candidateScores, $candidates->count(), $ranked->count()];
+    }
+
+    /**
+     * Find seeds ranked by a combined query, edge-weight, and recency score.
+     *
+     * Each component is normalized to [0, 1] within the candidate pool, then
+     * combined as 0.5 * query + 0.3 * weight + 0.2 * recency. The weighting
+     * expresses the design position that the current question matters most,
+     * accumulated usage second, and freshness third; the constants are fixed
+     * and documented rather than tuned per corpus.
+     *
+     * Goal nodes are handled adaptively: a goal seed is admitted ahead of the
+     * combined ranking only when its lexical query score is nonzero. A goal the
+     * query does not touch competes like any other node, so planning questions
+     * pull goals in and historical fact questions do not pay the goal-slot cost.
+     *
+     * @param  string[]  $terms
+     * @return array{0: \Illuminate\Support\Collection, 1: array, 2: array, 3: int, 4: int}
+     */
+    private function findHybridSeeds(string $userId, int $count, array $terms): array
+    {
+        $candidates = $this->queryCandidatePool($userId);
+
+        if ($candidates->isEmpty()) {
+            return [collect(), [], [], 0, 0];
+        }
+
+        $queryScores = $candidates->mapWithKeys(fn ($node) => [
+            $node->id => $this->queryScorer->score($terms, $node->content, $node->label ?? '', $node->tags ?? []),
+        ]);
+
+        $matchedCandidateCount = $queryScores->filter(fn ($score) => $score > 0)->count();
+
+        if ($matchedCandidateCount === 0) {
+            return [collect(), [], [], $candidates->count(), 0];
+        }
+
+        $candidateIds = $candidates->pluck('id');
+        $edges = MemoryEdge::where('user_id', $userId)
+            ->where(function ($q) use ($candidateIds) {
+                $q->whereIn('from_node_id', $candidateIds)
+                    ->orWhereIn('to_node_id', $candidateIds);
+            })
+            ->get();
+
+        $weightScores = $candidates->mapWithKeys(fn ($node) => [
+            $node->id => $edges
+                ->filter(fn ($e) => $e->from_node_id === $node->id || $e->to_node_id === $node->id)
+                ->sum('weight'),
+        ]);
+
+        $timestamps = $candidates->mapWithKeys(fn ($node) => [
+            $node->id => $node->created_at?->getTimestamp() ?? 0,
+        ]);
+
+        $queryMax = max(1e-9, $queryScores->max());
+        $weightMax = max(1e-9, $weightScores->max());
+        $tsMin = $timestamps->min();
+        $tsRange = max(1, $timestamps->max() - $tsMin);
+
+        $recencyScores = $candidates->mapWithKeys(fn ($node) => [
+            $node->id => round(($timestamps[$node->id] - $tsMin) / $tsRange, 6),
+        ]);
+
+        $combined = $candidates->mapWithKeys(fn ($node) => [
+            $node->id => round(
+                0.5 * ($queryScores[$node->id] / $queryMax)
+                + 0.3 * ($weightScores[$node->id] / $weightMax)
+                + 0.2 * $recencyScores[$node->id],
+                6,
+            ),
+        ]);
+
+        // Query-relevant goals fill first; everything else competes on combined score.
+        $relevantGoals = $candidates
+            ->filter(fn ($node) => $node->type === 'goal' && $queryScores[$node->id] > 0)
+            ->sort(function ($left, $right) use ($queryScores) {
+                $scoreComparison = $queryScores[$right->id] <=> $queryScores[$left->id];
+                if ($scoreComparison !== 0) {
+                    return $scoreComparison;
+                }
+
+                return $this->compareByRecencyThenId($left, $right);
+            })
+            ->take($count)
+            ->values();
+
+        $goalIds = $relevantGoals->pluck('id')->flip();
+
+        $ranked = $candidates
+            ->reject(fn ($node) => $goalIds->has($node->id))
+            ->sort(function ($left, $right) use ($combined) {
+                $scoreComparison = $combined[$right->id] <=> $combined[$left->id];
+                if ($scoreComparison !== 0) {
+                    return $scoreComparison;
+                }
+
+                return $this->compareByRecencyThenId($left, $right);
+            })
+            ->take(max(0, $count - $relevantGoals->count()))
+            ->values();
+
+        $seeds = $relevantGoals->merge($ranked)->values();
+
+        $detail = $seeds->map(fn ($node) => [
+            'node_id' => $node->id,
+            'type' => $node->type,
+            'selected_by' => $goalIds->has($node->id) ? 'query_relevant_goal' : 'hybrid',
+            'query_score' => $queryScores[$node->id],
+            'weight_score' => round($weightScores[$node->id], 4),
+            'recency_score' => $recencyScores[$node->id],
+            'combined_score' => $combined[$node->id],
+        ])->all();
+
+        $seedIds = $seeds->pluck('id')->flip();
+        $candidateScores = $candidates
+            ->sort(function ($left, $right) use ($combined) {
+                $scoreComparison = $combined[$right->id] <=> $combined[$left->id];
+                if ($scoreComparison !== 0) {
+                    return $scoreComparison;
+                }
+
+                return $this->compareByRecencyThenId($left, $right);
+            })
+            ->take(20)
+            ->map(fn ($node) => [
+                'node_id' => $node->id,
+                'type' => $node->type,
+                'query_score' => $queryScores[$node->id],
+                'weight_score' => round($weightScores[$node->id], 4),
+                'recency_score' => $recencyScores[$node->id],
+                'combined_score' => $combined[$node->id],
+                'selected' => $seedIds->has($node->id),
+            ])
+            ->values()
+            ->all();
+
+        return [$seeds, $detail, $candidateScores, $candidates->count(), $matchedCandidateCount];
+    }
+
+    /**
+     * Bounded candidate pool for query-aware seed selection. Larger than the
+     * weight-seed pool because query matching should reach older memories that
+     * no longer rank on recency or accumulated weight.
+     */
+    private function queryCandidatePool(string $userId): \Illuminate\Support\Collection
+    {
+        return MemoryNode::where('user_id', $userId)
+            ->where('sensitivity', 'public')
+            ->whereNull('consolidated_at')
+            ->orderByDesc('created_at')
+            ->orderBy('id')
+            ->limit(self::QUERY_POOL)
+            ->get();
+    }
+
+    /**
+     * Direct lexical retrieval baseline: same scoped candidate pool and scorer
+     * as query_graph, but no graph traversal, edge weighting, or goal seeding.
+     *
+     * @param  string[]  $terms
+     * @return array{0: array, 1: array}
+     */
+    private function retrieveByQueryLexical(string $userId, int $limit, array $terms): array
+    {
+        if ($terms === []) {
+            $records = $this->retrieveByRecency($userId, $limit);
+
+            return [$records, [
+                'seed_fallback' => 'no_query_terms',
+                'selected_ids' => array_column($records, 'id'),
+                'retrieved_ids' => array_column($records, 'id'),
+            ]];
+        }
+
+        [$candidates, $scores, $ranked] = $this->rankQueryCandidates($userId, $terms);
+        $selected = $ranked->take($limit)->values();
+        $selectedIds = $selected->pluck('id')->flip();
+
+        if ($selected->isEmpty()) {
+            $records = $this->retrieveByRecency($userId, $limit);
+
+            return [$records, [
+                'seed_fallback' => 'no_lexical_match',
+                'candidate_count' => $candidates->count(),
+                'matched_candidate_count' => 0,
+                'selected_ids' => array_column($records, 'id'),
+                'retrieved_ids' => array_column($records, 'id'),
+            ]];
+        }
+
+        $seedDetail = $selected->map(fn ($node) => [
+            'node_id' => $node->id,
+            'type' => $node->type,
+            'selected_by' => 'query_lexical',
+            'query_score' => $scores[$node->id],
+        ])->all();
+
+        $candidateScores = $ranked
+            ->take(20)
+            ->map(fn ($node) => [
+                'node_id' => $node->id,
+                'type' => $node->type,
+                'query_score' => $scores[$node->id],
+                'selected' => $selectedIds->has($node->id),
+            ])
+            ->values()
+            ->all();
+
+        $records = $this->nodesToRecords($selected);
+
+        return [$records, [
+            'seed_fallback' => null,
+            'seeds' => $seedDetail,
+            'candidate_count' => $candidates->count(),
+            'matched_candidate_count' => $ranked->count(),
+            'candidate_scores' => $candidateScores,
+            'selected_ids' => array_column($records, 'id'),
+            'direct_lexical_ids' => array_column($seedDetail, 'node_id'),
+            'graph_added_ids' => [],
+            'traversal_depth' => 0,
+            'traversed_edge_count' => 0,
+            'retrieved_ids' => array_column($records, 'id'),
+        ]];
+    }
+
+    /**
+     * @param  string[]  $terms
+     * @return array{0: \Illuminate\Support\Collection, 1: \Illuminate\Support\Collection, 2: \Illuminate\Support\Collection}
+     */
+    private function rankQueryCandidates(string $userId, array $terms): array
+    {
+        $candidates = $this->queryCandidatePool($userId);
+
+        $scores = $candidates->mapWithKeys(fn ($node) => [
+            $node->id => $this->queryScorer->score($terms, $node->content, $node->label ?? '', $node->tags ?? []),
+        ]);
+
+        $ranked = $candidates
+            ->filter(fn ($node) => $scores[$node->id] > 0)
+            ->sort(function ($left, $right) use ($scores) {
+                $scoreComparison = $scores[$right->id] <=> $scores[$left->id];
+                if ($scoreComparison !== 0) {
+                    return $scoreComparison;
+                }
+
+                return $this->compareByRecencyThenId($left, $right);
+            })
+            ->values();
+
+        return [$candidates, $scores, $ranked];
+    }
+
+    /**
+     * Minimal trace description for seeds chosen by the query-blind strategies.
+     */
+    private function describeSeeds(\Illuminate\Support\Collection $seeds): array
+    {
+        return $seeds->map(fn ($node) => [
+            'node_id' => $node->id,
+            'type' => $node->type,
+            'selected_by' => $node->type === 'goal' ? 'goal' : 'weight',
+        ])->all();
+    }
+
+    private function directLexicalSeedIds(array $seedDetail): array
+    {
+        return array_values(array_map(
+            static fn (array $seed) => $seed['node_id'],
+            array_filter($seedDetail, static fn (array $seed) => ($seed['query_score'] ?? 0) > 0),
+        ));
+    }
+
+    private function compareByRecencyThenId(MemoryNode $left, MemoryNode $right): int
+    {
+        $recencyComparison = ($right->created_at?->getTimestamp() ?? 0) <=> ($left->created_at?->getTimestamp() ?? 0);
+        if ($recencyComparison !== 0) {
+            return $recencyComparison;
+        }
+
+        return strcmp((string) $left->id, (string) $right->id);
+    }
+
+    /**
      * Trace the retrieval pipeline phase by phase for visualisation.
      *
      * Mirrors retrieveContext() but emits a structured record of every step
      * the algorithm actually performs: which nodes were selected as goal seeds,
      * which were selected by edge-weight score, how each BFS hop expanded the
-     * frontier, which neighbours were filtered out (private/sensitive/consolidated),
+     * frontier, how many neighbours were filtered out (private/sensitive/consolidated),
      * which final set was assembled, and which edges were reinforced.
      *
      * The trace duplicates the algorithm rather than parameterising retrieveContext
@@ -471,6 +946,7 @@ class MemoryGraphService
                         if ($scoreComparison !== 0) {
                             return $scoreComparison;
                         }
+
                         return ($right->created_at?->getTimestamp() ?? 0) <=> ($left->created_at?->getTimestamp() ?? 0);
                     })
                     ->take($remaining)
@@ -490,6 +966,7 @@ class MemoryGraphService
         if ($seeds->isEmpty()) {
             $phases[] = ['kind' => 'context_assembled', 'node_ids' => []];
             $phases[] = ['kind' => 'reinforce', 'node_ids' => [], 'edges' => []];
+
             return ['phases' => $phases, 'active_node_ids' => []];
         }
 
@@ -537,6 +1014,7 @@ class MemoryGraphService
                     return ($e->from_node_id === $node->id && $frontierSet->has($e->to_node_id))
                         || ($e->to_node_id === $node->id && $frontierSet->has($e->from_node_id));
                 });
+
                 return [
                     'node_id' => $node->id,
                     'via_edge_id' => $bringIn?->id,
@@ -547,14 +1025,14 @@ class MemoryGraphService
                 ];
             })->values()->all();
 
-            $rejectedIds = $neighborIds->diff($neighborsById->keys())->values()->all();
+            $rejectedCount = $neighborIds->diff($neighborsById->keys())->count();
 
             $phases[] = [
                 'kind' => 'bfs_hop',
                 'depth' => $depth,
                 'frontier_ids' => $frontier->values()->all(),
                 'admitted' => $admitted,
-                'rejected_neighbor_ids' => $rejectedIds,
+                'rejected_neighbor_count' => $rejectedCount,
             ];
 
             $collected = $collected->merge($neighbors)->unique('id')->take($limit);
@@ -624,14 +1102,9 @@ class MemoryGraphService
         return $nodeIds;
     }
 
-    private function retrieveByRecency(string $userId, int $limit): array
+    private function nodesToRecords(\Illuminate\Support\Collection $nodes): array
     {
-        return MemoryNode::where('user_id', $userId)
-            ->where('sensitivity', 'public')
-            ->whereNull('consolidated_at')
-            ->latest()
-            ->limit($limit)
-            ->get()
+        return $nodes
             ->map(fn ($n) => [
                 'id' => $n->id,
                 'content' => $n->content,
@@ -639,6 +1112,19 @@ class MemoryGraphService
             ])
             ->values()
             ->all();
+    }
+
+    private function retrieveByRecency(string $userId, int $limit): array
+    {
+        $nodes = MemoryNode::where('user_id', $userId)
+            ->where('sensitivity', 'public')
+            ->whereNull('consolidated_at')
+            ->orderByDesc('created_at')
+            ->orderBy('id')
+            ->limit($limit)
+            ->get();
+
+        return $this->nodesToRecords($nodes);
     }
 
     // Physarum model constants (Tero et al. 2010, discrete form).
@@ -650,6 +1136,15 @@ class MemoryGraphService
     private const RHO = 0.97;
 
     private const WEIGHT_FLOOR = 0.05;
+
+    // Retrieval constants.
+    // SEED_COUNT: BFS seeds selected per retrieval, shared by all graph strategies.
+    // QUERY_POOL: candidate pool size for query-aware seed scoring. Wider than the
+    // 60-node weight pool so a query can reach memories that recency and accumulated
+    // weight no longer surface.
+    private const SEED_COUNT = 4;
+
+    private const QUERY_POOL = 200;
 
     // ── Edge auto-wiring ──────────────────────────────────────────────────────
 

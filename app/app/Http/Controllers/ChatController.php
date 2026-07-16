@@ -13,6 +13,7 @@ use App\Services\MemorySummarizationService;
 use App\Services\RedactionResult;
 use App\Services\RedactionService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -134,7 +135,23 @@ class ChatController extends Controller
         //
         // Cold start (no graph nodes yet): fall back to flat ICP recall so the first
         // few turns still inject memory context while the graph is being built.
-        $graphContext = $this->graphService->retrieveContext($userId);
+        //
+        // The strategy comes from RETRIEVAL_STRATEGY. The redacted user message is
+        // passed as the query so the query-aware strategies can seed from it; the
+        // raw message never reaches seed selection. An unrecognized configured
+        // strategy falls back to the goal_graph default with a structured warning
+        // instead of failing the turn silently.
+        $strategy = (string) config('services.retrieval.strategy', 'goal_graph');
+        if (! in_array($strategy, MemoryGraphService::STRATEGIES, true)) {
+            Log::warning('Invalid RETRIEVAL_STRATEGY configured; falling back to default.', [
+                'key' => 'RETRIEVAL_STRATEGY',
+                'invalid_value' => $strategy,
+                'fallback' => 'goal_graph',
+            ]);
+            $strategy = 'goal_graph';
+        }
+
+        $graphContext = $this->graphService->retrieveContext($userId, 12, $strategy, $safeUserMessage);
         $groundedMode = (bool) config('services.grounded.enabled', false);
         $groundedEvidence = [];
 
