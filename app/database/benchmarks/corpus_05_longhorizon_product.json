@@ -1,0 +1,402 @@
+{
+  "id": "corpus_05",
+  "description": "Product and platform lead tracking 14 months of decisions, incidents, vendor changes, and team state. Questions are labeled with a class field so per-class strategy differences are measurable. Recent memories are deliberately dominated by routine operational noise while most questions target knowledge from 100 to 420 days ago, which stresses any strategy that leans on recency.",
+  "persona": "Product-minded platform lead at a 12-person B2B SaaS company. Keeps memory notes on architecture decisions, vendor selections, pricing experiments, compliance work, hiring, and weekly operations. Currently planning the next quarter while running day-to-day operations.",
+  "memories": [
+    {
+      "content": "Chose Stripe Billing for subscription management. Usage-based add-ons and coupon support were the deciding features. Chargebee rejected because its invoice customization required their highest tier.",
+      "type": "memory",
+      "label": "Billing vendor decision: Stripe Billing over Chargebee",
+      "tags": ["stripe", "billing", "chargebee", "vendor", "decision", "subscriptions"],
+      "created_days_ago": 420
+    },
+    {
+      "content": "Adopted a modular monolith on Laravel rather than microservices. A single deploy unit fits a team of five engineers, and domain boundaries are enforced with module namespaces and an internal events bus instead of network calls.",
+      "type": "memory",
+      "label": "Architecture: modular monolith over microservices",
+      "tags": ["architecture", "monolith", "microservices", "laravel", "decision"],
+      "created_days_ago": 415
+    },
+    {
+      "content": "Selected Postmark for transactional email after deliverability testing. Postmark reached the inbox in 98 percent of test sends versus 91 percent for SES with our warmed domain. SES retained for bulk digest email where cost dominates.",
+      "type": "memory",
+      "label": "Email split: Postmark transactional, SES bulk",
+      "tags": ["postmark", "ses", "email", "deliverability", "vendor", "decision"],
+      "created_days_ago": 400
+    },
+    {
+      "content": "First pricing experiment: moved from a single 49 dollar plan to a three-tier structure at 29, 79, and 199 dollars. Hypothesis was that the 199 tier would anchor the 79 tier upward.",
+      "type": "event",
+      "label": "Pricing experiment: three-tier structure launched",
+      "tags": ["pricing", "experiment", "tiers", "revenue"],
+      "created_days_ago": 390
+    },
+    {
+      "content": "Pricing experiment results after eight weeks: average revenue per account rose 22 percent. Almost all new revenue came from the 79 tier. Only two accounts took the 199 tier, but its anchoring effect on the 79 tier appears real.",
+      "type": "memory",
+      "label": "Pricing result: 22 percent ARPA lift from tiering",
+      "tags": ["pricing", "experiment", "results", "arpa", "revenue", "anchoring"],
+      "created_days_ago": 335
+    },
+    {
+      "content": "Hired Priya as the first dedicated data engineer. Background in dbt and Snowflake at a fintech. She owns the analytics warehouse and the customer-facing usage reports.",
+      "type": "memory",
+      "label": "Hired Priya, data engineer, owns warehouse",
+      "tags": ["priya", "hiring", "team", "data-engineering", "warehouse", "dbt"],
+      "created_days_ago": 380
+    },
+    {
+      "content": "Production incident: a runaway export job saturated the primary database connection pool for 40 minutes. Customer dashboards timed out. Root cause was an unbounded query exporting an entire account history without pagination.",
+      "type": "event",
+      "label": "Incident: export job saturated DB connection pool",
+      "tags": ["incident", "database", "export", "connection-pool", "outage"],
+      "created_days_ago": 370
+    },
+    {
+      "content": "Post-incident fix for the export outage: exports moved to a dedicated read replica with a separate connection pool, and all export queries now require keyset pagination. Added a CI check that rejects unpaginated table scans in export code paths.",
+      "type": "memory",
+      "label": "Export fix: read replica plus mandatory keyset pagination",
+      "tags": ["export", "read-replica", "pagination", "database", "fix", "incident"],
+      "created_days_ago": 365
+    },
+    {
+      "content": "Decided against building a native mobile app this year. Web usage analytics show 94 percent of sessions on desktop. Responsive web improvements deliver more value per engineering week than a mobile app the data says few would use.",
+      "type": "memory",
+      "label": "Decision: no native mobile app this year",
+      "tags": ["mobile", "decision", "roadmap", "analytics", "web"],
+      "created_days_ago": 355
+    },
+    {
+      "content": "SOC 2 Type 1 preparation started with Vanta for evidence collection. Scoped controls to production infrastructure, access management, and vendor review. Estimated four months to the Type 1 report.",
+      "type": "event",
+      "label": "SOC 2 Type 1 prep started with Vanta",
+      "tags": ["soc2", "compliance", "vanta", "security", "audit"],
+      "created_days_ago": 340
+    },
+    {
+      "content": "Access management overhaul for SOC 2: all production access now goes through short-lived SSO sessions, quarterly access reviews are calendared, and standing admin credentials were revoked for everyone including founders.",
+      "type": "memory",
+      "label": "SOC 2 access controls: SSO sessions, quarterly reviews",
+      "tags": ["soc2", "access-management", "sso", "security", "compliance"],
+      "created_days_ago": 320
+    },
+    {
+      "content": "Priya shipped the analytics warehouse on Snowflake with dbt models for revenue, activation, and retention. Finance now pulls monthly recurring revenue from the warehouse instead of a spreadsheet reconciled by hand.",
+      "type": "event",
+      "label": "Analytics warehouse live: Snowflake plus dbt",
+      "tags": ["priya", "warehouse", "snowflake", "dbt", "analytics", "mrr"],
+      "created_days_ago": 310
+    },
+    {
+      "content": "Enterprise prospect Northgate Systems requires invoicing with purchase orders, net-60 terms, and consolidated annual invoices. Stripe Billing cannot model their procurement flow without manual workarounds on every renewal.",
+      "type": "memory",
+      "label": "Northgate requirements expose Stripe Billing limits",
+      "tags": ["northgate", "enterprise", "invoicing", "stripe", "billing", "purchase-orders"],
+      "created_days_ago": 300
+    },
+    {
+      "content": "SOC 2 Type 1 report received from the auditor with zero exceptions. Sales can now send the report under NDA. Type 2 observation window starts immediately and runs six months.",
+      "type": "event",
+      "label": "SOC 2 Type 1 achieved, zero exceptions",
+      "tags": ["soc2", "compliance", "audit", "type1", "security"],
+      "created_days_ago": 260
+    },
+    {
+      "content": "Decision reversed on billing: enterprise invoicing moved off Stripe Billing onto an internal invoicing module. Stripe remains the card processor for self-serve tiers, but purchase orders, net-60 terms, and consolidated invoices are generated by our own module. The migration is scoped to enterprise accounts only.",
+      "type": "memory",
+      "label": "Billing reversal: internal invoicing for enterprise, Stripe stays for self-serve",
+      "tags": ["billing", "stripe", "invoicing", "enterprise", "decision", "reversal", "northgate"],
+      "created_days_ago": 250
+    },
+    {
+      "content": "Northgate Systems signed a 68000 dollar annual contract, the largest deal to date. The deal required the SOC 2 report, net-60 invoicing, and a security questionnaire that took three weeks of back and forth.",
+      "type": "event",
+      "label": "Northgate signed: 68k annual, largest deal",
+      "tags": ["northgate", "enterprise", "deal", "revenue", "soc2"],
+      "created_days_ago": 240
+    },
+    {
+      "content": "Hired Tomas as a senior frontend engineer. Deep Vue and accessibility background. He owns the design system and is rebuilding the reporting UI with keyboard navigation and screen reader support.",
+      "type": "memory",
+      "label": "Hired Tomas, senior frontend, owns design system",
+      "tags": ["tomas", "hiring", "team", "frontend", "vue", "accessibility"],
+      "created_days_ago": 230
+    },
+    {
+      "content": "Incident: webhook delivery backlog reached 400000 undelivered events after a partner endpoint hung without closing connections. Delivery workers blocked on 30-second timeouts. Backlog drained in six hours after raising worker concurrency.",
+      "type": "event",
+      "label": "Incident: 400k webhook backlog from hanging partner endpoint",
+      "tags": ["incident", "webhooks", "backlog", "timeout", "workers"],
+      "created_days_ago": 220
+    },
+    {
+      "content": "Webhook hardening after the backlog incident: per-destination circuit breakers, 5-second connect and 10-second read timeouts, and exponential backoff with a dead-letter queue after eight failures. Partner endpoints that hang no longer block global delivery.",
+      "type": "memory",
+      "label": "Webhook fix: circuit breakers, timeouts, dead-letter queue",
+      "tags": ["webhooks", "circuit-breaker", "timeout", "dead-letter", "fix", "incident"],
+      "created_days_ago": 215
+    },
+    {
+      "content": "Quarterly retro finding: the team ships fastest when a project has a single directly responsible individual and a written one-page brief. Projects with shared ownership consistently slipped. Adopted DRI plus brief as the default for anything over one week.",
+      "type": "memory",
+      "label": "Process: DRI plus one-page brief for all projects",
+      "tags": ["process", "dri", "retro", "team", "planning"],
+      "created_days_ago": 200
+    },
+    {
+      "content": "Usage-based pricing added for the API product: 10000 included calls per month, then 2 dollars per thousand. Existing tiers unchanged. Metering runs through the warehouse with daily reconciliation against the gateway logs.",
+      "type": "event",
+      "label": "API usage pricing launched: 2 dollars per thousand calls",
+      "tags": ["pricing", "api", "usage-based", "metering", "warehouse"],
+      "created_days_ago": 190
+    },
+    {
+      "content": "Data residency requirement surfaced: two EU prospects require all customer data stored in EU regions. Current stack is single-region us-east-1. Scoping a Frankfurt read-write region for application data and EU-pinned S3 buckets for uploads.",
+      "type": "memory",
+      "label": "EU data residency requirement from two prospects",
+      "tags": ["data-residency", "eu", "compliance", "frankfurt", "infrastructure"],
+      "created_days_ago": 180
+    },
+    {
+      "content": "Postgres upgraded from 14 to 16 with logical replication and a 90-second cutover. Query planner regressions were caught in a week-long shadow environment first; two queries needed explicit join hints rewritten as CTEs.",
+      "type": "event",
+      "label": "Postgres 14 to 16 upgrade, 90-second cutover",
+      "tags": ["postgres", "upgrade", "replication", "database", "migration"],
+      "created_days_ago": 170
+    },
+    {
+      "content": "Priya built anomaly alerts on the metering pipeline: daily API call counts per account are compared against a 28-day seasonal baseline, and deviations beyond three sigma page the on-call. Caught a double-counting bug in week one.",
+      "type": "memory",
+      "label": "Metering anomaly alerts with seasonal baseline",
+      "tags": ["priya", "metering", "anomaly-detection", "alerts", "api", "warehouse"],
+      "created_days_ago": 160
+    },
+    {
+      "content": "Churn analysis across four quarters: accounts that never invited a second user churn at 34 percent annually versus 9 percent for multi-user accounts. Activation work now targets second-user invites in the first two weeks.",
+      "type": "memory",
+      "label": "Churn driver: single-user accounts churn 34 percent",
+      "tags": ["churn", "activation", "analytics", "retention", "onboarding"],
+      "created_days_ago": 150
+    },
+    {
+      "content": "Tomas shipped the rebuilt reporting UI. Full keyboard navigation, screen reader labels on every chart, and render time under 200 milliseconds on the largest enterprise account. Support tickets about report loading dropped to zero the following month.",
+      "type": "event",
+      "label": "Reporting UI rebuild shipped by Tomas",
+      "tags": ["tomas", "reporting", "frontend", "accessibility", "performance"],
+      "created_days_ago": 140
+    },
+    {
+      "content": "Vendor review completed for SOC 2 Type 2: consolidated three overlapping monitoring tools into Grafana Cloud, cancelled two unused SaaS subscriptions, and documented data processing agreements for every remaining vendor.",
+      "type": "memory",
+      "label": "Vendor consolidation: Grafana Cloud, DPAs documented",
+      "tags": ["vendors", "soc2", "grafana", "monitoring", "compliance"],
+      "created_days_ago": 130
+    },
+    {
+      "content": "Decided to keep support in-house instead of outsourcing tier 1. Trial with an outsourced team produced faster first responses but resolution quality dropped and two enterprise contacts complained. Support stays with the product team on a rotating schedule.",
+      "type": "memory",
+      "label": "Decision: support stays in-house after outsourcing trial",
+      "tags": ["support", "outsourcing", "decision", "enterprise", "quality"],
+      "created_days_ago": 120
+    },
+    {
+      "content": "EU region shipped: Frankfurt now serves EU-pinned tenants with region-local Postgres, Redis, and S3. Tenant region is chosen at signup and recorded immutably. Both EU prospects moved to paid contracts within three weeks of launch.",
+      "type": "event",
+      "label": "EU Frankfurt region live, both prospects converted",
+      "tags": ["eu", "frankfurt", "data-residency", "infrastructure", "launch"],
+      "created_days_ago": 100
+    },
+    {
+      "content": "SOC 2 Type 2 report received covering the six-month observation window, one minor exception on laptop disk encryption evidence for a contractor device. Exception remediated and documented before the report was distributed.",
+      "type": "event",
+      "label": "SOC 2 Type 2 report received, one remediated exception",
+      "tags": ["soc2", "type2", "compliance", "audit", "security"],
+      "created_days_ago": 90
+    },
+    {
+      "content": "Hired Wen as product designer, the first design hire. Portfolio strength in complex B2B dashboards. Wen pairs with Tomas on the design system and owns discovery interviews with enterprise accounts.",
+      "type": "memory",
+      "label": "Hired Wen, first product designer",
+      "tags": ["wen", "hiring", "team", "design", "enterprise"],
+      "created_days_ago": 80
+    },
+    {
+      "content": "API rate limiting redesigned from fixed windows to a token bucket per account with burst capacity. Fixed windows caused synchronized retry storms at window boundaries for high-volume integrations.",
+      "type": "memory",
+      "label": "Rate limiting: token bucket replaces fixed windows",
+      "tags": ["api", "rate-limiting", "token-bucket", "architecture", "fix"],
+      "created_days_ago": 70
+    },
+    {
+      "content": "Quarterly business review: annual recurring revenue crossed 1.1 million dollars, net revenue retention at 118 percent, gross margin 81 percent. Enterprise segment is now 41 percent of revenue, up from 12 percent a year ago.",
+      "type": "memory",
+      "label": "QBR: ARR 1.1M, NRR 118, enterprise 41 percent",
+      "tags": ["qbr", "arr", "revenue", "metrics", "enterprise"],
+      "created_days_ago": 60
+    },
+    {
+      "content": "Started evaluating OpenTelemetry for distributed tracing across the queue workers and the API. Current logging cannot answer where multi-step webhook deliveries spend their time. Decision expected next quarter.",
+      "type": "memory",
+      "label": "Evaluating OpenTelemetry tracing for workers and API",
+      "tags": ["opentelemetry", "tracing", "observability", "evaluation", "workers"],
+      "created_days_ago": 50
+    },
+    {
+      "content": "Weekly ops note: routine dependency upgrades across the monorepo, no breaking changes. Renovate merged 14 minor version bumps after CI passed.",
+      "type": "memory",
+      "label": "Ops: routine dependency upgrades merged",
+      "tags": ["ops", "dependencies", "renovate", "routine"],
+      "created_days_ago": 28
+    },
+    {
+      "content": "Weekly ops note: rotated the on-call schedule for the next quarter and moved the standup 30 minutes earlier to overlap with Tomas in his new timezone.",
+      "type": "memory",
+      "label": "Ops: on-call rotation and standup time updated",
+      "tags": ["ops", "on-call", "standup", "routine", "team"],
+      "created_days_ago": 24
+    },
+    {
+      "content": "Weekly ops note: office lease renewed for twelve months at the same rate. Cleaning vendor switched. Nothing product-related this week.",
+      "type": "memory",
+      "label": "Ops: office lease renewed, cleaning vendor switched",
+      "tags": ["ops", "office", "lease", "routine"],
+      "created_days_ago": 21
+    },
+    {
+      "content": "Weekly ops note: two conference talk proposals submitted for the spring SaaS operators summit. Waiting on the CFP committee decisions in six weeks.",
+      "type": "memory",
+      "label": "Ops: two conference CFPs submitted",
+      "tags": ["ops", "conference", "cfp", "routine", "marketing"],
+      "created_days_ago": 17
+    },
+    {
+      "content": "Weekly ops note: quarterly access review completed on schedule for SOC 2 continuity, no stale grants found. Evidence uploaded to Vanta.",
+      "type": "memory",
+      "label": "Ops: quarterly access review clean",
+      "tags": ["ops", "access-review", "soc2", "routine", "vanta"],
+      "created_days_ago": 14
+    },
+    {
+      "content": "Weekly ops note: swapped the team password manager plan to the business tier to get SCIM provisioning. Migration took one afternoon.",
+      "type": "memory",
+      "label": "Ops: password manager upgraded for SCIM",
+      "tags": ["ops", "password-manager", "scim", "routine", "security"],
+      "created_days_ago": 10
+    },
+    {
+      "content": "Current status: the OpenTelemetry evaluation is paused for two weeks while Priya finishes the metering reconciliation audit that a Northgate renewal question triggered. Tracing decision now expected at the end of next month.",
+      "type": "memory",
+      "label": "Status: OpenTelemetry evaluation paused for metering audit",
+      "tags": ["opentelemetry", "status", "priya", "metering", "northgate", "audit"],
+      "created_days_ago": 7
+    },
+    {
+      "content": "Weekly ops note: sales asked for two new case studies. Wen scheduled discovery calls with the two EU accounts that launched on the Frankfurt region.",
+      "type": "memory",
+      "label": "Ops: case study calls scheduled with EU accounts",
+      "tags": ["ops", "case-study", "wen", "eu", "routine"],
+      "created_days_ago": 5
+    },
+    {
+      "content": "Weekly ops note: minor landing page copy refresh shipped, and the blog moved to the same deploy pipeline as the docs site.",
+      "type": "memory",
+      "label": "Ops: landing page copy refresh shipped",
+      "tags": ["ops", "marketing", "landing-page", "routine"],
+      "created_days_ago": 3
+    }
+  ],
+  "goals": [
+    {
+      "content": "Goal: close SOC 2 Type 2 renewal and the EU expansion follow-on deals this quarter without adding compliance headcount.",
+      "label": "Close Type 2 renewal and EU follow-on deals",
+      "tags": ["soc2", "eu", "enterprise", "compliance", "goal"],
+      "created_days_ago": 30
+    },
+    {
+      "content": "Goal: raise net revenue retention above 125 percent by expanding usage-based API revenue inside existing enterprise accounts.",
+      "label": "NRR above 125 via API expansion",
+      "tags": ["nrr", "api", "usage-based", "pricing", "revenue", "goal"],
+      "created_days_ago": 25
+    },
+    {
+      "content": "Goal: pick and roll out a distributed tracing stack so that webhook and worker latency questions are answerable within one on-call shift.",
+      "label": "Roll out distributed tracing this half",
+      "tags": ["opentelemetry", "tracing", "observability", "webhooks", "goal"],
+      "created_days_ago": 20
+    }
+  ],
+  "questions": [
+    {
+      "id": "q1",
+      "class": "historical_decision",
+      "question": "Why did we originally choose Stripe Billing, and what limitation later forced a change?",
+      "expected_themes": ["usage-based add-ons and coupons decided for Stripe", "Chargebee rejected over invoice customization tier", "Northgate purchase orders and net-60 exposed Stripe limits", "enterprise invoicing moved to an internal module"]
+    },
+    {
+      "id": "q2",
+      "class": "historical_decision",
+      "question": "What did the export job incident teach us and what specific fixes were put in place?",
+      "expected_themes": ["export job saturated the primary connection pool", "unbounded query without pagination", "exports moved to a read replica", "keyset pagination made mandatory", "CI check against unpaginated scans"]
+    },
+    {
+      "id": "q3",
+      "class": "contradiction_resolution",
+      "question": "Do we run billing through Stripe or through our own system? Explain the current split.",
+      "expected_themes": ["Stripe remains card processor for self-serve", "internal invoicing module for enterprise", "purchase orders and net-60 handled internally", "decision reversed after Northgate requirements"]
+    },
+    {
+      "id": "q4",
+      "class": "cross_topic_synthesis",
+      "question": "Trace how the Northgate deal influenced our compliance, billing, and metering work.",
+      "expected_themes": ["SOC 2 report required for the deal", "security questionnaire took three weeks", "internal invoicing for purchase orders and net-60", "metering reconciliation audit triggered by a renewal question"]
+    },
+    {
+      "id": "q5",
+      "class": "cross_topic_synthesis",
+      "question": "What has Priya delivered since joining and what does she currently own?",
+      "expected_themes": ["analytics warehouse on Snowflake with dbt", "MRR reporting moved off spreadsheets", "metering anomaly alerts with seasonal baseline", "currently running the metering reconciliation audit"]
+    },
+    {
+      "id": "q6",
+      "class": "recent_status",
+      "question": "What is the current state of the distributed tracing evaluation?",
+      "expected_themes": ["OpenTelemetry evaluation started for workers and API", "paused two weeks for the metering reconciliation audit", "decision expected end of next month"]
+    },
+    {
+      "id": "q7",
+      "class": "durable_preference",
+      "question": "How does this team prefer to run projects and why?",
+      "expected_themes": ["single directly responsible individual", "written one-page brief", "shared ownership projects slipped", "default for anything over one week"]
+    },
+    {
+      "id": "q8",
+      "class": "planning",
+      "question": "Given my active goals, what should the next quarter prioritize?",
+      "expected_themes": ["SOC 2 Type 2 renewal and EU follow-on deals", "NRR above 125 via usage-based API expansion", "distributed tracing rollout", "enterprise segment growth supports the focus"]
+    },
+    {
+      "id": "q9",
+      "class": "planning",
+      "question": "Which existing capabilities support the goal of growing usage-based API revenue, and what gaps remain?",
+      "expected_themes": ["API usage pricing at 2 dollars per thousand calls", "metering through the warehouse with daily reconciliation", "anomaly alerts on metering", "token bucket rate limiting", "tracing gap for webhook and worker latency"]
+    },
+    {
+      "id": "q10",
+      "class": "insufficient_evidence",
+      "question": "What did the penetration test report conclude about our authentication flow?",
+      "expected_themes": ["no penetration test appears in the memory corpus", "an honest answer must say this is not recorded"]
+    },
+    {
+      "id": "q11",
+      "class": "historical_decision",
+      "question": "Which payment setup won at first, and why did large-account procurement later need a different path?",
+      "expected_themes": ["usage-based add-ons and coupons decided for Stripe", "Chargebee rejected over invoice customization tier", "purchase orders and net-60 exposed Stripe limits", "enterprise invoicing moved to an internal module"]
+    },
+    {
+      "id": "q12",
+      "class": "cross_topic_synthesis",
+      "question": "What does the organization know about keeping customer-facing reports quick and usable?",
+      "expected_themes": ["reporting UI rebuilt by Tomas", "keyboard navigation and screen reader labels", "render time under 200 milliseconds", "support tickets about report loading dropped to zero"]
+    }
+  ]
+}

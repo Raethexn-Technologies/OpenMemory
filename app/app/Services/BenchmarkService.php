@@ -6,7 +6,6 @@ use App\Models\MemoryEdge;
 use App\Models\MemoryNode;
 use App\Services\LLM\LlmService;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -15,10 +14,10 @@ use Illuminate\Support\Facades\Log;
  * Evaluates three retrieval strategies against synthetic but realistic user memory
  * corpora using an LLM-as-judge scoring protocol.
  *
- * Strategies:
- *   recency: most recently created public nodes, no graph traversal.
- *   graph: BFS from weight-ranked seeds, goal nodes treated as ordinary candidates.
- *   goal_graph: BFS from goal-node seeds first, then weight-ranked seeds.
+ * Strategies are the ones defined in MemoryGraphService::STRATEGIES. The question
+ * text is passed to retrieval as the query, so the query-aware strategies select
+ * from the same question the judge later scores against. query_lexical is the
+ * non-graph control for separating lexical selection from traversal value.
  *
  * Scoring dimensions (1-5 each):
  *   relevance: do the retrieved items address the question?
@@ -27,6 +26,11 @@ use Illuminate\Support\Facades\Log;
  *   noise_ratio: how free is the context from irrelevant items? (5 = very clean)
  *
  * Token efficiency = composite_score / (estimated_tokens / 1000)
+ *
+ * Alongside the LLM judge, a deterministic theme-coverage metric reports the
+ * fraction of expected answer themes that are lexically present in the retrieved
+ * context. It is model-free and repeatable, so strategy comparisons remain
+ * possible even when judge calls fail or judge variance is in question.
  *
  * Each corpus run seeds a fresh isolated user partition, runs all strategies and
  * questions, scores results with the LLM judge, then cleans up unless --keep is set.
@@ -72,10 +76,15 @@ Output JSON only. No explanation.
 {"relevance": N, "completeness": N, "goal_alignment": N, "noise_ratio": N, "missing": "what key info is absent", "irrelevant": "what items are clearly off-topic"}
 TEMPLATE;
 
+    private readonly QueryRelevanceScorer $scorer;
+
     public function __construct(
         private readonly MemoryGraphService $graph,
         private readonly LlmService $llm,
-    ) {}
+        ?QueryRelevanceScorer $scorer = null,
+    ) {
+        $this->scorer = $scorer ?? new QueryRelevanceScorer;
+    }
 
     /**
      * Run the full benchmark against one corpus file.
@@ -91,14 +100,13 @@ TEMPLATE;
         bool $keep = false,
         ?callable $onJudged = null,
         bool $excludeGoals = false,
-    ): array
-    {
+    ): array {
         if ($contextLimit < 1) {
             throw new \InvalidArgumentException('Context limit must be a positive integer.');
         }
 
         $corpusId = $corpus['id'];
-        $userId = 'benchmark-' . $corpusId . '-' . uniqid();
+        $userId = 'benchmark-'.$corpusId.'-'.uniqid();
 
         try {
             $this->seedCorpus($corpus, $userId, $excludeGoals);
@@ -109,12 +117,16 @@ TEMPLATE;
                 $questionResults = [
                     'question_id' => $q['id'],
                     'question' => $q['question'],
+                    'question_class' => $q['class'] ?? null,
                     'expected_themes' => $q['expected_themes'],
                     'strategies' => [],
                 ];
 
                 foreach ($strategies as $strategy) {
-                    $context = $this->graph->retrieveContext($userId, $contextLimit, $strategy);
+                    $retrievalStarted = hrtime(true);
+                    $traced = $this->graph->retrieveContextTraced($userId, $contextLimit, $strategy, $q['question']);
+                    $retrievalLatencyMs = round((hrtime(true) - $retrievalStarted) / 1_000_000, 3);
+                    $context = $traced['records'];
                     $scores = $this->judgeContext($q['question'], $q['expected_themes'], $context);
 
                     $charCount = array_sum(array_map(fn ($c) => mb_strlen($c['content']), $context));
@@ -136,7 +148,18 @@ TEMPLATE;
                     $questionResults['strategies'][$strategy] = [
                         'retrieved_count' => count($context),
                         'token_estimate' => $tokenEstimate,
+                        'retrieval_latency_ms' => $retrievalLatencyMs,
                         'context' => $context,
+                        'trace' => $traced['trace'],
+                        'theme_coverage' => $this->themeCoverage($q['expected_themes'], $context),
+                        'direct_seed_theme_coverage' => $this->themeCoverage(
+                            $q['expected_themes'],
+                            $this->contextSubset($context, $traced['trace']['direct_lexical_ids'] ?? []),
+                        ),
+                        'graph_added_theme_coverage' => $this->themeCoverage(
+                            $q['expected_themes'],
+                            $this->contextSubset($context, $traced['trace']['graph_added_ids'] ?? []),
+                        ),
                         'scores' => $scores,
                         'composite' => $composite,
                         'efficiency' => $efficiency,
@@ -192,12 +215,12 @@ TEMPLATE;
 
         foreach ($memories as $item) {
             $extracted = [
-                'type'        => $item['type'] ?? 'memory',
+                'type' => $item['type'] ?? 'memory',
                 'sensitivity' => $item['sensitivity'] ?? 'public',
-                'label'       => $item['label'] ?? mb_substr($item['content'], 0, 80),
-                'tags'        => $item['tags'] ?? [],
-                'people'      => $item['people'] ?? [],
-                'projects'    => $item['projects'] ?? [],
+                'label' => $item['label'] ?? mb_substr($item['content'], 0, 80),
+                'tags' => $item['tags'] ?? [],
+                'people' => $item['people'] ?? [],
+                'projects' => $item['projects'] ?? [],
             ];
 
             $node = $this->graph->storeNode($userId, $item['content'], $extracted, null, $item['source'] ?? 'chat');
@@ -216,12 +239,12 @@ TEMPLATE;
         // Add goal nodes after regular memories (recent by default, representing current active goals).
         foreach ($corpus['goals'] as $goal) {
             $extracted = [
-                'type'        => 'goal',
+                'type' => 'goal',
                 'sensitivity' => 'public',
-                'label'       => $goal['label'],
-                'tags'        => $goal['tags'] ?? [],
-                'people'      => [],
-                'projects'    => [],
+                'label' => $goal['label'],
+                'tags' => $goal['tags'] ?? [],
+                'people' => [],
+                'projects' => [],
             ];
 
             $node = $this->graph->storeNode($userId, $goal['content'], $extracted, null, 'chat');
@@ -264,7 +287,7 @@ TEMPLATE;
         }
 
         $contextLines = array_map(function ($item, $idx) {
-            return ($idx + 1) . '. ' . $item['content'];
+            return ($idx + 1).'. '.$item['content'];
         }, $context, array_keys($context));
 
         $userMessage = str_replace(
@@ -282,11 +305,74 @@ TEMPLATE;
 
         try {
             $raw = $this->llm->chat(self::JUDGE_SYSTEM, $messages);
+
             return $this->parseJudgeResponse($raw);
         } catch (\Throwable $e) {
             Log::warning('BenchmarkService: judge LLM call failed', ['error' => $e->getMessage()]);
+
             return null;
         }
+    }
+
+    /**
+     * Deterministic lexical proxy for context usefulness.
+     *
+     * A theme counts as covered when at least half of its significant terms
+     * (rounded up) appear somewhere in the concatenated retrieved content.
+     * Returns the covered fraction, or null when the question declares no
+     * themes or no theme yields usable terms. This is a lexical approximation:
+     * it detects surface presence, not semantic entailment, and is reported
+     * alongside the LLM judge rather than instead of it.
+     *
+     * @param  string[]  $expectedThemes
+     * @param  array<int, array{content: string}>  $context
+     */
+    public function themeCoverage(array $expectedThemes, array $context): ?float
+    {
+        if ($expectedThemes === []) {
+            return null;
+        }
+
+        $haystack = mb_strtolower(implode("\n", array_column($context, 'content')));
+
+        $scored = 0;
+        $covered = 0;
+
+        foreach ($expectedThemes as $theme) {
+            $terms = $this->scorer->terms((string) $theme);
+            if ($terms === []) {
+                continue;
+            }
+
+            $scored++;
+
+            $hits = count(array_filter($terms, static fn (string $term) => str_contains($haystack, $term)));
+
+            if ($hits >= (int) ceil(count($terms) / 2)) {
+                $covered++;
+            }
+        }
+
+        return $scored === 0 ? null : round($covered / $scored, 4);
+    }
+
+    /**
+     * @param  array<int, array{id: string, content: string, timestamp: string}>  $context
+     * @param  string[]  $ids
+     * @return array<int, array{id: string, content: string, timestamp: string}>
+     */
+    private function contextSubset(array $context, array $ids): array
+    {
+        if ($ids === []) {
+            return [];
+        }
+
+        $idSet = array_flip($ids);
+
+        return array_values(array_filter(
+            $context,
+            static fn (array $item) => isset($idSet[$item['id']]),
+        ));
     }
 
     // Summary.
@@ -300,27 +386,69 @@ TEMPLATE;
     {
         $totals = [];
         $counts = [];
+        $themeTotals = [];
+        $themeCounts = [];
+        $metricTotals = [];
+        $metricCounts = [];
+        $judgeFailures = [];
 
         foreach ($strategies as $s) {
             $totals[$s] = ['relevance' => 0.0, 'completeness' => 0.0, 'goal_alignment' => 0.0, 'noise_ratio' => 0.0, 'composite' => 0.0, 'tokens' => 0, 'efficiency' => 0.0];
             $counts[$s] = 0;
+            $themeTotals[$s] = 0.0;
+            $themeCounts[$s] = 0;
+            $metricTotals[$s] = [
+                'selected_nodes' => 0.0,
+                'retrieval_latency_ms' => 0.0,
+                'direct_lexical_seed_nodes' => 0.0,
+                'graph_added_nodes' => 0.0,
+                'traversal_depth' => 0.0,
+                'traversed_edges' => 0.0,
+                'expansion_context_ratio' => 0.0,
+            ];
+            $metricCounts[$s] = 0;
+            $judgeFailures[$s] = 0;
         }
 
         foreach ($results as $q) {
             foreach ($strategies as $s) {
                 $r = $q['strategies'][$s] ?? null;
-                if ($r === null || $r['scores'] === null) {
+                if ($r === null) {
+                    continue;
+                }
+
+                // Theme coverage is deterministic and survives judge failures,
+                // so it is averaged independently of the judged dimensions.
+                if (($r['theme_coverage'] ?? null) !== null) {
+                    $themeTotals[$s] += $r['theme_coverage'];
+                    $themeCounts[$s]++;
+                }
+
+                $retrievedCount = $r['retrieved_count'] ?? 0;
+                $graphAddedCount = count($r['trace']['graph_added_ids'] ?? []);
+                $metricTotals[$s]['selected_nodes'] += $retrievedCount;
+                $metricTotals[$s]['retrieval_latency_ms'] += $r['retrieval_latency_ms'] ?? 0;
+                $metricTotals[$s]['direct_lexical_seed_nodes'] += count($r['trace']['direct_lexical_ids'] ?? []);
+                $metricTotals[$s]['graph_added_nodes'] += $graphAddedCount;
+                $metricTotals[$s]['traversal_depth'] += $r['trace']['traversal_depth'] ?? 0;
+                $metricTotals[$s]['traversed_edges'] += $r['trace']['traversed_edge_count'] ?? 0;
+                $metricTotals[$s]['expansion_context_ratio'] += $retrievedCount > 0 ? $graphAddedCount / $retrievedCount : 0;
+                $metricCounts[$s]++;
+
+                if ($r['scores'] === null) {
+                    $judgeFailures[$s]++;
+
                     continue;
                 }
 
                 $scores = $r['scores'];
-                $totals[$s]['relevance']      += $scores['relevance'];
-                $totals[$s]['completeness']    += $scores['completeness'];
-                $totals[$s]['goal_alignment']  += $scores['goal_alignment'];
-                $totals[$s]['noise_ratio']     += $scores['noise_ratio'];
-                $totals[$s]['composite']       += $r['composite'] ?? 0;
-                $totals[$s]['tokens']          += $r['token_estimate'] ?? 0;
-                $totals[$s]['efficiency']      += $r['efficiency'] ?? 0;
+                $totals[$s]['relevance'] += $scores['relevance'];
+                $totals[$s]['completeness'] += $scores['completeness'];
+                $totals[$s]['goal_alignment'] += $scores['goal_alignment'];
+                $totals[$s]['noise_ratio'] += $scores['noise_ratio'];
+                $totals[$s]['composite'] += $r['composite'] ?? 0;
+                $totals[$s]['tokens'] += $r['token_estimate'] ?? 0;
+                $totals[$s]['efficiency'] += $r['efficiency'] ?? 0;
                 $counts[$s]++;
             }
         }
@@ -328,21 +456,45 @@ TEMPLATE;
         $summary = [];
         foreach ($strategies as $s) {
             $n = $counts[$s];
+            $themeMean = $themeCounts[$s] > 0 ? round($themeTotals[$s] / $themeCounts[$s], 4) : null;
+            $mn = max(1, $metricCounts[$s]);
+            $metrics = [
+                'avg_selected_nodes' => round($metricTotals[$s]['selected_nodes'] / $mn, 2),
+                'avg_retrieval_latency_ms' => round($metricTotals[$s]['retrieval_latency_ms'] / $mn, 3),
+                'avg_direct_lexical_seed_nodes' => round($metricTotals[$s]['direct_lexical_seed_nodes'] / $mn, 2),
+                'avg_graph_added_nodes' => round($metricTotals[$s]['graph_added_nodes'] / $mn, 2),
+                'avg_traversal_depth' => round($metricTotals[$s]['traversal_depth'] / $mn, 2),
+                'avg_traversed_edges' => round($metricTotals[$s]['traversed_edges'] / $mn, 2),
+                'avg_expansion_context_ratio' => round($metricTotals[$s]['expansion_context_ratio'] / $mn, 4),
+                'metric_question_count' => $metricCounts[$s],
+                'judge_failures' => $judgeFailures[$s],
+            ];
+
             if ($n === 0) {
-                $summary[$s] = null;
+                // Judge calls all failed. Theme coverage is still reportable.
+                $summary[$s] = $themeMean === null ? null : array_merge([
+                    'relevance' => null, 'completeness' => null, 'goal_alignment' => null,
+                    'noise_ratio' => null, 'composite' => null, 'avg_tokens' => null,
+                    'efficiency' => null, 'question_count' => 0,
+                    'theme_coverage' => $themeMean,
+                    'theme_question_count' => $themeCounts[$s],
+                ], $metrics);
+
                 continue;
             }
 
-            $summary[$s] = [
-                'relevance'      => round($totals[$s]['relevance'] / $n, 2),
-                'completeness'   => round($totals[$s]['completeness'] / $n, 2),
+            $summary[$s] = array_merge([
+                'relevance' => round($totals[$s]['relevance'] / $n, 2),
+                'completeness' => round($totals[$s]['completeness'] / $n, 2),
                 'goal_alignment' => round($totals[$s]['goal_alignment'] / $n, 2),
-                'noise_ratio'    => round($totals[$s]['noise_ratio'] / $n, 2),
-                'composite'      => round($totals[$s]['composite'] / $n, 2),
-                'avg_tokens'     => (int) round($totals[$s]['tokens'] / $n),
-                'efficiency'     => round($totals[$s]['efficiency'] / $n, 2),
+                'noise_ratio' => round($totals[$s]['noise_ratio'] / $n, 2),
+                'composite' => round($totals[$s]['composite'] / $n, 2),
+                'avg_tokens' => (int) round($totals[$s]['tokens'] / $n),
+                'efficiency' => round($totals[$s]['efficiency'] / $n, 2),
                 'question_count' => $n,
-            ];
+                'theme_coverage' => $themeMean,
+                'theme_question_count' => $themeCounts[$s],
+            ], $metrics);
         }
 
         return $summary;
@@ -389,7 +541,7 @@ TEMPLATE;
 
         // Extract the first complete JSON object.
         $start = strpos($json, '{');
-        $end   = strrpos($json, '}');
+        $end = strrpos($json, '}');
         if ($start === false || $end === false) {
             return null;
         }
@@ -412,7 +564,7 @@ TEMPLATE;
             }
         }
 
-        $decoded['missing']    = (string) ($decoded['missing'] ?? '');
+        $decoded['missing'] = (string) ($decoded['missing'] ?? '');
         $decoded['irrelevant'] = (string) ($decoded['irrelevant'] ?? '');
 
         return $decoded;

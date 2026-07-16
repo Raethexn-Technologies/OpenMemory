@@ -80,7 +80,7 @@ class BenchmarkServiceTest extends TestCase
     public function test_seed_corpus_excludes_goal_nodes_when_flag_is_true(): void
     {
         $service = $this->makeService();
-        $userId  = 'test-ablation-' . uniqid();
+        $userId = 'test-ablation-'.uniqid();
 
         $service->seedCorpus($this->corpus(), $userId, excludeGoals: true);
 
@@ -96,7 +96,7 @@ class BenchmarkServiceTest extends TestCase
     public function test_seed_corpus_includes_goal_nodes_by_default(): void
     {
         $service = $this->makeService();
-        $userId  = 'test-goals-present-' . uniqid();
+        $userId = 'test-goals-present-'.uniqid();
 
         $service->seedCorpus($this->corpus(), $userId);
 
@@ -127,6 +127,79 @@ class BenchmarkServiceTest extends TestCase
 
         $this->assertFalse($result['goals_excluded']);
         $this->assertSame(count($this->corpus()['memories']) + count($this->corpus()['goals']), $result['memory_count']);
+    }
+
+    public function test_run_corpus_supports_query_aware_strategies_and_stores_traces(): void
+    {
+        $service = $this->makeService();
+
+        $result = $service->runCorpus($this->corpus(), ['query_lexical', 'query_graph', 'hybrid_query_graph'], 2);
+
+        foreach (['query_lexical', 'query_graph', 'hybrid_query_graph'] as $strategy) {
+            $r = $result['results'][0]['strategies'][$strategy];
+
+            $this->assertGreaterThan(0, $r['retrieved_count']);
+            $this->assertSame($strategy, $r['trace']['strategy']);
+            $this->assertNotEmpty($r['trace']['query_terms'], 'The question text must reach retrieval as the query.');
+            $this->assertSame(array_column($r['context'], 'id'), $r['trace']['retrieved_ids']);
+            $this->assertArrayHasKey('retrieval_latency_ms', $r);
+            $this->assertArrayHasKey('graph_added_ids', $r['trace']);
+        }
+    }
+
+    public function test_theme_coverage_is_deterministic_and_lexical(): void
+    {
+        $service = $this->makeService();
+
+        $context = [
+            ['id' => 'a', 'content' => 'Improving retrieval quality is the current focus.', 'timestamp' => 'now'],
+        ];
+
+        $covered = $service->themeCoverage(['retrieval quality'], $context);
+        $missed = $service->themeCoverage(['kubernetes autoscaling'], $context);
+        $mixed = $service->themeCoverage(['retrieval quality', 'kubernetes autoscaling'], $context);
+
+        $this->assertSame(1.0, $covered);
+        $this->assertSame(0.0, $missed);
+        $this->assertSame(0.5, $mixed);
+        $this->assertNull($service->themeCoverage([], $context));
+    }
+
+    public function test_theme_coverage_survives_judge_failure(): void
+    {
+        $llm = Mockery::mock(LlmService::class);
+        $llm->shouldReceive('chat')->andThrow(new \RuntimeException('quota exhausted'));
+
+        $service = new BenchmarkService(app(MemoryGraphService::class), $llm);
+
+        $result = $service->runCorpus($this->corpus(), ['recency'], 2);
+
+        $r = $result['results'][0]['strategies']['recency'];
+        $this->assertNull($r['scores']);
+        $this->assertNotNull($r['theme_coverage']);
+        $this->assertNotNull($result['summary']['recency']['theme_coverage']);
+        $this->assertSame(0, $result['summary']['recency']['question_count']);
+    }
+
+    public function test_question_class_is_recorded_when_present(): void
+    {
+        $service = $this->makeService();
+
+        $corpus = $this->corpus();
+        $corpus['questions'][0]['class'] = 'planning';
+
+        $result = $service->runCorpus($corpus, ['recency'], 2);
+
+        $this->assertSame('planning', $result['results'][0]['question_class']);
+    }
+
+    public function test_question_class_is_null_when_absent(): void
+    {
+        $service = $this->makeService();
+
+        $result = $service->runCorpus($this->corpus(), ['recency'], 2);
+
+        $this->assertNull($result['results'][0]['question_class']);
     }
 
     private function makeService(): BenchmarkService
