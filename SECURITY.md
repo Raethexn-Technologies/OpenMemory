@@ -36,6 +36,8 @@ The following areas are in scope for security reports:
 
 **Deterministic redaction floor.** `RedactionService` must redact or tokenize payment cards, CVV, bank routing and account numbers, IBANs, SSNs, SINs, credentials, JWTs, private keys, and minor-age details before those values cross LLM or storage boundaries. A bypass that lets those raw values reach the transcript, prompt history, graph nodes, document chunks, MCP storage path, or ICP mock store is in scope.
 
+**Sensitivity filtering in memory retrieval.** Every retrieval strategy in `MemoryGraphService::retrieveContext()`, including the query-aware strategies, must restrict seed selection and every graph traversal hop to public, unconsolidated nodes owned by the requesting user. The current redacted user message is the only query input to lexical seed scoring; raw pre-redaction text must never reach seed selection. Retrieval traces expose node IDs, node types, and score components but must not contain node content, labels, or tags. A strategy or trace that surfaces a private or sensitive record into LLM context, benchmark output, or a trace payload is in scope. Regression tests for these boundaries live in `app/tests/Feature/QueryAwareRetrievalTest.php`.
+
 **API key validation for `/mcp/store`.** The Laravel endpoint that accepts memory writes from the MCP server and the agent requires an `X-OMA-API-Key` header. Missing or incorrect validation of that header allows unauthenticated memory writes.
 
 **Path traversal in agent file tools.** The `read_file`, `write_file`, and `list_directory` tools in the agent validate every path against `REPO_PATH` before performing any file system operation. A path that escapes `REPO_PATH` is rejected. Any bypass of this validation is in scope.

@@ -26,7 +26,18 @@ The application is a standard Laravel and Vue web app. The interesting parts are
 
 **Physarum dynamics.** Edge weights are not static. When the LLM retrieves a set of memory nodes to build a response, all edges between those co-accessed nodes receive a conductance increment of ALPHA = 0.10, clamped to 1.0. A daily scheduled command applies a decay factor of RHO = 0.97 to all edges, floored at 0.05. Edges that are traversed together regularly accumulate weight; edges between memories that the agent never retrieves together decay toward the floor. This implements the discrete form of the Tero et al. (2010) slime mold conductance model: paths the organism uses frequently develop higher conductance, and paths that carry no flux thin out.
 
-**LLM recall.** Only public memories are loaded into the LLM context. Within that public set, `findContextSeeds()` seeds public `goal` nodes first and fills the remaining seed slots by total connected edge weight from the same bounded candidate pool. Retrieved records are redacted again before prompt injection, which protects legacy records or external writes that predate the redaction layer. Retrieval is therefore goal-biased, but the normal memory prompt still injects retrieved nodes as natural-language context. Private and sensitive records are gated by `msg.caller` on the canister: anonymous callers (the server adapter, the MCP server, and external HTTP clients) receive only public records.
+**LLM recall.** Only public memories are loaded into the LLM context. Context selection runs one of six strategies, chosen by `RETRIEVAL_STRATEGY` (default `goal_graph`). The query-aware strategies pass the current redacted user message into selection, scoring candidate nodes with deterministic lexical matching against node content, tags, and labels; no embeddings and no extra model calls are involved. Retrieved records are redacted again before prompt injection, which protects legacy records or external writes that predate the redaction layer. Every strategy applies the same public, unconsolidated, same-user filters before a record can enter model context. Private and sensitive records are additionally gated by `msg.caller` on the canister: anonymous callers (the server adapter, the MCP server, and external HTTP clients) receive only public records.
+
+| Strategy | Seed selection | Query-aware | Goal handling |
+|---|---|---|---|
+| `recency` | Most recently created public nodes, no traversal | No | None |
+| `graph` | Highest total connected edge weight | No | Goals compete like any node |
+| `goal_graph` | All public goal nodes first, then edge weight | No | Goals always seeded |
+| `query_lexical` | Top lexical matches returned directly, no traversal | Yes | None |
+| `query_graph` | Lexical relevance to the current message | Yes | Goals compete like any node |
+| `hybrid_query_graph` | 0.5 query + 0.3 edge weight + 0.2 recency, normalized | Yes | Goals seeded only when lexically relevant to the message |
+
+A query-aware graph strategy with no usable query terms, or a query matching nothing, degrades deterministically to its query-blind counterpart (`graph` for `query_graph`, `goal_graph` for `hybrid_query_graph`). `query_lexical` falls back to recency when there is no lexical signal. `MemoryGraphService::retrieveContextTraced()` returns the retrieval trace alongside the records: extracted query terms, selected seed IDs with score components, fallback taken, final node IDs, graph-added IDs, traversal depth, and traversed edge count. Traces do not include memory content, labels, or tags. The benchmark stores this trace with every judged result.
 
 **Grounded document QA.** Setting `GROUNDED_RETRIEVAL=true` switches chat response generation into a corpus-grounded document mode. The graph still selects candidate public document chunks, then `EvidenceRetrievalService` performs query-aware lexical scoring over `evidence_facts` from those chunks. `LlmService::buildGroundedSystemPrompt()` then gives the model only the current redacted user question and the selected evidence facts. The prompt requires every factual sentence to cite `[EVID:<id>]` and instructs refusal when no evidence supports the question. This is not an attention-bypass architecture and does not prove zero hallucination; it is a constrained prompt path that makes unsupported claims easier to detect and evaluate.
 
@@ -218,17 +229,19 @@ All three commands are scheduled automatically via `routes/console.php`. Both co
 
 ## Research diagnostics
 
-**Retrieval benchmark** compares three context selection strategies against synthetic user-memory corpora: flat recency, weight-only graph retrieval, and goal-biased graph retrieval. Each corpus is seeded into an isolated benchmark user partition, judged with an LLM-as-judge rubric, then deleted unless `--keep` is passed. Reports are written to `storage/benchmarks/`. `--ablate-goals` runs a second pass with goal nodes excluded and adds a with-goals vs without-goals comparison table to the report.
+**Retrieval benchmark** compares the six context selection strategies against synthetic user-memory corpora. Each corpus is seeded into an isolated benchmark user partition, judged with an LLM-as-judge rubric, then deleted unless `--keep` is passed. The question text is passed to retrieval as the query; `query_lexical` is the query-aware non-graph control that isolates lexical matching from graph traversal. Reports are written to `storage/benchmarks/`. `--ablate-goals` runs a second pass with goal nodes excluded and adds a with-goals vs without-goals comparison table to the report.
 
 ```bash
 php artisan benchmark:retrieval
-php artisan benchmark:retrieval --strategies=recency,goal_graph
-php artisan benchmark:retrieval --corpus=database/benchmarks/corpus_04_longhorizon_engineer.json
+php artisan benchmark:retrieval --strategies=recency,query_lexical,query_graph,hybrid_query_graph
+php artisan benchmark:retrieval --corpus=database/benchmarks/corpus_05_longhorizon_product.json
 php artisan benchmark:retrieval --corpus=database/benchmarks/corpus_04_longhorizon_engineer.json --ablate-goals
 php artisan benchmark:retrieval --keep
 ```
 
-As of the 2026-04-22 benchmark runs, recency still leads on composite score. On the harder long-horizon corpus, the gap narrows to 2.2%, and goal ablation shows that explicit goal nodes add +0.40 goal alignment while costing -0.20 composite for `goal_graph`. The current claim is goal-coherent retrieval, not universal retrieval superiority.
+Alongside the four LLM-judged dimensions, every result records deterministic theme coverage, selected-node count, context tokens, retrieval latency, graph-added node count, traversal depth, and traversed edge count. Theme coverage is model-free, repeatable, and survives judge failures, so strategy comparisons remain auditable when judge variance is in question. The JSON output records the judge model identifier and a per-result retrieval trace (query terms, seed IDs with score components, fallbacks, retrieved node IDs, graph-added IDs). Corpus 05 labels each question with a class (`planning`, `historical_decision`, `cross_topic_synthesis`, `contradiction_resolution`, `recent_status`, `durable_preference`, `insufficient_evidence`), and the report adds a per-class breakdown so strategy differences by question type are visible.
+
+As of the complete six-strategy 2026-07-16 run (`storage/benchmarks/results-2026-07-16_193025.json`, 192/192 judge calls, judge model anthropic/claude-sonnet-4.5), query-aware retrieval substantially outperforms recency and query-blind graph retrieval on the synthetic context benchmark: recency 2.52, graph 2.55, goal_graph 2.55, query_lexical 3.56, query_graph 3.55, hybrid_query_graph 3.52. The lexical-only control is the key result: `query_graph` changed composite by -0.3% relative to `query_lexical`, so this run does not demonstrate measurable graph-traversal value beyond lexical query relevance. Original-corpora composites were query_lexical 3.60, query_graph 3.64, hybrid_query_graph 3.80; the adversarial long-horizon corpus was query_lexical 3.50, query_graph 3.40, hybrid_query_graph 3.06. The full numbers, per-class breakdown, sample size caveats, and limitations are in RESEARCH.md Track 10 Claim 1 and DEVLOG Entry 030.
 
 The benchmark measures retrieval quality only. It does not answer whether the final assistant response improves, because the judged artifact is the retrieved context set rather than the generated answer. If any judge call fails, the command still writes the partial report but exits non-zero and suppresses headline comparison claims.
 
@@ -323,7 +336,7 @@ php artisan test
 npm run test:front
 ```
 
-The backend test suite runs against SQLite in-memory and mock mode throughout. No API key or canister is required. Coverage includes deterministic redaction policy and floor behavior, per-user redaction policy loading, redaction in chat storage, redaction in MCP writes, redaction in document ingestion, the storage trigger (MemorabilityService decisions, hallucinated node ID rejection, consolidated node exclusion), document chunking and ingestion, evidence fact extraction and quote span derivation, query-aware evidence retrieval, grounded prompt construction, the grounded chat switch, document controller routes, goal-biased retrieval seed selection, graph and recency retrieval strategy selection, benchmark cleanup behavior, goal ablation and `goals_excluded` metadata, graph reinforcement, edge decay, neighborhood traversal, cluster detection determinism, graph snapshot storage and pruning, agent alignment Jaccard calculation, the memory approval flow, the `active_node_ids` response field, consolidation pipeline (concept node creation, supersedes edges, sensitivity inheritance, re-consolidation prevention), node pruning (floor-weight detection, idle window, edge cascade delete, user scoping, dry-run), the MCP store endpoint (API key auth, graph node creation), and the ThreeD page load with agent scoping. The frontend Vitest coverage checks redacted chat rendering, sensitive-memory approval, and live browser graph sync typing.
+The backend test suite runs against SQLite in-memory and mock mode throughout. No API key or canister is required. Coverage includes deterministic redaction policy and floor behavior, per-user redaction policy loading, redaction in chat storage, redaction in MCP writes, redaction in document ingestion, the storage trigger (MemorabilityService decisions, hallucinated node ID rejection, consolidated node exclusion), document chunking and ingestion, evidence fact extraction and quote span derivation, query-aware evidence retrieval, grounded prompt construction, the grounded chat switch, document controller routes, goal-biased retrieval seed selection, graph and recency retrieval strategy selection, query-aware seed selection (lexical scoring, adaptive goal admission, deterministic fallbacks, retrieval traces), sensitivity and consolidation filtering regressions for the query-aware strategies, benchmark cleanup behavior, benchmark corpus fixture validation, deterministic theme coverage, goal ablation and `goals_excluded` metadata, graph reinforcement, edge decay, neighborhood traversal, cluster detection determinism, graph snapshot storage and pruning, agent alignment Jaccard calculation, the memory approval flow, the `active_node_ids` response field, consolidation pipeline (concept node creation, supersedes edges, sensitivity inheritance, re-consolidation prevention), node pruning (floor-weight detection, idle window, edge cascade delete, user scoping, dry-run), the MCP store endpoint (API key auth, graph node creation), and the ThreeD page load with agent scoping. The frontend Vitest coverage checks redacted chat rendering, sensitive-memory approval, and live browser graph sync typing.
 
 ---
 
@@ -355,6 +368,7 @@ OpenMemory/
 │   │   │   ├── EvidenceFactExtractionService.php # source-backed fact extraction from document chunks
 │   │   │   ├── EvidenceRetrievalService.php # query-aware fact selection for grounded document QA
 │   │   │   ├── MemorabilityService.php      # storage trigger: evaluates novelty/significance before writing
+│   │   │   ├── QueryRelevanceScorer.php     # deterministic lexical query-to-node scoring for query-aware retrieval
 │   │   │   ├── MemorySummarizationService.php
 │   │   │   ├── RedactionService.php          # deterministic PII, financial, and credential redaction
 │   │   │   ├── RedactionResult.php           # redacted text plus category metadata
@@ -391,7 +405,9 @@ OpenMemory/
 │   ├── database/benchmarks/
 │   │   ├── corpus_01_software_developer.json
 │   │   ├── corpus_02_researcher.json
-│   │   └── corpus_03_business_owner.json
+│   │   ├── corpus_03_business_owner.json
+│   │   ├── corpus_04_longhorizon_engineer.json
+│   │   └── corpus_05_longhorizon_product.json
 │   ├── resources/js/
 │   │   ├── Pages/
 │   │   │   ├── Chat/Index.vue               # chat interface and My Memories panel
@@ -426,7 +442,7 @@ OpenMemory/
 └── SCIENCE.md                               # plain-language explanations of the mathematics and biology behind the graph layer
 ```
 
-The benchmark corpora live in `app/database/benchmarks/`. Corpora 01-03 are the compact persona sets used in the first complete run. `corpus_04_longhorizon_engineer.json` is the harder 12-month retrieval challenge added for the long-horizon pass. `BenchmarkService` and `benchmark:retrieval` also support goal ablation, so the same corpus can be rerun with goal nodes excluded when measuring Claim 3.
+The benchmark corpora live in `app/database/benchmarks/`. Corpora 01-03 are the compact persona sets used in the first complete run. `corpus_04_longhorizon_engineer.json` is the harder 12-month retrieval challenge added for the long-horizon pass. `corpus_05_longhorizon_product.json` covers 14 months, labels every question with a class, includes a small number of paraphrased questions, and floods the recent window with routine operational notes so recency-leaning strategies pay a measurable price on questions about older knowledge. `BenchmarkService` and `benchmark:retrieval` also support goal ablation, so the same corpus can be rerun with goal nodes excluded when measuring Claim 3.
 
 ---
 
@@ -442,6 +458,7 @@ The benchmark corpora live in `app/database/benchmarks/`. Corpora 01-03 are the 
 | RedactionService | Deterministic local redaction and tokenization before LLM, transcript, graph, document, MCP, and storage boundaries |
 | RedactionPolicy | Per-user preset and category overrides for configurable redaction behavior |
 | MemorabilityService | Pre-write filter evaluating novelty, significance, durability, and connection richness; returns store/update/skip |
+| QueryRelevanceScorer | Deterministic lexical scoring of the current redacted message against node content, tags, and labels for query-aware seed selection |
 | DocumentChunkerService | Splits pasted text or Markdown into paragraph-aware chunks sized for graph extraction |
 | DocumentIngestionService | Redacts document text, creates document anchor nodes, stores chunk nodes, and wires `part_of` edges back to the source document |
 | EvidenceFactExtractionService | Extracts source-backed facts from document chunks and stores quote-derived span metadata |

@@ -18,6 +18,45 @@ The log is append-only. Entries are not edited after the fact.
 
 ---
 
+## Entry 030 - 2026-07-16
+### Query-aware retrieval and the diagnosis of the composite loss
+
+#### What was built
+
+Retrieval gained two query-aware graph strategies. `query_graph` seeds BFS from the nodes most lexically relevant to the current redacted user message, scored by the new `QueryRelevanceScorer` against node content, extracted tags, and labels. `hybrid_query_graph` ranks seed candidates by a fixed combination of normalized query relevance (0.5), accumulated edge weight (0.3), and recency (0.2), and admits goal seeds only when the goal is lexically relevant to the message. Both strategies reuse the same BFS expansion as the existing strategies, so the public-only, unconsolidated, user-scoped filters apply identically at seed selection and at every hop. The scoring is deterministic and local: no embeddings, no additional model calls, no stored index. A query with no usable terms or no lexical match degrades to the query-blind counterpart, and the fallback taken is recorded.
+
+`retrieveContextTraced()` returns the seed-selection trace with the records: extracted query terms, seed IDs with their score components, fallbacks, final node IDs, graph-added IDs, traversal depth, and traversed edge count. Traces carry IDs, node types, and scores, but not node content, labels, or tags. The chat path reads `RETRIEVAL_STRATEGY` from configuration, passes the redacted message as the query, and falls back to `goal_graph` with a structured warning when the configured value is not a known strategy.
+
+The benchmark now passes the question text to retrieval as the query, which is the entire point of the experiment: the question the judge scores against is the question the query-aware strategies see. Every judged result stores its retrieval trace and a deterministic theme-coverage score, the fraction of expected answer themes lexically present in the retrieved context. The output JSON records the judge model identifier. Corpus 05 was added: 43 memories and 3 goals spanning 14 months, with every question labeled by class and the recent window deliberately flooded with routine operational notes.
+
+#### Why this experiment
+
+The 2026-04-22 runs recorded recency ahead of every graph strategy on composite score, and the loss was undiagnosed. The audit found the likely cause in one sentence of Track 9: retrieval was not query-aware. The strategies being judged against questions never saw those questions. Seeds came from global goal nodes and accumulated edge weight, so the graph could only win where historical usage happened to align with the question. The hypotheses were written down before the run: H1, query-aware seeding closes most or all of the composite gap; H2, adaptive goal admission keeps the goal-alignment benefit without the composite penalty on non-planning questions; H3, if query_graph still loses, query-blindness was not the explanation and the tag vocabulary becomes the next suspect.
+
+#### What the measurement showed
+
+Two full runs, five strategies, five corpora, thirty questions, judge model anthropic/claude-sonnet-4.5. The first run completed 149 of 150 judge calls; the failed call was a transient judge error on a question whose deterministic theme coverage was 1.0, and the command correctly suppressed the affected headline and exited non-zero. The second run completed 150 of 150 and is the recorded result. These runs did not include a query-aware lexical-only baseline.
+
+The composite ordering flipped. Aggregate composite: query_graph 3.68 (+38.3% over recency), hybrid_query_graph 3.56 (+33.8%), recency 2.66, goal_graph 2.60 (-2.3%), graph 2.57 (-3.4%). Theme coverage, which involves no model call at all, agrees: 0.71 and 0.69 for the query-aware strategies against 0.51 for recency. Between the two runs the judge means moved by at most 0.04, so the result is not judge noise at this scale. The gap is largest exactly where the corpus design predicted: on corpus_05, where the recent window is flooded with operational noise and the questions target old knowledge, query_graph scores 3.45 against recency's 1.85.
+
+The interpretation is specific and slightly humbling: fifteen months of Physarum machinery was being evaluated through a seed selector that never looked at the question. The undiagnosed composite loss recorded in Entry 026 is now partly diagnosed: query-blindness was a major defect, and query-aware retrieval substantially improved context quality. What this run does not isolate is how much of the gain comes from lexical selection versus graph traversal after good lexical seeds have already been found.
+
+The per-class breakdown on corpus_05 (one to two questions per class, so directional only) matches the adaptive-goal hypothesis: goal_graph still wins planning questions (3.63 vs 2.88 for query_graph), hybrid recovers most of that (3.38) while avoiding the goal tax on historical questions (hybrid 3.63 vs goal_graph 1.13). The one durable-preference question exposed the hybrid's weakness: its weight and recency components diluted a strong lexical match that pure query_graph caught (3.25 vs 1.25). The fixed 0.5/0.3/0.2 weights are a documented design position, not a tuned optimum, and this is the first recorded case where they cost something concrete.
+
+#### Limitations that remain open
+
+Lexical scoring is surface matching. A question phrased entirely in synonyms of the stored vocabulary scores zero and falls back, and the scorer cannot know that "database" and "postgresql" are related unless a tag or the content says so. A review added the missing `query_lexical` control after this run: it uses the same scorer and same public candidate pool but returns top matches directly without graph traversal, edge weight, or goal seeding.
+
+A later complete six-strategy run with that control completed 192 of 192 judge calls (`storage/benchmarks/results-2026-07-16_193025.json`, judge model anthropic/claude-sonnet-4.5). Aggregate composite across 32 questions: recency 2.52, graph 2.55, goal_graph 2.55, query_lexical 3.56, query_graph 3.55, hybrid_query_graph 3.52. Query-aware retrieval still beats recency and query-blind graph retrieval, but query_graph changed composite by -0.3% relative to query_lexical. The honest interpretation is that lexical query relevance produced most of the measured gain; graph traversal has not yet shown reliable added value after lexical selection. Original-corpora composites were query_lexical 3.60, query_graph 3.64, hybrid_query_graph 3.80. On the new adversarial corpus, query_lexical led query_graph 3.50 to 3.40 and hybrid_query_graph 3.06.
+
+An embedding provider interface with a deterministic fallback remains a possible next layer. The Three.js ambient replay still visualizes the goal_graph pipeline regardless of the configured chat strategy, so the /3d surface and the chat path can diverge when RETRIEVAL_STRATEGY is changed; unifying the traced replay with `retrieveContextTraced()` is follow-up work. Theme coverage detects lexical presence, not semantic entailment, and each (question, strategy) pair received a single judge call, so judge variance is not quantified within this run. Retrieval itself is deterministic given a seeded corpus, which removes retrieval variance from repeated runs but does not remove judge variance.
+
+#### Verification
+
+`php artisan test` passed before review with 276 tests and 1618 assertions, up from 242 and 777 at baseline. New coverage at that point: lexical scorer unit tests, query-aware seed selection, deterministic fallbacks, adaptive goal admission, trace shape and content exclusion, sensitivity and consolidation filtering regressions for the new strategies, user scoping, chat strategy configuration with invalid-value fallback, benchmark trace storage, theme coverage determinism and judge-failure survival, question class passthrough, and validation of every benchmark corpus fixture. The review adds coverage for token-boundary matching, `query_lexical`, graph expansion accounting, context-limit enforcement when seed count exceeds limit, hybrid no-match fallback, trace label/tag exclusion, and invalid-strategy warning visibility.
+
+---
+
 ## Entry 029 - 2026-06-02
 ### Grounded document QA starts with evidence facts
 
