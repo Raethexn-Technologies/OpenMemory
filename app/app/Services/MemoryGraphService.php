@@ -281,6 +281,26 @@ class MemoryGraphService
     }
 
     /**
+     * Search only public, unconsolidated graph records that lexically match a
+     * query. Unlike retrieveContext('query_lexical'), this method deliberately
+     * does not fall back to recency: an MCP client asking a focused question
+     * must not receive unrelated memories when there is no match.
+     *
+     * @return array<int, array{id: string, content: string, timestamp: string}>
+     */
+    public function searchPublic(string $userId, string $query, int $limit = 8): array
+    {
+        $terms = $this->queryScorer->terms($query);
+        if ($terms === []) {
+            return [];
+        }
+
+        [, , $ranked] = $this->rankQueryCandidates($userId, $terms);
+
+        return $this->nodesToRecords($ranked->take($limit)->values());
+    }
+
+    /**
      * Retrieve context and return the seed-selection trace alongside the records.
      *
      * The trace explains why each seed entered the retrieval frontier: its lexical

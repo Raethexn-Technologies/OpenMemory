@@ -40,27 +40,102 @@ class McpController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        // Authenticate the MCP server before processing anything.
-        $expectedKey = config('services.mcp.api_key', '');
-        if (empty($expectedKey) || $request->header('X-OMA-API-Key') !== $expectedKey) {
+        $prepared = $this->prepareRequest($request);
+        if ($prepared instanceof JsonResponse) {
+            return $prepared;
+        }
+
+        // Store in ICP mock cache. Session ID is synthesized from the user ID
+        // and current timestamp since CLI tools have no browser session.
+        $sessionId = 'mcp-' . $prepared['user_id'] . '-' . now()->timestamp;
+        $icpId = $this->icp->storeMemory($prepared['user_id'], $sessionId, $prepared['content'], $prepared['metadata'], $prepared['sensitivity']);
+
+        $this->syncPreparedRecord($prepared, $sessionId);
+
+        return response()->json([
+            'id'          => $icpId,
+            'user_id'     => $prepared['user_id'],
+            'sensitivity' => $prepared['sensitivity'],
+            'redaction'   => $prepared['redaction'],
+        ], 201);
+    }
+
+    /**
+     * Redact and classify a memory before the MCP client signs a live canister write.
+     */
+    public function prepare(Request $request): JsonResponse
+    {
+        $prepared = $this->prepareRequest($request);
+
+        return $prepared instanceof JsonResponse ? $prepared : response()->json($prepared);
+    }
+
+    /**
+     * Index a record after the MCP client confirms a live canister write.
+     */
+    public function sync(Request $request): JsonResponse
+    {
+        $prepared = $this->prepareRequest($request);
+        if ($prepared instanceof JsonResponse) {
+            return $prepared;
+        }
+
+        $validated = $request->validate([
+            'session_id' => ['required', 'string', 'max:255'],
+            'canister_id' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $this->syncPreparedRecord($prepared, $validated['session_id']);
+
+        return response()->json([
+            'user_id' => $prepared['user_id'],
+            'sensitivity' => $prepared['sensitivity'],
+            'redaction' => $prepared['redaction'],
+        ], 201);
+    }
+
+    /**
+     * Return only public, query-matching graph records. There is intentionally
+     * no recency fallback because unrelated memories are not useful MCP context.
+     */
+    public function search(Request $request): JsonResponse
+    {
+        if (! $this->isAuthorized($request)) {
             return response()->json(['error' => 'Unauthorized'], 401);
         }
 
         $validated = $request->validate([
-            'content'     => ['required', 'string', 'min:1', 'max:2000'],
-            'sensitivity' => ['required', 'string', 'in:public,private'],
-            'user_id'     => ['required', 'string', 'max:255'],
-            'context'     => ['nullable', 'string', 'max:500'],
+            'user_id' => ['required', 'string', 'max:255'],
+            'query' => ['required', 'string', 'min:1', 'max:500'],
+            'limit' => ['nullable', 'integer', 'min:1', 'max:20'],
         ]);
 
-        $userId      = $validated['user_id'];
-        $redaction   = $this->redactor->redact($validated['content'], $userId);
-        $content     = $redaction->text;
-        $sensitivity = $this->redactor->enforceSensitivity($validated['sensitivity'], $redaction);
+        $safeQuery = $this->redactor->redact($validated['query'], $validated['user_id'])->text;
 
-        // The MCP write surface intentionally accepts only public/private. If a
-        // floor category is detected, store the redacted memory as private rather
-        // than rejecting useful context or allowing it to remain public.
+        return response()->json([
+            'records' => $this->graph->searchPublic($validated['user_id'], $safeQuery, $validated['limit'] ?? 8),
+            'query_redacted' => $safeQuery !== $validated['query'],
+        ]);
+    }
+
+    /**
+     * @return array{user_id: string, content: string, sensitivity: string, metadata: string|null, redaction: array<string, mixed>}|JsonResponse
+     */
+    private function prepareRequest(Request $request): array|JsonResponse
+    {
+        if (! $this->isAuthorized($request)) {
+            return response()->json(['error' => 'Unauthorized'], 401);
+        }
+
+        $validated = $request->validate([
+            'content' => ['required', 'string', 'min:1', 'max:2000'],
+            'sensitivity' => ['required', 'string', 'in:public,private'],
+            'user_id' => ['required', 'string', 'max:255'],
+            'context' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $redaction = $this->redactor->redact($validated['content'], $validated['user_id']);
+        $sensitivity = $this->redactor->enforceSensitivity($validated['sensitivity'], $redaction);
         if ($sensitivity === 'sensitive') {
             $sensitivity = 'private';
         }
@@ -70,26 +145,41 @@ class McpController extends Controller
             $metadata = json_encode([
                 'context' => $metadata,
                 'redaction' => $redaction->toMetadata(),
-            ]);
+            ], JSON_THROW_ON_ERROR);
         }
 
-        // Store in ICP mock cache. Session ID is synthesized from the user ID
-        // and current timestamp since CLI tools have no browser session.
-        $sessionId = 'mcp-' . $userId . '-' . now()->timestamp;
-        $icpId = $this->icp->storeMemory($userId, $sessionId, $content, $metadata, $sensitivity);
-
-        // Extract graph node metadata and wire into the memory graph.
-        $extracted = $this->graphExtractor->extract($content, $sensitivity);
-        if ($extracted !== null) {
-            $this->graph->storeNode($userId, $content, $this->sanitizeExtractedMetadata($extracted, $userId), $sessionId);
-        }
-
-        return response()->json([
-            'id'          => $icpId,
-            'user_id'     => $userId,
+        return [
+            'user_id' => $validated['user_id'],
+            'content' => $redaction->text,
             'sensitivity' => $sensitivity,
-            'redaction'   => $redaction->applied() ? $redaction->toMetadata() : ['applied' => false],
-        ], 201);
+            'metadata' => $metadata,
+            'redaction' => $redaction->applied() ? $redaction->toMetadata() : ['applied' => false],
+        ];
+    }
+
+    private function isAuthorized(Request $request): bool
+    {
+        $expectedKey = config('services.mcp.api_key', '');
+
+        return ! empty($expectedKey) && hash_equals($expectedKey, (string) $request->header('X-OMA-API-Key'));
+    }
+
+    /**
+     * @param  array{user_id: string, content: string, sensitivity: string, metadata: string|null, redaction: array<string, mixed>}  $prepared
+     */
+    private function syncPreparedRecord(array $prepared, string $sessionId): void
+    {
+        $extracted = $this->graphExtractor->extract($prepared['content'], $prepared['sensitivity']);
+        if ($extracted !== null) {
+            $this->graph->storeNode(
+                $prepared['user_id'],
+                $prepared['content'],
+                $this->sanitizeExtractedMetadata($extracted, $prepared['user_id']),
+                $sessionId,
+                'mcp',
+                $prepared['metadata'] ? ['mcp' => json_decode($prepared['metadata'], true)] : [],
+            );
+        }
     }
 
     /**

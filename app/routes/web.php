@@ -69,6 +69,9 @@ Route::post('/api/documents/ingest', [DocumentController::class, 'store'])->name
 // MCP server write endpoint - receives store requests from icp/mcp-server/server.js.
 // Auth via X-OMA-API-Key header (no session required, CSRF exempted in bootstrap/app.php).
 Route::post('/mcp/store', [McpController::class, 'store'])->name('mcp.store');
+Route::post('/mcp/prepare', [McpController::class, 'prepare'])->name('mcp.prepare');
+Route::post('/mcp/sync', [McpController::class, 'sync'])->name('mcp.sync');
+Route::post('/mcp/search', [McpController::class, 'search'])->name('mcp.search');
 
 // Three.js mission control surface
 Route::get('/3d', [GraphController::class, 'threeD'])->name('threed');
