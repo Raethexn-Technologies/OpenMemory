@@ -61,6 +61,7 @@ const IS_LOCAL       = HOST.includes('localhost') || HOST.includes('127.0.0.1');
 
 // Write path configuration
 const OMA_MOCK_URL   = (process.env.OMA_MOCK_URL || '').replace(/\/$/, '');
+const OMA_API_URL    = (process.env.OMA_API_URL || '').replace(/\/$/, '');
 const OMA_API_KEY    = process.env.OMA_API_KEY || '';
 const OMA_USER_ID    = process.env.OMA_USER_ID || '';
 const WRITE_SCOPE    = (process.env.WRITE_SCOPE || 'public').toLowerCase().split(',').map(s => s.trim());
@@ -124,6 +125,39 @@ function formatMemories(memories, principal) {
   ].join('\n');
 }
 
+function appUrl() {
+  return OMA_API_URL || OMA_MOCK_URL;
+}
+
+function writeUserId() {
+  return identityResult?.principal || OMA_USER_ID;
+}
+
+async function callApp(path, payload) {
+  const baseUrl = appUrl();
+  if (!baseUrl) {
+    throw new Error('OMA_API_URL is required for safe MCP search and live writes.');
+  }
+  if (!OMA_API_KEY) {
+    throw new Error('OMA_API_KEY is not set.');
+  }
+
+  const response = await fetch(`${baseUrl}${path}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-OMA-API-Key': OMA_API_KEY,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(`OpenMemory app returned HTTP ${response.status}: ${await response.text()}`);
+  }
+
+  return response.json();
+}
+
 // ─── Resource: user's public memory ──────────────────────────────
 
 // URI pattern: memory://<principal>
@@ -151,7 +185,7 @@ server.resource(
 //
 server.tool(
   'get_memories',
-  'Retrieve public memory records for an ICP principal from the OpenMemory canister.',
+  'Retrieve every public memory record for an ICP principal from the OpenMemory canister. Use search_memories for normal work; this tool is for explicit inspection only.',
   {
     principal: z.string().optional().describe(
       'ICP principal to look up. Defaults to USER_PRINCIPAL env var if not specified.'
@@ -173,6 +207,41 @@ server.tool(
         text: formatMemories(memories, principal),
       }],
     };
+  }
+);
+
+server.tool(
+  'search_memories',
+  'Find the small set of public OpenMemory records relevant to the current task. Use this instead of get_memories before answering a question about prior work.',
+  {
+    query: z.string().min(1).max(500).describe('The concrete task, question, or topic to recall.'),
+    limit: z.number().int().min(1).max(20).default(8).describe('Maximum matching records to return.'),
+  },
+  async ({ query, limit = 8 }) => {
+    const userId = writeUserId();
+    if (!userId) {
+      return { content: [{ type: 'text', text: 'No user identity is configured. Set OMA_USER_ID in mock mode or create the live identity file.' }] };
+    }
+
+    try {
+      const data = await callApp('/mcp/search', { user_id: userId, query, limit });
+      const records = data.records || [];
+      if (records.length === 0) {
+        return { content: [{ type: 'text', text: 'No relevant public memories matched this query.' }] };
+      }
+
+      return {
+        content: [{
+          type: 'text',
+          text: [
+            `Relevant public memories (${records.length}):`,
+            ...records.map((record) => `- ${record.content}`),
+          ].join('\n'),
+        }],
+      };
+    } catch (err) {
+      return { content: [{ type: 'text', text: `Memory search failed: ${err.message}` }] };
+    }
   }
 );
 
@@ -207,8 +276,8 @@ server.tool(
 // ─── Tool: store a memory ─────────────────────────────────────────
 //
 // CLI tools (Claude Code, Gemini, Codex) call this to persist a fact about
-// the user. The tool dispatches to either the Laravel mock endpoint or the
-// live ICP canister depending on whether OMA_MOCK_URL is set.
+// the user. Mock writes use the Laravel endpoint. Live writes are prepared and
+// indexed through OMA_API_URL, then signed with the user's local ICP identity.
 //
 // Sensitive writes are always blocked at this layer. Private writes require
 // WRITE_SCOPE to include "private".
@@ -236,49 +305,32 @@ server.tool(
       return { content: [{ type: 'text', text: 'Private writes are not allowed with the current WRITE_SCOPE. Set WRITE_SCOPE=public,private to enable them.' }] };
     }
 
-    // Mock mode: POST to Laravel /mcp/store endpoint.
+    // Mock mode: the Laravel app stores and indexes the redacted record.
     if (OMA_MOCK_URL) {
-      if (!OMA_API_KEY) {
-        return { content: [{ type: 'text', text: 'OMA_API_KEY is not set. Cannot authenticate with the Laravel mock endpoint.' }] };
-      }
-      if (!OMA_USER_ID) {
+      if (!writeUserId()) {
         return { content: [{ type: 'text', text: 'OMA_USER_ID is not set. Cannot store memory without a user identity.' }] };
       }
 
-      let response;
       try {
-        response = await fetch(`${OMA_MOCK_URL}/mcp/store`, {
-          method:  'POST',
-          headers: {
-            'Content-Type':  'application/json',
-            'X-OMA-API-Key': OMA_API_KEY,
-          },
-          body: JSON.stringify({
-            content,
-            sensitivity,
-            user_id: OMA_USER_ID,
-            context: context || null,
-          }),
+        const data = await callApp('/mcp/store', {
+          content,
+          sensitivity,
+          user_id: writeUserId(),
+          context: context || null,
         });
+        return {
+          content: [{
+            type: 'text',
+            text: `Memory stored (mock mode). ID: ${data.id ?? 'unknown'} | Sensitivity: ${data.sensitivity ?? sensitivity}`,
+          }],
+        };
       } catch (err) {
-        return { content: [{ type: 'text', text: `Failed to reach OMA_MOCK_URL (${OMA_MOCK_URL}): ${err.message}` }] };
+        return { content: [{ type: 'text', text: `Mock memory write failed: ${err.message}` }] };
       }
-
-      if (!response.ok) {
-        const body = await response.text().catch(() => '');
-        return { content: [{ type: 'text', text: `Store failed (HTTP ${response.status}): ${body}` }] };
-      }
-
-      const data = await response.json().catch(() => ({}));
-      return {
-        content: [{
-          type: 'text',
-          text: `Memory stored (mock mode). ID: ${data.id ?? 'unknown'} | Sensitivity: ${sensitivity}`,
-        }],
-      };
     }
 
-    // Live mode: sign canister call with loaded identity.
+    // Live mode always prepares the record through Laravel before the local
+    // identity signs it. This keeps live and mock redaction rules identical.
     if (!identityResult) {
       return {
         content: [{
@@ -291,10 +343,38 @@ server.tool(
     if (!CANISTER_ID) {
       return { content: [{ type: 'text', text: 'ICP_CANISTER_ID is not set. Cannot store memory in live mode.' }] };
     }
+    if (!OMA_API_URL) {
+      return { content: [{ type: 'text', text: 'OMA_API_URL is required for live writes so OpenMemory can redact and index the record before it reaches ICP.' }] };
+    }
 
-    // Dynamic import to keep @dfinity/agent out of the startup path when using mock mode.
-    const { HttpAgent } = await import('@dfinity/agent');
-    const { IDL } = await import('@dfinity/candid');
+    const userId = writeUserId();
+    let prepared;
+    try {
+      prepared = await callApp('/mcp/prepare', {
+        content,
+        sensitivity,
+        user_id: userId,
+        context: context || null,
+      });
+    } catch (err) {
+      return { content: [{ type: 'text', text: `Memory preparation failed: ${err.message}` }] };
+    }
+
+    // Create an actor instead of using a raw update call so completion and the
+    // canister-returned record ID are both awaited before graph sync runs.
+    const { HttpAgent, Actor } = await import('@dfinity/agent');
+    const idlFactory = ({ IDL: idl }) => {
+      const MemoryType = idl.Variant({ Public: idl.Null, Private: idl.Null });
+      const StoreRequest = idl.Record({
+        session_id: idl.Text,
+        content: idl.Text,
+        metadata: idl.Opt(idl.Text),
+        memory_type: idl.Opt(MemoryType),
+      });
+      return idl.Service({
+        store_memory: idl.Func([StoreRequest], [idl.Text], []),
+      });
+    };
 
     const agent = await HttpAgent.create({
       identity: identityResult.identity,
@@ -305,26 +385,32 @@ server.tool(
       await agent.fetchRootKey();
     }
 
-    // Candid Opt<T>: present = [value], absent = [].
-    const sensitivityArg = sensitivity === 'private'
+    const sensitivityArg = prepared.sensitivity === 'private'
       ? [{ Private: null }]
       : [{ Public: null }];
+    const sessionId = `mcp-${userId}-${Date.now()}`;
 
     try {
-      // The canister's store method takes (content: Text, memory_type: Opt<MemoryType>).
-      // Call via raw update call with Candid encoding.
-      const result = await agent.call(CANISTER_ID, {
-        methodName: 'store',
-        arg: IDL.encode(
-          [IDL.Text, IDL.Opt(IDL.Variant({ Public: IDL.Null, Private: IDL.Null }))],
-          [content, sensitivityArg]
-        ),
+      const actor = Actor.createActor(idlFactory, { agent, canisterId: CANISTER_ID });
+      const canisterId = await actor.store_memory({
+        session_id: sessionId,
+        content: prepared.content,
+        metadata: prepared.metadata ? [prepared.metadata] : [],
+        memory_type: sensitivityArg,
+      });
+      await callApp('/mcp/sync', {
+        content: prepared.content,
+        sensitivity: prepared.sensitivity,
+        user_id: userId,
+        context: context || null,
+        session_id: sessionId,
+        canister_id: canisterId,
       });
 
       return {
         content: [{
           type: 'text',
-          text: `Memory stored (live ICP mode). Principal: ${identityResult.principal} | Sensitivity: ${sensitivity}`,
+          text: `Memory stored and indexed (live ICP mode). ID: ${canisterId} | Sensitivity: ${prepared.sensitivity}`,
         }],
       };
     } catch (err) {
@@ -354,9 +440,11 @@ if (!WRITES_ENABLED) {
   console.error(`[OMA MCP] Write scope: ${WRITE_SCOPE.join(', ')}`);
   if (!OMA_API_KEY)  console.error('[OMA MCP] WARNING: OMA_API_KEY not set — store_memory will fail');
   if (!OMA_USER_ID)  console.error('[OMA MCP] WARNING: OMA_USER_ID not set — store_memory will fail');
-} else if (identityResult) {
-  console.error(`[OMA MCP] Write path: live ICP | Principal: ${identityResult.principal}`);
+} else if (identityResult && OMA_API_URL) {
+  console.error(`[OMA MCP] Write path: live ICP via ${OMA_API_URL} | Principal: ${identityResult.principal}`);
   console.error(`[OMA MCP] Write scope: ${WRITE_SCOPE.join(', ')}`);
+} else if (identityResult) {
+  console.error('[OMA MCP] Write path: live ICP blocked until OMA_API_URL is set for redaction and graph sync.');
 } else {
   console.error('[OMA MCP] Write path: no identity file found. Run `node setup-identity.js` to enable writes.');
 }

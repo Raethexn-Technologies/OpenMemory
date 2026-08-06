@@ -1,7 +1,7 @@
 {
   "name": "oma-mcp-server",
-  "version": "0.1.0",
-  "description": "MCP server exposing OpenMemory canister memory as a resource for LLM agents",
+  "version": "0.2.0",
+  "description": "MCP server for relevance-ranked, portable OpenMemory project context",
   "type": "module",
   "main": "server.js",
   "scripts": {
