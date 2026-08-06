@@ -86,12 +86,12 @@ return [
     ],
 
     // Memory retrieval strategy for the chat path. One of the strategies in
-    // MemoryGraphService::STRATEGIES. goal_graph preserves the pre-existing
-    // behaviour; query_lexical returns direct lexical matches; query_graph and
+    // MemoryGraphService::STRATEGIES. query_lexical is the measured default;
+    // query_graph and
     // hybrid_query_graph seed graph traversal from the current redacted user
     // message using deterministic lexical scoring.
     'retrieval' => [
-        'strategy' => env('RETRIEVAL_STRATEGY', 'goal_graph'),
+        'strategy' => env('RETRIEVAL_STRATEGY', 'query_lexical'),
     ],
 
     // Corpus-grounded document QA. When enabled, chat responses are built from
