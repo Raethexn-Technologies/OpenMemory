@@ -1,8 +1,16 @@
 # OpenMemory
 
-Built because working across Claude, Codex, Gemini CLI, and other AI tools means re-explaining project context from scratch every time you switch. Each AI starts fresh at every session boundary. This is the memory layer that lives outside any single AI so all of them stay in sync.
+Portable project memory for AI coding tools. Store a durable decision in Codex, then retrieve the relevant context from Claude Code, Gemini CLI, or another MCP client without re-explaining the project.
 
-The MCP server at `icp/mcp-server/server.js` is the protocol endpoint through which any MCP-compatible AI reads and writes memory records. Configure it once, and every AI you connect to it already knows what you have been working on. The chat interface in this repository is the reference implementation demonstrating that the infrastructure works end-to-end.
+The MCP server at `icp/mcp-server/server.js` is the primary integration. Its `search_memories` tool returns a small, query-ranked set of public records rather than the whole memory corpus. The chat interface is a reference implementation that makes the storage, privacy, and graph behavior visible.
+
+## Try the cross-tool workflow
+
+1. Start the Laravel application in mock mode, then configure the MCP server as shown in [Connecting CLI tools via MCP](#connecting-cli-tools-via-mcp).
+2. In one connected tool, explicitly ask it to remember a durable project decision.
+3. In a second connected tool, ask a question about that decision. The tool should call `search_memories` before answering and receive only matching public records.
+
+The first release target is deliberately narrow: useful project memory across coding agents, with clear control over what becomes public context. The research graph is an experimental retrieval layer, not a requirement for trusting the product.
 
 Identity works differently depending on the tool. The browser chat UI authenticates the user through Internet Identity (`@dfinity/auth-client`) and signs writes to the ICP canister with the delegation that II returns. Until the user has signed in, the browser holds an `AnonymousIdentity` and the canister rejects writes from anonymous callers, so no memories are stored. CLI tools running in terminals (Claude Code, Gemini, Codex) share a portable Ed25519 identity file at `~/.config/openmemory/identity.json`, generated once with `node setup-identity.js`, and write through the MCP server rather than through a browser. A typed memory graph sits in PostgreSQL alongside the canister records, tracking relationships between memories and applying Physarum conductance dynamics that shift edge weights based on how the LLM actually uses each connection over time.
 
@@ -26,7 +34,7 @@ The application is a standard Laravel and Vue web app. The interesting parts are
 
 **Physarum dynamics.** Edge weights are not static. When the LLM retrieves a set of memory nodes to build a response, all edges between those co-accessed nodes receive a conductance increment of ALPHA = 0.10, clamped to 1.0. A daily scheduled command applies a decay factor of RHO = 0.97 to all edges, floored at 0.05. Edges that are traversed together regularly accumulate weight; edges between memories that the agent never retrieves together decay toward the floor. This implements the discrete form of the Tero et al. (2010) slime mold conductance model: paths the organism uses frequently develop higher conductance, and paths that carry no flux thin out.
 
-**LLM recall.** Only public memories are loaded into the LLM context. Context selection runs one of six strategies, chosen by `RETRIEVAL_STRATEGY` (default `goal_graph`). The query-aware strategies pass the current redacted user message into selection, scoring candidate nodes with deterministic lexical matching against node content, tags, and labels; no embeddings and no extra model calls are involved. Retrieved records are redacted again before prompt injection, which protects legacy records or external writes that predate the redaction layer. Every strategy applies the same public, unconsolidated, same-user filters before a record can enter model context. Private and sensitive records are additionally gated by `msg.caller` on the canister: anonymous callers (the server adapter, the MCP server, and external HTTP clients) receive only public records.
+**LLM recall.** Only public memories are loaded into the LLM context. Context selection runs one of six strategies, chosen by `RETRIEVAL_STRATEGY` (default `query_lexical`). The query-aware strategies pass the current redacted user message into selection, scoring candidate nodes with deterministic lexical matching against node content, tags, and labels; no embeddings and no extra model calls are involved. Retrieved records are redacted again before prompt injection, which protects legacy records or external writes that predate the redaction layer. Every strategy applies the same public, unconsolidated, same-user filters before a record can enter model context. Private and sensitive records are additionally gated by `msg.caller` on the canister: anonymous callers (the server adapter, the MCP server, and external HTTP clients) receive only public records.
 
 | Strategy | Seed selection | Query-aware | Goal handling |
 |---|---|---|---|
@@ -285,7 +293,7 @@ ICP_BROWSER_HOST=http://localhost:4943    # use https://ic0.app for mainnet
 
 ## Connecting CLI tools via MCP
 
-Claude Code, Gemini CLI, Codex, and any other MCP-compatible tool can read and write memories through the MCP server. All tools share a single portable Ed25519 identity file, so writes from any tool accumulate under the same principal and appear in the same graph.
+Claude Code, Codex, Gemini CLI, and any other MCP-compatible tool can use the same server. For everyday work, the agent should call `search_memories` with the current task rather than `get_memories`, which is reserved for explicit full-corpus inspection.
 
 ```bash
 # 1. Install the MCP server dependencies
@@ -301,9 +309,9 @@ node setup-identity.js
 openssl rand -hex 32
 # Add this value to app/.env as MCP_API_KEY=<value>
 
-# 4. Add the MCP server to your tool config
-# Example for Claude Code (~/.claude/claude_desktop_config.json):
-```
+# 4. Add the MCP server to each tool's MCP configuration.
+# The same configuration works for every local MCP client; adjust only the
+# location of the client's own configuration file.
 
 ```json
 {
@@ -324,7 +332,7 @@ openssl rand -hex 32
 
 The `WRITE_SCOPE` env var controls which sensitivity levels the MCP server will accept. The default is `public` only. Set it to `public,private` to allow private writes. Sensitive writes are always blocked at the MCP layer regardless of scope. Set `WRITE_SCOPE=none` to make the server read-only.
 
-In mock mode (`ICP_MOCK_MODE=true`), the MCP server POSTs to `OMA_MOCK_URL/mcp/store` and memory nodes are created in the local PostgreSQL graph. The Laravel endpoint runs the redaction floor before storing content. If a public MCP write contains a floor category such as a bank routing number, the raw value is tokenized and the write is stored as private. In live ICP mode (no `OMA_MOCK_URL` set), the server signs canister calls directly with the loaded identity.
+In mock mode (`ICP_MOCK_MODE=true`), `OMA_MOCK_URL` points to the Laravel app and the server posts to `/mcp/store`. In live ICP mode, set `OMA_API_URL` to that same application deployment as well. The server first calls `/mcp/prepare`, which redacts content and can raise public content to private. It then signs the prepared record using the local Ed25519 identity, waits for the canister to confirm the write, and calls `/mcp/sync` to index the exact prepared record in the graph. Live writes are refused if `OMA_API_URL` is absent, so they cannot bypass the redaction and indexing path.
 
 ---
 
