@@ -18,6 +18,32 @@ The log is append-only. Entries are not edited after the fact.
 
 ---
 
+## Entry 031 - 2026-09-03
+### Local-first product loop and adoption path
+
+#### What was built
+
+The project now has a root `openmemory` CLI. It is intentionally small and dependency-free so a fresh checkout can use it before any new packaging work exists. `openmemory doctor` checks the local install surface: PHP, Node, npm, Laravel `.env`, Composer dependencies, frontend dependencies, MCP dependencies, MCP entrypoints, required app keys, optional live ICP identity, and the Laravel status endpoint. `openmemory setup-clients` delegates to the MCP setup helper and prints config snippets for Codex, Claude Code, Claude Desktop, and Gemini. `openmemory import` scans existing Codex, Claude, Gemini, and project instruction memory surfaces and writes reviewable JSONL candidates instead of inserting them directly into the graph.
+
+The MCP setup helper was added under `icp/mcp-server/setup-clients.js` and exposed through `npm run setup-clients`. It prints Codex `config.toml`, Claude Code CLI, Claude Desktop JSON, and Gemini `settings.json` examples for mock and live modes. This makes the cross-agent demo concrete without editing user dotfiles automatically.
+
+A mock-mode identity bug was fixed in the MCP server. When `OMA_MOCK_URL` is configured, writes and searches now use `OMA_USER_ID` even if a live ICP identity file exists. That keeps local testing deterministic and prevents a stale live identity from silently changing the mock-mode user partition.
+
+Two new planning documents were added. `ROADMAP.md` records the product direction: local-first OS memory substrate first, ICP sync and collective-memory research second. `ADOPTION.md` records the public wedge: a short cross-agent recall demo, an Omarchy-friendly integration path, measured answer-level evals, and a privacy-first narrative.
+
+#### Why this direction
+
+The previous implementation had enough research machinery to be interesting, but not enough installable shape to be useful. The next adoption step is not another graph variant. It is the shortest path from fresh checkout to cross-agent recall: diagnose local setup, print MCP config, import existing agent memories for review, and keep the default retrieval strategy aligned with the measured `query_lexical` result until answer-level evaluation says otherwise.
+
+The import command deliberately creates candidates rather than storing directly. Agent memory files and project instruction files may contain secrets, private preferences, or stale rules. The CLI applies a small local redaction pass for obvious secrets and emails, marks provider-home memories private by default, deduplicates by content hash, and keeps the output under ignored app storage unless the caller chooses another path. Direct ingestion should wait for a review UI or explicit approval flow.
+
+#### Verification
+
+`npm run test:cli` passes with 2 tests. `php artisan test` passes with 283 tests and 1666 assertions. `npm run test:front` passes with 1 file and 12 tests. `node --check bin/openmemory.js` and `node --check icp/mcp-server/setup-clients.js` pass. `git diff --check` reports no whitespace errors; it only reports Git line-ending warnings for touched files.
+
+`node bin/openmemory.js doctor --json` correctly exits non-zero on this checkout because `MCP_API_KEY` is not set. It reports 13 passing checks, 2 warnings, and 1 failure. The warnings are the missing optional live ICP identity and a non-OK response from the local `APP_URL` status endpoint.
+
+---
 ## Entry 030 - 2026-07-16
 ### Query-aware retrieval and the diagnosis of the composite loss
 

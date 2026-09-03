@@ -4,6 +4,16 @@ Portable project memory for AI coding tools. Store a durable decision in Codex, 
 
 The MCP server at `icp/mcp-server/server.js` is the primary integration. Its `search_memories` tool returns a small, query-ranked set of public records rather than the whole memory corpus. The chat interface is a reference implementation that makes the storage, privacy, and graph behavior visible.
 
+[ROADMAP.md](./ROADMAP.md) defines the current direction: a local-first OS memory substrate for Codex, Claude Code, Gemini CLI, and Omarchy-style AI desktops. [ADOPTION.md](./ADOPTION.md) defines the demo, launch, and community path. The immediate work is setup friction, import from existing agent memory files, answer-level evaluation, and Omarchy packaging.
+
+The root CLI handles the local product loop:
+
+```bash
+node bin/openmemory.js doctor
+node bin/openmemory.js setup-clients mock
+node bin/openmemory.js import all --dry-run
+```
+
 ## Try the cross-tool workflow
 
 1. Start the Laravel application in mock mode, then configure the MCP server as shown in [Connecting CLI tools via MCP](#connecting-cli-tools-via-mcp).
@@ -310,6 +320,13 @@ openssl rand -hex 32
 # Add this value to app/.env as MCP_API_KEY=<value>
 
 # 4. Add the MCP server to each tool's MCP configuration.
+# The helper prints Codex, Claude, Claude Desktop, and Gemini snippets.
+npm run setup-clients -- --mode mock
+npm run setup-clients -- --mode live
+
+# Or from the repository root:
+node bin/openmemory.js setup-clients mock
+
 # The same configuration works for every local MCP client; adjust only the
 # location of the client's own configuration file.
 
@@ -339,6 +356,7 @@ In mock mode (`ICP_MOCK_MODE=true`), `OMA_MOCK_URL` points to the Laravel app an
 ## Running tests
 
 ```bash
+npm run test:cli
 cd app
 php artisan test
 npm run test:front
