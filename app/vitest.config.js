@@ -2,6 +2,8 @@ import { fileURLToPath, URL } from 'node:url';
 import { defineConfig, mergeConfig } from 'vitest/config';
 import viteConfig from './vite.config.js';
 
+process.env.LARAVEL_BYPASS_ENV_CHECK ??= '1';
+
 export default mergeConfig(viteConfig, defineConfig({
     resolve: {
         alias: {
