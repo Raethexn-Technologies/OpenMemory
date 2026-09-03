@@ -6,7 +6,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "setup-identity": "node setup-identity.js"
+    "setup-identity": "node setup-identity.js",
+    "setup-clients": "node setup-clients.js"
   },
   "dependencies": {
     "@dfinity/agent": "^2.1.3",

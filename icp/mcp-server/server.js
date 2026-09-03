@@ -130,6 +130,10 @@ function appUrl() {
 }
 
 function writeUserId() {
+  if (OMA_MOCK_URL) {
+    return OMA_USER_ID;
+  }
+
   return identityResult?.principal || OMA_USER_ID;
 }
 
