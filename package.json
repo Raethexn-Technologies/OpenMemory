@@ -1,0 +1,18 @@
+{
+  "name": "openmemory-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "openmemory": "./bin/openmemory.js"
+  },
+  "scripts": {
+    "openmemory": "node ./bin/openmemory.js",
+    "doctor": "node ./bin/openmemory.js doctor",
+    "setup-clients": "node ./bin/openmemory.js setup-clients",
+    "test:cli": "node --test tests/openmemory-cli.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
