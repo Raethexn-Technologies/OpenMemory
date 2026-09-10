@@ -48,6 +48,8 @@ The research graph is an experimental retrieval layer, not a requirement for tru
 
 Identity works differently depending on the tool. The browser chat UI authenticates the user through Internet Identity (`@dfinity/auth-client`) and signs writes to the ICP canister with the delegation that II returns. Until the user has signed in, the browser holds an `AnonymousIdentity` and the canister rejects writes from anonymous callers, so no memories are stored. CLI tools running in terminals (Claude Code, Gemini, Codex) share a portable Ed25519 identity file at `~/.config/openmemory/identity.json`, generated once with `node setup-identity.js`, and write through the MCP server rather than through a browser. A typed memory graph sits in PostgreSQL alongside the canister records, tracking relationships between memories and applying Physarum conductance dynamics that shift edge weights based on how the LLM actually uses each connection over time.
 
+Imported conversation history has a third identity, and it is the one most likely to trip someone up. `memory:import-archive` runs in a terminal, where neither an Internet Identity delegation nor a browser session exists, so the corpus owner comes from `OPENMEMORY_LOCAL_USER_ID` in `.env`, or from `--user` on the command. The `/history` surface resolves the same value and falls back to the browser session only when it is unset. If the two disagree, an archive imported from a shell is invisible in the browser that is meant to review it.
+
 ---
 
 ## Importing your AI history
@@ -142,7 +144,7 @@ Evidence excerpts are delimited, labelled with their provider and date, and intr
 
 ## How it works
 
-The application is a standard Laravel and Vue web app. The interesting parts are the memory layer and the graph that grows on top of it.
+The application is a standard Laravel and Vue web app. The interesting parts are the imported conversation corpus, the memory layer, and the graph that grows on top of it.
 
 **Redaction policy.** Before a chat turn, MCP write, document ingest, retrieved memory, or graph-sync payload crosses an LLM or storage boundary, `RedactionService` runs deterministic local checks. Non-negotiable floor categories include payment cards, CVV, bank routing and account numbers, IBANs, SSNs, SINs, credentials, JWTs, private keys, and identifiable minor-age details. These are redacted or tokenized even if a user policy tries to allow them. User-tunable categories include email, phone, street address, date of birth, compensation, and health-condition text. Policies are loaded from `redaction_policies` when present, otherwise the deployment preset in `config/redaction.php` is used.
 
@@ -318,7 +320,7 @@ The multi-agent simulation is at `/agents`. Create agents, adjust trust scores w
 
 ## Seeding demo data
 
-The `simulate:day` command generates a realistic 8-hour workday of memory activity without requiring an API key or a live ICP canister. It creates memory nodes across four topic clusters (technical decisions, project planning, research concepts, and personal workflow), wires edges, runs six Physarum reinforcement turns, creates three agents with different trust scores, and takes a graph snapshot. All five surfaces have data to render after it completes.
+The `simulate:day` command generates a realistic 8-hour workday of memory activity without requiring an API key or a live ICP canister. It creates memory nodes across four topic clusters (technical decisions, project planning, research concepts, and personal workflow), wires edges, runs six Physarum reinforcement turns, creates three agents with different trust scores, and takes a graph snapshot. The five graph surfaces have data to render after it completes. It does not touch `/history`, which only ever contains conversations you imported yourself.
 
 ```bash
 php artisan simulate:day                 # 40 memories (default)
