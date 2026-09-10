@@ -18,6 +18,87 @@ The log is append-only. Entries are not edited after the fact.
 
 ---
 
+## Entry 032 - 2026-09-10
+### Universal conversation import, and the product this project was actually circling
+
+#### The reframing
+
+The previous entry described the product as a local-first memory substrate for coding agents. That framing was correct about a capability and too narrow about the opportunity, and the narrowness had been quietly shaping every design decision for months.
+
+The wider observation is simple enough that it is slightly annoying it took this long. A person now talks to several assistants. One holds their career deliberation, another months of personal reflection, a third their programming work, a fourth whatever they were reading last year. Each provider accumulates a partial understanding of the same person, and no provider can see the others. The person cannot see across them either. The provider boundary is an artifact of who sold the model. It is not a fact about the person.
+
+So the product is a user-owned memory layer for a person's history with AI. The coding-agent MCP workflow becomes one ingestion and recall pathway inside that, not the category.
+
+Most of the existing machinery transfers, which is the reassuring part. Deterministic redaction, provenance, least-context MCP retrieval, source-backed evidence, local-first operation, and the Track 10 standard of measuring rather than asserting are all worth more at the wider scope. What changed is the framing around them and what the corpus contains.
+
+#### What was built
+
+Four tables. `conversation_imports` records one archive import run with the SHA-256 of the file it read. `conversations` and `conversation_messages` hold the provider-neutral normalized model. `conversation_raw_records` holds the exact provider JSON for each conversation.
+
+Three adapters behind one contract. ChatGPT, Claude, and Google Takeout Gemini Apps. `ConversationArchiveRegistry` resolves which one can read an archive, and detection is three-valued rather than boolean: not mine, mine and supported, or mine but unsupported with a specific reason. That third state exists because "your Takeout export is HTML and needs to be JSON" is actionable and "unrecognized archive" is not.
+
+`JsonArrayStreamReader` scans a JSON array structurally and yields one element at a time. A heavy user's ChatGPT export reaches several hundred megabytes, and `json_decode` on the whole file expands that several times over in PHP array overhead. Peak memory would have scaled with the size of a person's entire history, which is the difference between an importer that works for real users and one that only works for the fixtures.
+
+`ConversationImportService` orchestrates detection, streaming, normalization, redaction, and idempotent persistence, with a report an operator can read.
+
+A review and Ask surface at `/history`: cited answers over the corpus, conversation browsing including abandoned branches, a deterministic subject timeline, and the import log.
+
+#### Three decisions worth recording
+
+**The raw source is preserved and the derived copy is redacted.** These two requirements look contradictory. Keeping the source intact means keeping secrets that were in it; redacting means destroying the source. The resolution is that they are different copies with different reachability. `conversation_raw_records` holds the original and is read only through an owner-authenticated route, one conversation at a time. `conversation_messages.content_text` holds the redacted projection and is the only representation retrieval, prompts, the UI, and any future extraction ever read. Redaction protects the copies that travel. This copy does not travel.
+
+The consequence that took a moment to see is that the message content hash has to cover the source message rather than its redacted projection. Hashing the redacted text would mean that tightening a redaction policy marks every message in the corpus as edited on the next import. Hashing the source keeps identity stable, and the redacted text is refreshed in place when the policy changes without the message being counted as updated.
+
+**Messages absent from a newer archive are kept.** The first instinct was to mirror the archive, because that is what synchronization means. It is wrong here. A conversation the user deleted at the provider is still part of their history, and an importer that propagated provider deletions would make the corpus less durable than the silo it exists to outlast. The retention is reported rather than silent, because a count that changes without explanation is its own kind of dishonesty.
+
+**Gemini is not a conversation export and is not pretended to be one.** Takeout ships Gemini Apps history as an activity log. Each record is one timestamped turn, with the prompt under `subtitles[].value` and the response as HTML under `safeHtmlItem[].html`. Nothing in the record says which turns belonged to the same thread. Grouping by proximity in time was tempting and would have produced a nicer-looking corpus. It would also have been an invention, and an invented thread boundary corrupts exactly the kind of reasoning about how a discussion developed that the corpus exists to support. Each record therefore becomes one conversation of at most two messages, stamped with grain `activity_record`, and the UI says so. The raw record is preserved, so a future parser can group turns properly if Google ever publishes an identifier, without anyone re-exporting.
+
+Google's My Activity schema reference documents the generic activity record and does not cover Gemini Apps at all. Neither OpenAI nor Anthropic publishes a schema for their exports either. All three parsers are written against synthetic fixtures with defensive shape checks, which is the honest response to an undocumented format that has changed before.
+
+#### The threat model got larger
+
+Imported archives change what an attacker can reach.
+
+An archive is untrusted input. Entry names are validated against traversal, absolute paths, drive letters, UNC prefixes, and null bytes. Per-entry size, total size, entry count, and compression ratio are capped before any parsing begins, and refused entries are reported rather than dropped. Nothing is unpacked to disk: entries are read through per-entry streams, so importing never stages a copy of a person's history anywhere.
+
+The subtler problem is prompt injection, and this corpus is the worst case for it. A history of AI conversations is full of text written by AI systems, much of it instructions, because instructing models is what people use assistants for. Some of it could have been planted years ago by a page the assistant browsed. The structural answer is that evidence never reaches the model as a system instruction and never arrives as though the user typed it: excerpts are delimited, labelled with provider and date, and introduced by a policy stating that instructions inside them are content to be reported. The user's question is the only instruction in the turn. Gemini's HTML responses are converted to text with script and style bodies removed rather than stripped of tags, so their contents never reach the text either.
+
+The model-provider boundary is the decision this milestone is most exposed on. Sending a message to ChatGPT is not consent to send it to Anthropic, or to Google, or to whichever provider sits behind the configured model. What crosses that boundary is a bounded set of redacted excerpts that the user's own question selected, never a conversation in full and never an archive. `CONVERSATIONS_ASK_GENERATE_ANSWER=false` disables generation entirely, and Ask still works and returns evidence. Retrieval is the product; generation is a convenience on top of it.
+
+Imported conversations default to private and stay out of the memory graph, chat recall, and every MCP response. A test asserts that an MCP search for a term present only in imported history returns nothing.
+
+#### Citations that resolve
+
+The prompt asks for citations. Nothing in a prompt guarantees them, so the citations are validated afterward.
+
+Excerpts are referenced by position, `[E1]` through `[En]`, rather than by row identifier. A model cannot hallucinate a plausible-looking variant of "E3" the way it can invent a UUID, and an out-of-range number is trivially detectable. References outside the supplied range are reported as unresolved and rewritten out of the rendered answer. An unresolvable citation is worse than no citation, because it looks like proof.
+
+The provenance chain runs insight to excerpt to message to conversation to import to an archive SHA-256, and a test walks the whole thing.
+
+#### What this deliberately does not do
+
+No derivation. Nothing extracts entities, goals, decisions, or recurring questions from the corpus, and imported history is not connected to the memory graph. That was the right scope boundary and it is also the least satisfying part of the milestone: the corpus can be searched and it cannot yet be understood.
+
+Retrieval is lexical. A question phrased entirely in synonyms of the stored vocabulary scores zero, which is the same limitation Entry 030 recorded for graph retrieval, now applying to a much larger corpus where it will bite harder. The candidate pool is bounded and ordered newest first, so a very common term biases toward recent history. That bias is real and unmeasured.
+
+The temporal analysis counts term occurrences per month. It answers when a subject appeared, when it stopped, and how many months in between are empty. It does not detect that a person is talking about the same thing in different words, which is most of what "how have my priorities changed" actually requires.
+
+Attachment bytes are not imported, only metadata. Import is synchronous, so a very large archive occupies a terminal rather than a queue.
+
+#### Verification
+
+`php artisan test` passes with 412 tests and 2060 assertions, up from 283 and 1666. `npm run test:front` passes with 18 tests across 2 files, up from 12 across 1. `npm run test:cli` passes with 4 tests, up from 2. `npm run build` completes. No test was failing before this work began.
+
+New backend coverage: the streaming JSON reader including nesting, escapes, Unicode, byte order marks, scalar elements, truncated input, oversized elements, and a memory-growth bound on a 1.6 MB document; archive safety across traversal, absolute and Windows paths, null bytes, entry count, per-entry size, total size, and compression ratio; adapter detection including the case where ChatGPT and Claude both ship a file named `conversations.json`; ChatGPT branch ordering, parent cycles, null timestamps left null, image parts becoming attachments, tool roles preserved; Claude thinking and tool blocks recorded without inlining, legacy text fallback, unknown senders becoming `unknown` rather than `user`; Gemini HTML conversion with script removal and the refusal of an HTML-only export; idempotent re-import, incremental merge, retained messages, owner separation, raw preservation, the provenance chain, redaction asymmetry between normalized and raw, truncation, duplicate message identifiers, dry runs, and limits; cross-provider retrieval, owner scoping on every route, deterministic ranking, citation resolution, invented-citation neutralization, structural separation of evidence from the user turn, and behaviour when the model is unavailable.
+
+`./vendor/bin/pint --test` reports formatting differences across the repository, including files untouched by this work. The project has never been Pint-clean and CI does not run it, so no repository-wide reformatting was performed here.
+
+#### What the next milestone should be
+
+Derivation, with the same evidential discipline: entities, goals, decisions, recurring questions, and unresolved threads, each pointing at the messages behind it, and each replaceable without re-importing. The corpus is the foundation. Right now it can be searched and it cannot be understood, and understanding is the entire reason to bring a fragmented history together in the first place.
+
+---
+
 ## Entry 031 - 2026-09-03
 ### Local-first product loop and adoption path
 

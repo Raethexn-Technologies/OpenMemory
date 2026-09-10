@@ -1,12 +1,42 @@
 # OpenMemory
 
-Portable project memory for AI coding tools. Store a durable decision in Codex, then retrieve the relevant context from Claude Code, Gemini CLI, or another MCP client without re-explaining the project.
+Your history with AI, in one place you control.
 
-The MCP server at `icp/mcp-server/server.js` is the primary integration. Its `search_memories` tool returns a small, query-ranked set of public records rather than the whole memory corpus. The chat interface is a reference implementation that makes the storage, privacy, and graph behavior visible.
+Most people now talk to several assistants. Career decisions end up in one, months of personal reflection in another, programming work in a third. Each provider holds a partial record of the same person, and none of them can see the others. The person is the constant. The provider should not be the boundary around their memory.
 
-[ROADMAP.md](./ROADMAP.md) defines the current direction: a local-first OS memory substrate for Codex, Claude Code, Gemini CLI, and Omarchy-style AI desktops. [ADOPTION.md](./ADOPTION.md) defines the demo, launch, and community path. The immediate work is setup friction, import from existing agent memory files, answer-level evaluation, and Omarchy packaging.
+OpenMemory brings that history together. It imports conversation exports from ChatGPT, Claude, and Gemini into one local corpus, preserves the original source of every conversation, and makes the whole thing searchable and answerable with evidence you can open and read.
 
-The root CLI handles the local product loop:
+Two things live here, and they meet in the same corpus:
+
+**Historical memory.** Conversation archives you export from providers. `memory:import-archive` reads an export where it already sits on disk, normalizes it into a provider-neutral model, and keeps the exact provider JSON alongside the normalized rows. Imports are idempotent, so re-exporting next month merges rather than duplicates.
+
+**Live memory.** Durable facts written and recalled while you work, through MCP. Store a decision in Codex, recall it from Claude Code or Gemini CLI without re-explaining the project. This was the original product and it still works exactly as before. It is now one source of memory rather than the whole category.
+
+The interesting question is not only "find the conversation where I talked about X". Search is necessary and not sufficient. The question a multi-year, multi-provider corpus makes answerable is what someone could learn about themselves from it: what subjects they keep returning to, what they planned and never mentioned again, when an interest first appeared, where their position changed, and which patterns are invisible while each provider's history sits in its own silo.
+
+Every claim OpenMemory makes about that history has to be traceable. An answer cites specific messages; each citation resolves to a stored row with a provider, a timestamp, and a conversation you can open. Where the record supports an observation, it says so and shows the evidence. Where it does not, it says that instead. It does not tell people what they are like.
+
+[ROADMAP.md](./ROADMAP.md) defines the direction. [ADOPTION.md](./ADOPTION.md) defines the demo and community path. [VISION.md](./VISION.md) covers the design decisions and research questions in depth. [DEVLOG.md](./DEVLOG.md) is the running record of what was discovered building it. [RESEARCH.md](./RESEARCH.md) is the active research agenda. [SCIENCE.md](./SCIENCE.md) explains the mathematics and biology behind the graph layer.
+
+## Try it
+
+Import an export you already have:
+
+```bash
+# Request an export from the provider first. See "Importing your AI history" below.
+node bin/openmemory.js import-archive ~/Downloads/chatgpt-export.zip --user me --dry-run
+node bin/openmemory.js import-archive ~/Downloads/chatgpt-export.zip --user me
+```
+
+Then open `/history` to browse, search, and ask questions of the corpus.
+
+Or try the cross-tool live memory workflow:
+
+1. Start the Laravel application in mock mode, then configure the MCP server as shown in [Connecting CLI tools via MCP](#connecting-cli-tools-via-mcp).
+2. In one connected tool, explicitly ask it to remember a durable project decision.
+3. In a second connected tool, ask a question about that decision. The tool should call `search_memories` before answering and receive only matching public records.
+
+The local product loop is handled by the root CLI:
 
 ```bash
 node bin/openmemory.js doctor
@@ -14,17 +44,99 @@ node bin/openmemory.js setup-clients mock
 node bin/openmemory.js import all --dry-run
 ```
 
-## Try the cross-tool workflow
-
-1. Start the Laravel application in mock mode, then configure the MCP server as shown in [Connecting CLI tools via MCP](#connecting-cli-tools-via-mcp).
-2. In one connected tool, explicitly ask it to remember a durable project decision.
-3. In a second connected tool, ask a question about that decision. The tool should call `search_memories` before answering and receive only matching public records.
-
-The first release target is deliberately narrow: useful project memory across coding agents, with clear control over what becomes public context. The research graph is an experimental retrieval layer, not a requirement for trusting the product.
+The research graph is an experimental retrieval layer, not a requirement for trusting the product.
 
 Identity works differently depending on the tool. The browser chat UI authenticates the user through Internet Identity (`@dfinity/auth-client`) and signs writes to the ICP canister with the delegation that II returns. Until the user has signed in, the browser holds an `AnonymousIdentity` and the canister rejects writes from anonymous callers, so no memories are stored. CLI tools running in terminals (Claude Code, Gemini, Codex) share a portable Ed25519 identity file at `~/.config/openmemory/identity.json`, generated once with `node setup-identity.js`, and write through the MCP server rather than through a browser. A typed memory graph sits in PostgreSQL alongside the canister records, tracking relationships between memories and applying Physarum conductance dynamics that shift edge weights based on how the LLM actually uses each connection over time.
 
-[VISION.md](./VISION.md) covers the design decisions and research questions in depth. [DEVLOG.md](./DEVLOG.md) is the running record of what was discovered building it: implementation findings, security fixes, architectural tensions, and what remains unresolved. [RESEARCH.md](./RESEARCH.md) is the active research agenda: the open scientific claims, what needs to be built to test each one, and how the tracks evolve as discoveries open new questions. [SCIENCE.md](./SCIENCE.md) explains the mathematics and biology behind the graph layer in plain terms, with source citations and references to the tests that verify each formula.
+---
+
+## Importing your AI history
+
+`memory:import-archive` reads a provider export into the local corpus. The archive is read where it already sits: nothing is uploaded, no copy is unpacked to disk, and the whole path is local. Parsing, hashing, normalization, and redaction involve no network call and no model call.
+
+```bash
+# Auto-detect the provider, report what would happen, write nothing.
+php artisan memory:import-archive ~/Downloads/chatgpt-export.zip --user=me --dry-run
+
+# Import for real.
+php artisan memory:import-archive ~/Downloads/chatgpt-export.zip --user=me
+
+# Or through the root CLI, which passes options straight through.
+node bin/openmemory.js import-archive ~/Downloads/claude-export.zip --user me
+```
+
+Set `OPENMEMORY_LOCAL_USER_ID` in `.env` so the CLI and the browser agree on who owns the corpus, and `--user` becomes optional.
+
+A ZIP, an extracted folder, and a bare `conversations.json` are all accepted. The report says what happened:
+
+```
+2,814 conversations detected
+19,403 messages normalized
+324 new conversations
+2,490 already known
+7 conversations changed
+2,814 raw source records stored
+0 records skipped
+```
+
+### Getting an export
+
+| Provider | How to export | What the parser reads |
+|---|---|---|
+| ChatGPT | Settings, then Data Controls, then Export data. OpenAI emails a link to a ZIP. | `conversations.json` |
+| Claude | Settings, then Privacy, then Export data, on the web or desktop app. Available on Free, Pro, and Max; the emailed link expires after 24 hours. | `conversations.json` |
+| Gemini | takeout.google.com, deselect all, choose My Activity, select only Gemini Apps, and change the activity record format from HTML to JSON. | `Takeout/My Activity/Gemini Apps/MyActivity.json` |
+
+Takeout defaults to HTML, which is the step people most often miss. An HTML-only export is refused with that specific instruction rather than parsed approximately.
+
+None of these formats is a published API. Providers document how to request an export, not what the JSON contains, and the structures have changed before. The adapters are written defensively against synthetic fixtures in `app/tests/Support/ConversationFixtures.php`, which are the executable description of the shape each parser expects. When a format moves, those fixtures are what fails first.
+
+Gemini is the one provider whose export is not a conversation export. Takeout ships Gemini Apps history as an activity log, where each record is a single timestamped turn and nothing identifies which turns belonged to the same thread. Each record therefore becomes one conversation of at most two messages, marked with grain `activity_record`. Grouping records into threads by proximity in time would be an invention, and an invented thread boundary corrupts any later reasoning about how a discussion developed. The raw record is preserved, so a future parser can group turns properly without anyone re-exporting.
+
+### What the parsers preserve
+
+**Provider-neutral model.** Adapters transform an archive into `conversations` and `conversation_messages` rows that do not privilege any provider's shape. Fields an archive does not supply stay null rather than being guessed, because an invented timestamp corrupts exactly the temporal reasoning the corpus exists to support. Provider-specific structure that normalization would lose is kept verbatim under `provider_metadata`.
+
+**Branches.** A ChatGPT conversation is a tree, not a list: editing a prompt forks it. The parser walks back from `current_node` to establish the branch that was kept, marks those messages `on_active_path`, and stores the abandoned branches too. Retrieval reads the active path by default and can be asked for the rest.
+
+**Preserved source.** `conversation_raw_records` holds the exact provider JSON for each conversation. Normalization, redaction, and any later extraction sit above it and can be recomputed from it. A lossy summary never becomes the only surviving copy of what someone said. Raw records are read only through an owner-authenticated route, one conversation at a time, and no retrieval path, prompt builder, or MCP tool queries that table.
+
+**Redaction.** `RedactionService` runs over every message before it is stored as `content_text`, which is the only representation retrieval, prompts, and the UI ever read. The raw record keeps the original. That split is what lets the project keep the source intact without widening the surface through which a secret can escape.
+
+**Idempotency.** Identity is keyed on the provider's own conversation and message identifiers, with deterministic hashes derived from content where a provider supplies none. Content hashes distinguish a changed conversation from one seen again. Messages that exist locally but are absent from a newer archive are kept and reported: a conversation deleted at the provider is still part of the person's history, and an importer that mirrored provider deletions would make the corpus less durable than the silo it was meant to outlast.
+
+**Large archives.** `JsonArrayStreamReader` scans the top-level array structurally and yields one element at a time, so peak memory scales with the largest single conversation rather than with the archive. Each conversation is persisted in its own transaction. Because import is idempotent, a crashed run is resumed by running it again.
+
+**Archive safety.** A ZIP is untrusted input. Entry names are validated against traversal, absolute paths, drive letters, and null bytes. Per-entry size, total size, entry count, and compression ratio are all capped before any parsing begins. Refused entries are reported rather than silently dropped. Limits live in `config/conversations.php`.
+
+### Asking questions of the corpus
+
+The history surface is at `/history`. It has four views.
+
+**Ask** takes a question, retrieves message-level evidence with deterministic lexical scoring, and returns an answer whose every claim cites specific excerpts. Citations are validated after generation: a reference the model invents is reported as unresolved and removed rather than rendered as a source. An unresolvable citation is worse than none, because it looks like proof.
+
+**Explore** lists conversations with provider, title, and date filters, and opens any of them to read the messages, the branches, the attachments, and the preserved source.
+
+**Timeline** tracks one subject through the corpus by counting, with no model involved: how many messages mention it, in which months, under which providers, when it first and last appeared, and how many months in that span contain no mention at all. Every bucket carries the conversation identifiers behind it.
+
+**Imports** lists each import run with its counters, its adapter version, the SHA-256 of the archive it read, and any warnings.
+
+### Where imported history is allowed to go
+
+Imported conversations default to `private` and are never public. Concretely:
+
+- They do not enter the memory graph, so they cannot reach chat recall.
+- They are not visible to MCP clients. An agent connected through MCP reads public graph records and cannot pull a person's archived history.
+- Only excerpts selected by the user's own question cross a model boundary, capped by `conversations.ask.evidence_limit` and `conversations.ask.excerpt_chars`.
+- Setting `CONVERSATIONS_ASK_GENERATE_ANSWER=false` disables generation entirely. Ask still works and returns evidence, and nothing is sent to a model.
+
+That last boundary is the point. Sending a message to ChatGPT is not consent to send it to a different provider later. Retrieval is the product; generation is a convenience layered on top of it.
+
+### Imported text is data, not instruction
+
+A corpus of AI history is full of text written by AI systems, much of it instructions, because instructing models is what people use assistants for. Some of it could have been planted.
+
+Evidence excerpts are delimited, labelled with their provider and date, and introduced by a policy stating that instructions found inside them are content to be reported rather than commands to follow. The user's question is the only instruction in the turn: retrieved text never arrives as a system instruction and never arrives as though the user had typed it. Gemini responses, which Takeout stores as HTML, are converted to plain text with script and style bodies removed, so no imported markup is ever rendered.
 
 ---
 
@@ -96,6 +208,7 @@ The redaction layer sits beside this access-control model. Access control decide
 | Frontend | Vue 3, Inertia.js, Tailwind CSS |
 | Database | PostgreSQL (Docker) or SQLite (local development) |
 | LLM | OpenRouter, model configurable via `OPENROUTER_MODEL` |
+| Imported history | PostgreSQL tables (`conversations`, `conversation_messages`, `conversation_imports`, `conversation_raw_records`), provider adapters for ChatGPT, Claude, and Gemini, review and Ask surface at `/history` |
 | Redaction | `RedactionService`, `redaction_policies`, `config/redaction.php`, deterministic local checks before LLM and storage boundaries |
 | Memory records | ICP canister (Motoko), browser-signed writes (chat UI), MCP server writes (CLI tools), Node.js adapter for server reads |
 | Memory graph | PostgreSQL tables (`memory_nodes`, `memory_edges`), Physarum dynamics, D3 force-directed explorer at `/graph` |
@@ -150,13 +263,15 @@ Private and sensitive memories show the same approval dialogs in mock mode that 
 Change `OPENROUTER_MODEL` in `.env` and restart the server. The full model list is at https://openrouter.ai/models.
 
 ```env
-OPENROUTER_MODEL=anthropic/claude-sonnet-4.5    # default
-OPENROUTER_MODEL=google/gemini-2.5-flash         # faster, lower cost
-OPENROUTER_MODEL=google/gemini-2.5-flash:free    # free tier, rate-limited
-OPENROUTER_MODEL=meta-llama/llama-4-scout:free   # free tier, rate-limited
+OPENROUTER_MODEL=anthropic/claude-sonnet-4.5    # current code default
+OPENROUTER_MODEL=anthropic/claude-sonnet-5      # newer, stronger
+OPENROUTER_MODEL=anthropic/claude-opus-5        # strongest available
+OPENROUTER_MODEL=google/gemini-3.5-flash        # faster, lower cost
 ```
 
-The memory layer and graph layer store identical records regardless of which model is in use.
+Model identifiers move quickly. These were checked against the OpenRouter catalogue in September 2026; treat the live list as authoritative rather than this table. The code default is still `anthropic/claude-sonnet-4.5`, which remains available but is several generations behind what OpenRouter now offers.
+
+The memory layer, the graph layer, and the imported history corpus store identical records regardless of which model is in use. Import touches no model at all.
 
 ---
 
@@ -362,7 +477,11 @@ php artisan test
 npm run test:front
 ```
 
-The backend test suite runs against SQLite in-memory and mock mode throughout. No API key or canister is required. Coverage includes deterministic redaction policy and floor behavior, per-user redaction policy loading, redaction in chat storage, redaction in MCP writes, redaction in document ingestion, the storage trigger (MemorabilityService decisions, hallucinated node ID rejection, consolidated node exclusion), document chunking and ingestion, evidence fact extraction and quote span derivation, query-aware evidence retrieval, grounded prompt construction, the grounded chat switch, document controller routes, goal-biased retrieval seed selection, graph and recency retrieval strategy selection, query-aware seed selection (lexical scoring, adaptive goal admission, deterministic fallbacks, retrieval traces), sensitivity and consolidation filtering regressions for the query-aware strategies, benchmark cleanup behavior, benchmark corpus fixture validation, deterministic theme coverage, goal ablation and `goals_excluded` metadata, graph reinforcement, edge decay, neighborhood traversal, cluster detection determinism, graph snapshot storage and pruning, agent alignment Jaccard calculation, the memory approval flow, the `active_node_ids` response field, consolidation pipeline (concept node creation, supersedes edges, sensitivity inheritance, re-consolidation prevention), node pruning (floor-weight detection, idle window, edge cascade delete, user scoping, dry-run), the MCP store endpoint (API key auth, graph node creation), and the ThreeD page load with agent scoping. The frontend Vitest coverage checks redacted chat rendering, sensitive-memory approval, and live browser graph sync typing.
+The backend test suite runs against SQLite in-memory and mock mode throughout. No API key or canister is required. Coverage includes deterministic redaction policy and floor behavior, per-user redaction policy loading, redaction in chat storage, redaction in MCP writes, redaction in document ingestion, the storage trigger (MemorabilityService decisions, hallucinated node ID rejection, consolidated node exclusion), document chunking and ingestion, evidence fact extraction and quote span derivation, query-aware evidence retrieval, grounded prompt construction, the grounded chat switch, document controller routes, goal-biased retrieval seed selection, graph and recency retrieval strategy selection, query-aware seed selection (lexical scoring, adaptive goal admission, deterministic fallbacks, retrieval traces), sensitivity and consolidation filtering regressions for the query-aware strategies, benchmark cleanup behavior, benchmark corpus fixture validation, deterministic theme coverage, goal ablation and `goals_excluded` metadata, graph reinforcement, edge decay, neighborhood traversal, cluster detection determinism, graph snapshot storage and pruning, agent alignment Jaccard calculation, the memory approval flow, the `active_node_ids` response field, consolidation pipeline (concept node creation, supersedes edges, sensitivity inheritance, re-consolidation prevention), node pruning (floor-weight detection, idle window, edge cascade delete, user scoping, dry-run), the MCP store endpoint (API key auth, graph node creation), and the ThreeD page load with agent scoping.
+
+Imported history adds its own coverage: the streaming JSON reader (nesting, escapes, Unicode, byte order marks, scalar elements, truncated input, oversized elements, per-element memory bounds), archive safety (path traversal, absolute and Windows paths, null bytes, entry count, per-entry size, total size, compression ratio, ZIP detection by content, directory and bare-file sources), adapter detection including the case where ChatGPT and Claude both ship a file named `conversations.json`, ChatGPT branch ordering and parent cycles, missing timestamps left null, image parts becoming attachments, Claude thinking and tool blocks recorded but not inlined, Claude legacy text fallback, Gemini HTML conversion with script removal, the refusal of an HTML-only Takeout export, deterministic synthesized identifiers, idempotent re-import, incremental merge, retention of messages absent from a newer archive, owner separation, raw-source preservation, the provenance chain from a message back to an archive SHA-256, redaction applied to normalized text but not to the preserved source, truncation of oversized messages, duplicate message identifiers, dry runs, limits, cross-provider retrieval, owner scoping on every route, deterministic ranking, citation resolution, invented-citation neutralization, the structural separation of evidence from the user turn, and behaviour when the model is unavailable.
+
+The frontend Vitest coverage checks redacted chat rendering, sensitive-memory approval, live browser graph sync typing, and the history surface: the empty-state export instructions, the cross-provider summary, cited evidence rendering with resolvable links, the unresolved-citation warning, the no-evidence message, and the notice shown when answer generation is disabled.
 
 ---
 
@@ -379,6 +498,7 @@ OpenMemory/
 │   │   │   ├── TakeGraphSnapshot.php        # php artisan graph:snapshot (runs every 15 min)
 │   │   │   ├── GraphCoherenceCheck.php      # php artisan graph:coherence-check
 │   │   │   ├── BenchmarkRetrieval.php       # php artisan benchmark:retrieval
+│   │   │   ├── ImportConversationArchive.php # php artisan memory:import-archive
 │   │   │   └── SimulateDay.php              # php artisan simulate:day (demo seeder)
 │   │   ├── Http/Controllers/
 │   │   │   ├── ChatController.php           # chat, memory store, graph sync endpoints
@@ -404,6 +524,24 @@ OpenMemory/
 │   │   │   ├── ClusterDetectionService.php  # weighted label propagation community detection
 │   │   │   ├── MultiAgentGraphService.php   # collective Physarum, shared edges, agent seeding
 │   │   │   ├── BenchmarkService.php         # retrieval strategy benchmark harness
+│   │   │   ├── Conversations/               # imported AI history
+│   │   │   │   ├── Adapters/
+│   │   │   │   │   ├── ConversationArchiveAdapter.php  # the contract every provider parser implements
+│   │   │   │   │   ├── AbstractArchiveAdapter.php      # shared timestamp, text, and identifier helpers
+│   │   │   │   │   ├── AdapterDetection.php            # recognized / supported / reason
+│   │   │   │   │   ├── ChatGptArchiveAdapter.php       # mapping-tree parser, branch aware
+│   │   │   │   │   ├── ClaudeArchiveAdapter.php        # chat_messages parser, content-block aware
+│   │   │   │   │   └── GeminiTakeoutArchiveAdapter.php # Takeout activity-log parser
+│   │   │   │   ├── Archive/                 # safe access to ZIPs, folders, and bare files
+│   │   │   │   ├── Json/JsonArrayStreamReader.php      # element-at-a-time JSON array streaming
+│   │   │   │   ├── ConversationArchiveRegistry.php     # adapter resolution
+│   │   │   │   ├── ConversationImportService.php       # detect, normalize, redact, persist idempotently
+│   │   │   │   ├── ConversationEvidenceRetrievalService.php # message-level lexical retrieval
+│   │   │   │   ├── ConversationAskService.php          # grounded, cited answers over the corpus
+│   │   │   │   ├── CorpusOverviewService.php           # deterministic counts and theme timelines
+│   │   │   │   ├── NormalizedConversation.php
+│   │   │   │   ├── NormalizedMessage.php
+│   │   │   │   └── ImportReport.php
 │   │   │   └── LLM/
 │   │   │       ├── LlmProviderInterface.php
 │   │   │       ├── LlmService.php
@@ -416,7 +554,11 @@ OpenMemory/
 │   │       ├── RedactionPolicy.php          # per-user redaction preset and overrides
 │   │       ├── Agent.php                    # agent record with trust_score and graph_user_id
 │   │       ├── SharedMemoryEdge.php         # cross-agent edge keyed by content hash
-│   │       └── GraphSnapshot.php            # cluster payload for one 15-minute interval
+│   │       ├── GraphSnapshot.php            # cluster payload for one 15-minute interval
+│   │       ├── Conversation.php             # normalized conversation from any provider
+│   │       ├── ConversationMessage.php      # normalized message, redacted content_text
+│   │       ├── ConversationImport.php       # one archive import run
+│   │       └── ConversationRawRecord.php    # preserved provider JSON, owner-only
 │   ├── database/migrations/
 │   │   ├── ..._create_memory_nodes_table.php
 │   │   ├── ..._create_memory_edges_table.php
@@ -424,6 +566,10 @@ OpenMemory/
 │   │   ├── ..._add_consolidated_at_to_memory_nodes.php
 │   │   ├── ..._add_goal_type_to_memory_nodes.php
 │   │   ├── ..._create_redaction_policies_table.php
+│   │   ├── ..._create_conversation_imports_table.php
+│   │   ├── ..._create_conversations_table.php
+│   │   ├── ..._create_conversation_messages_table.php
+│   │   ├── ..._create_conversation_raw_records_table.php
 │   │   ├── ..._create_agents_table.php
 │   │   ├── ..._create_shared_memory_edges_table.php
 │   │   ├── ..._create_graph_snapshots_table.php
@@ -436,6 +582,8 @@ OpenMemory/
 │   │   └── corpus_05_longhorizon_product.json
 │   ├── resources/js/
 │   │   ├── Pages/
+│   │   │   ├── History/Index.vue            # imported history: Ask, Explore, Timeline, Imports
+│   │   │   ├── History/Show.vue             # one conversation, its branches, and its preserved source
 │   │   │   ├── Chat/Index.vue               # chat interface and My Memories panel
 │   │   │   ├── Memory/Index.vue             # flat memory inspector
 │   │   │   ├── Memory/Graph.vue             # D3 force-directed graph explorer
@@ -462,6 +610,7 @@ OpenMemory/
 ├── docker-compose.yml
 ├── LICENSE
 ├── CONTRIBUTING.md                          # contribution rules, including writing standard
+├── AGENTS.md                                # binding rules for coding agents: authorship, personal data, boundaries
 ├── VISION.md                                # research position: design decisions, what this proves, open questions
 ├── DEVLOG.md                                # captain's log: what was discovered building it, entry by entry
 ├── RESEARCH.md                              # active research agenda: open scientific claims and what needs to be built to test them
@@ -495,6 +644,13 @@ The benchmark corpora live in `app/database/benchmarks/`. Corpora 01-03 are the 
 | ConsolidationService | Weekly: compresses high-density episodic clusters into semantic concept nodes via LLM summarization |
 | ClusterDetectionService | Weighted label propagation producing community membership and mean weight per cluster |
 | MultiAgentGraphService | Creates and seeds graph partitions, updates shared edges with trust-weighted ALPHA, retrieves collective context |
+| ConversationImportService | Detects the provider, normalizes an archive, redacts message text, preserves the source, and persists idempotently |
+| ConversationArchiveRegistry | Resolves which adapter can read an archive, and surfaces the reason when one recognizes it but cannot parse it |
+| JsonArrayStreamReader | Streams the top-level elements of a JSON array so peak memory scales with one conversation, not the archive |
+| ConversationEvidenceRetrievalService | Deterministic lexical retrieval over imported messages, returning excerpts whose citations resolve |
+| ConversationAskService | Builds the grounded prompt over selected excerpts, validates citations after generation, and reports invented ones |
+| CorpusOverviewService | Counts the corpus and tracks a subject through it over time, with no model call |
+| ConversationHistoryController | Owner-scoped review surface; the raw route is the only path that serves unredacted imported content |
 | IcpMemoryService | Fetches public memories from the adapter for injection into the LLM system prompt |
 | McpController | Receives write requests from the MCP server (mock mode); authenticates via X-OMA-API-Key |
 | ICP adapter | Translates HTTP JSON from Laravel into Candid query calls; read-only in live mode |

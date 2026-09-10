@@ -535,4 +535,80 @@ This is Track 6 in the research agenda, and it is the problem that separates a u
 
 ---
 
+---
+
+## The Scope Correction: From Agent Memory to a Person's History with AI
+
+Added 2026-09-10. The sections above this one were written when the project was about carrying project context between coding agents. That framing was correct about a capability and too small about the question, and this section records the correction rather than editing the earlier thinking to look prescient.
+
+### The observation that widened it
+
+The original problem was real: working across several assistants means re-explaining context at every tool boundary. The fix proposed was a central memory layer the user owns rather than a vendor.
+
+What that framing missed is that the same fragmentation exists at a much larger scale, over a much longer period, for a much larger group of people. Someone who has used AI assistants seriously for three years has deliberated about their career in one, worked through months of personal reflection in another, built their projects in a third, and asked a fourth what to read. Each provider accumulated a partial understanding of the same person. No provider can see the others. The person cannot see across them either, and has no copy of most of it outside those companies.
+
+The provider boundary is an artifact of who sold the model. It is not a fact about the person. The person is the constant.
+
+That reframes what the memory layer is for. It is not primarily a cache that saves re-explaining a project. It is the place a person's history with AI can live, structured, attributed, searchable, and theirs.
+
+### What the earlier work turns out to have been building
+
+Most of the machinery already here transfers, and is worth more at the wider scope than at the original one.
+
+Deterministic redaction was built so a chat turn could cross an LLM boundary safely. It now guards a corpus of years of someone's private conversations, which is a far better use of it.
+
+Provenance was built so a document answer could cite a chunk. It now has to sustain a chain from a claim about someone's life to a specific message, in a specific conversation, from a specific provider, on a specific date, in an archive with a specific hash. That is a harder requirement and a more valuable one.
+
+Least-context MCP retrieval was a politeness about token budgets. It is now a containment boundary: an external agent must receive the smallest useful slice, not a window into someone's history.
+
+The Track 10 standard, that a claim about retrieval quality is measured rather than asserted, becomes considerably more important once the claims are about a person rather than about a codebase.
+
+The coding-agent workflow itself remains supported and remains useful. It is one ingestion and recall pathway now rather than the whole category.
+
+### The question the corpus makes possible
+
+Search over a large personal corpus is necessary and not sufficient. "Find the conversation where I talked about leaving my job" is a retrieval problem, and a good lexical scorer handles it.
+
+The questions that only a longitudinal, cross-provider corpus can even pose are different in kind:
+
+What subjects does someone keep returning to. What did they plan for months and never act on. When did an idea first appear seriously, and what was it called before it had its current name. Where did a stated position reverse. What did they care about a year ago and barely mention now. Which patterns are invisible while each provider's history sits in its own silo.
+
+None of those is answerable by ranking messages. Each requires structure derived from the corpus, and each requires that the derived structure point back at the messages behind it, because the alternative is a system that produces confident, unfalsifiable claims about a person.
+
+### The line this must not cross
+
+The corpus makes it technically easy to generate a personality report. It should never do so.
+
+The failure mode is specific and worth naming precisely, because it is the direction the product will drift if nobody holds the line. A system with years of someone's private conversations can produce fluent, plausible, emotionally resonant statements about what that person is like. Those statements would be unfalsifiable. They would be believed, because they come from a system that has read more of the person's writing than anyone else has. And they would be, in the strict sense, made up: inference presented with the authority of observation.
+
+The standard is that OpenMemory reports what the record contains. "This subject appears in seventeen conversations between March and August, and not since" is checkable, and the seventeen conversations can be opened. "You appear to value autonomy" is not checkable, and the fact that it might be true does not make it evidence.
+
+So: frequency, recurrence, time, source, change, and contradiction, each with the conversations behind it. Observation distinguished from inference every time. Absence of evidence stated as absence of evidence rather than as absence. No diagnosis of psychological or medical conditions under any circumstances. No description of what a person fundamentally is.
+
+This is a design constraint on the product and a methodological constraint on the research. An evaluation rubric that rewarded insightful-sounding output over evidenced output would push the system into the failure mode without anyone deciding to go there, so evidence support has to be scored independently of whether the answer reads well.
+
+### Consent has a direction
+
+There is a boundary here that is easy to miss and would be embarrassing to get wrong.
+
+A person who sent a message to one provider did not thereby consent to that message being sent to a different one. The archive is theirs; the decision to hand any part of it to a new model is a fresh decision, and it belongs to them each time.
+
+The design consequence is that retrieval is the product and generation is a convenience layered on top of it. Parsing, normalization, hashing, indexing, redaction, and the temporal analysis all happen locally with no model involved. Only excerpts a user's own question selected cross a model boundary, bounded and redacted, never a conversation in full and never an archive. Generation can be switched off entirely and the product still works.
+
+That ordering is also good engineering. It means the deterministic layer has to be genuinely useful on its own, which is a better foundation than one that only looks useful once a model is papering over its gaps.
+
+### What preserving the source actually costs, and why it is worth it
+
+The rule is that a lossy summary must never become the only surviving representation of what someone said. That sounds obvious and is expensive to honour.
+
+It means the extraction quality of today does not permanently limit what can be recovered tomorrow. A better parser, a better entity extractor, or a better summarizer can be run again over the preserved source, and nothing has to be re-exported from a provider who may by then have deleted it or changed their export.
+
+It also means the derived layer is allowed to be wrong. That is a bigger deal than it sounds. A system that destroyed the source would have to be conservative about derivation, because a bad inference would be unrecoverable. A system that keeps the source can attempt harder derivations, be corrected, and try again.
+
+The cost is that the most sensitive copy of the data is the one that must be kept intact. The resolution is that the preserved copy does not travel: it is reachable only through an owner-authenticated route, one conversation at a time, and no retrieval path, prompt builder, or external protocol may query it. Redaction protects the copies that move.
+
+If OpenMemory succeeds, people will trust it with one of the richest datasets they own. That obligates documented formats, real export, verifiable deletion, replaceable model providers, and derived data that is transparent about what it was derived from. The corpus must not become hostage to OpenMemory either.
+
+---
+
 *This document was written to preserve the research thinking behind OpenMemory. The implementation will change; the questions it's asking are the part worth keeping.*

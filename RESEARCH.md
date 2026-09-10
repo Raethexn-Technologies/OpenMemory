@@ -392,6 +392,74 @@ The biology framing remains in SCIENCE.md and DEVLOG. This track's outputs (the 
 
 ---
 
+## Track 11: The longitudinal cross-provider corpus
+
+Opened 2026-09-10. See DEVLOG Entry 032.
+
+### What opened this track
+
+Every track before this one studied a memory corpus the system built for itself: chat turns it summarized, documents it was handed, decisions an agent chose to store. Those corpora are small, curated, and recent. The retrieval questions they support are correspondingly narrow.
+
+Universal conversation import changes the object of study. A heavy user's imported history is thousands of conversations and tens of thousands of messages spanning years, written by that person for their own purposes rather than filtered through a memorability classifier, and distributed across providers they chose for different reasons. That is a different kind of dataset, and it makes a different class of question askable.
+
+The claims below are the ones worth testing on it. None of them is settled by the current implementation, which can search the corpus and cannot yet understand it.
+
+### Claim 1: Cross-provider retrieval finds what single-provider retrieval misses
+
+A person's use of providers is not random. Programming in one, personal reflection in another, research in a third is a common pattern and there is no reason to expect it to be uncommon.
+
+If that holds, questions whose answer spans two contexts should be answerable from the merged corpus and unanswerable from either provider alone. The claim is falsifiable in the strong direction: if the same subjects appear evenly across a person's providers, merging adds volume and not much else, and the argument for cross-provider retrieval collapses to convenience.
+
+What needs to be built: provider-conditional retrieval ablations in the benchmark harness, and a synthetic longitudinal corpus with deliberately provider-partitioned subjects and known ground truth about which questions require both. The corpus has to be synthetic for this measurement to be publishable, and building one that is realistically messy is most of the work.
+
+What this closes: whether provider provenance is analytically useful metadata or merely an accurate label.
+
+### Claim 2: Lexical retrieval degrades on a longitudinal corpus faster than on a curated one
+
+Entry 030 measured lexical query relevance beating graph traversal on synthetic corpora of a few dozen memories. Those corpora were written to be retrieved from. Real conversations are not.
+
+The specific worry is vocabulary drift over time. Someone writing about the same concern in 2023 and in 2026 may share almost no distinctive terms between the two, because the words available to describe a thing change as the person's understanding of it changes. Exact-token scoring cannot bridge that, and the questions most worth asking of a multi-year corpus are exactly the ones that span the drift.
+
+What needs to be built: an embedding provider interface with a deterministic local fallback, matching the existing swappable-provider pattern; hybrid lexical and semantic retrieval over `conversation_messages`; and a benchmark where the question deliberately uses later vocabulary than the answer.
+
+There is also an unmeasured bias in the current implementation worth naming. `ConversationEvidenceRetrievalService` bounds its candidate pool and orders it newest first, so a common term matching more messages than the pool holds silently favours recent history. On a corpus of forty memories that never triggers. On a corpus of twenty thousand messages it will, and the effect size is unknown.
+
+What this closes: whether the July 2026 result that lexical relevance produced the measurable gain survives contact with a corpus that was not written to be searched.
+
+### Claim 3: Derived structure beats raw message retrieval on reflective questions
+
+"Find the conversation where I talked about leaving my job" is a retrieval question and the current implementation answers it. "What have I planned for months and not acted on" is not a retrieval question at all. No single message contains the answer, and no ranking of messages produces it.
+
+The claim is that a derived layer of goals, decisions, recurring questions, and unresolved threads, each pointing at the messages behind it, answers that class of question materially better than retrieval over raw messages.
+
+The obvious failure mode is worth stating in advance: a derived layer built with a model over someone's history is a machine for generating confident, unfalsifiable claims about a person. The evidential requirement is therefore stricter here than anywhere else in the project. Every derived record must carry the messages that produced it, and any evaluation must score whether the evidence actually supports the claim, not only whether the claim sounds plausible.
+
+What needs to be built: the derived layer itself; a synthetic corpus with known ground truth about goals stated and abandoned, positions held and reversed, and interests that appear and fade; and an answer-level judge scoring correctness, citation accuracy, and unsupported claim rate separately.
+
+What this closes: whether the reflective product is real or whether it is retrieval with better copy.
+
+### Claim 4: Temporal structure is retrievable without a learned temporal model
+
+`CorpusOverviewService` currently answers when a subject first appeared, when it was last mentioned, its monthly distribution, its provider distribution, and how many months in its span contain no mention. That is counting. It is deterministic, cheap, reproducible, and it detects dormancy and resurfacing without any model at all.
+
+The claim is that a surprising fraction of useful temporal reasoning is reachable this way, and that the learned component is only needed for the semantic half of the problem: recognizing that two differently-worded passages are about the same thing.
+
+If true, the architecture should keep the temporal layer deterministic and put the learning entirely into the similarity function. If false, temporal reasoning needs its own model and the current design is a dead end worth abandoning early.
+
+What needs to be built: temporal query operators as filters rather than as prompt hints, and an evaluation separating temporal accuracy from semantic accuracy so the two failure modes can be attributed.
+
+What this closes: where the learned component belongs.
+
+### What this track must not become
+
+Personality assessment.
+
+The corpus makes it technically easy to generate confident statements about what a person is like, and those statements would be unfalsifiable, unearned, and in a category the project has no business entering. The standard is that OpenMemory reports what the record contains, with frequency, time, source, and the conversations behind it, and distinguishes observation from inference every time. It never diagnoses a psychological or medical condition. It never describes what someone fundamentally is.
+
+That is a research constraint as much as a product one. An evaluation that rewards insightful-sounding output over evidenced output would push the system straight into the failure mode, so the judging rubric has to score evidence support independently of whether the answer reads well.
+
+---
+
 ## Closed tracks
 
 None yet. This agenda opened on 2026-03-13.
