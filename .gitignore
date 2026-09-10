@@ -26,6 +26,28 @@ agent/.env
 # Local AI tooling
 .claude/
 
+# Imported AI history.
+#
+# Provider exports are among the most sensitive files a person owns, and a file
+# committed once stays in git history forever. These rules exist so that a real
+# ChatGPT, Claude, or Gemini archive left in the working tree cannot be added by
+# accident. Test fixtures are fabricated in code (app/tests/Support), never
+# copied from a real export.
+archives/
+imports/
+*-export.zip
+*-export/
+conversations.json
+chat.html
+message_feedback.json
+model_comparisons.json
+MyActivity.json
+MyActivity.html
+takeout*.zip
+Takeout/
+app/storage/app/openmemory-imports/
+app/storage/app/openmemory-archives/
+
 # OS
 .DS_Store
 Thumbs.db
