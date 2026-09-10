@@ -4,7 +4,21 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { discoverCandidates, redactForManifest } from '../bin/openmemory.js';
+import { discoverCandidates, redactForManifest, main } from '../bin/openmemory.js';
+
+const NEWLINE = '\n';
+
+const captureStderr = async (fn) => {
+  const original = console.error;
+  const lines = [];
+  console.error = (...args) => lines.push(args.join(' '));
+
+  try {
+    return { code: await fn(), stderr: lines.join(NEWLINE) };
+  } finally {
+    console.error = original;
+  }
+};
 
 test('redactForManifest removes obvious secrets and emails', () => {
   const input = [
@@ -51,5 +65,28 @@ test('discoverCandidates finds project and provider memory files', () => {
     assert.equal(candidates.some((item) => item.source_label === 'gemini:GEMINI.md'), true);
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('import-archive without a path explains what a path should be', async () => {
+  const { code, stderr } = await captureStderr(() => main(['import-archive']));
+
+  assert.equal(code, 1);
+  assert.match(stderr, /import-archive PATH/);
+  assert.match(stderr, /export ZIP, an extracted folder, or a single conversations\.json/);
+});
+
+test('an unknown command prints help and fails', async () => {
+  const original = console.log;
+  const out = [];
+  console.log = (...args) => out.push(args.join(' '));
+
+  try {
+    const { code } = await captureStderr(() => main(['not-a-command']));
+
+    assert.equal(code, 1);
+    assert.match(out.join(NEWLINE), /import-archive/);
+  } finally {
+    console.log = original;
   }
 });

@@ -3,6 +3,15 @@
 namespace App\Providers;
 
 use App\Services\ClusterDetectionService;
+use App\Services\Conversations\Adapters\ChatGptArchiveAdapter;
+use App\Services\Conversations\Adapters\ClaudeArchiveAdapter;
+use App\Services\Conversations\Adapters\GeminiTakeoutArchiveAdapter;
+use App\Services\Conversations\Archive\ArchiveSourceFactory;
+use App\Services\Conversations\ConversationArchiveRegistry;
+use App\Services\Conversations\ConversationAskService;
+use App\Services\Conversations\ConversationEvidenceRetrievalService;
+use App\Services\Conversations\ConversationImportService;
+use App\Services\Conversations\CorpusOverviewService;
 use App\Services\EvidenceFactExtractionService;
 use App\Services\EvidenceRetrievalService;
 use App\Services\GraphExtractionService;
@@ -69,6 +78,24 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(IngestSummarizer::class, function ($app) {
             return new IngestSummarizer($app->make(LlmService::class));
         });
+
+        // Imported conversation history. The adapter list is the only place
+        // that knows which providers exist; everything downstream is
+        // provider-neutral, so adding a provider is one entry here plus one
+        // adapter class. Order sets tie-break preference during detection.
+        $this->app->singleton(ConversationArchiveRegistry::class, function () {
+            return new ConversationArchiveRegistry([
+                new ChatGptArchiveAdapter(),
+                new ClaudeArchiveAdapter(),
+                new GeminiTakeoutArchiveAdapter(),
+            ]);
+        });
+
+        $this->app->singleton(ArchiveSourceFactory::class);
+        $this->app->singleton(ConversationImportService::class);
+        $this->app->singleton(ConversationEvidenceRetrievalService::class);
+        $this->app->singleton(CorpusOverviewService::class);
+        $this->app->singleton(ConversationAskService::class);
 
         $this->app->singleton(IngestPipeline::class, function ($app) {
             return new IngestPipeline(

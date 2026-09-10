@@ -64,6 +64,8 @@ export async function main(argv = process.argv.slice(2)) {
       return commandDoctor(args);
     case 'import':
       return commandImport(args);
+    case 'import-archive':
+      return commandImportArchive(args);
     case 'setup-clients':
       return commandSetupClients(args);
     case 'help':
@@ -91,12 +93,28 @@ Usage:
   openmemory doctor [--app-url URL] [--json]
   openmemory setup-clients [mock|live] [setup options]
   openmemory import [all|codex|claude|gemini|project] [--dry-run] [--output PATH]
+  openmemory import-archive PATH [--user ID] [--provider NAME] [--dry-run] [--limit N]
 
 Examples:
   node bin/openmemory.js doctor
   node bin/openmemory.js setup-clients mock
   node bin/openmemory.js import all --dry-run
   node bin/openmemory.js import codex --output app/storage/app/openmemory-imports/codex.jsonl
+  node bin/openmemory.js import-archive ~/Downloads/chatgpt-export.zip --user me
+
+Two import commands, two different things:
+  import          scans the memory files your local coding agents already keep
+                  and writes reviewable candidates.
+  import-archive  reads a full conversation export from ChatGPT, Claude, or
+                  Google Takeout into the local history corpus.
+
+Archive import options are passed through to the Laravel command:
+  --user ID        Owner identity. Defaults to OPENMEMORY_LOCAL_USER_ID in app/.env.
+  --provider NAME  Force chatgpt, claude, or gemini instead of detecting.
+  --dry-run        Parse and report without writing.
+  --limit N        Stop after N conversations.
+  --no-raw         Skip storing the preserved provider JSON.
+  --json           Emit the report as JSON.
 
 Import options:
   --home PATH          Home directory to scan. Defaults to the current user home.
@@ -203,6 +221,44 @@ function commandSetupClients(args) {
 
   if (child.error) {
     console.error(`Failed to run setup-clients: ${child.error.message}`);
+    return 1;
+  }
+
+  return child.status ?? 0;
+}
+
+/**
+ * Run the Laravel archive importer.
+ *
+ * The parsing itself lives in PHP because it writes to the same database the
+ * review UI reads. This wrapper exists so the root CLI stays the single place a
+ * user looks, without duplicating the importer in a second language.
+ */
+function commandImportArchive(args) {
+  const { positionals } = parseArgs(args);
+  const path = positionals[0];
+
+  if (!path) {
+    console.error('Usage: openmemory import-archive PATH [--user ID] [--provider NAME] [--dry-run]');
+    console.error('');
+    console.error('PATH is an export ZIP, an extracted folder, or a single conversations.json.');
+    return 1;
+  }
+
+  const artisan = join(appDir, 'artisan');
+  if (!existsSync(artisan)) {
+    console.error(`Missing Laravel entrypoint: ${artisan}`);
+    return 1;
+  }
+
+  const child = spawnSync('php', [artisan, 'memory:import-archive', ...args], {
+    cwd: appDir,
+    stdio: 'inherit',
+    shell: process.platform === 'win32',
+  });
+
+  if (child.error) {
+    console.error(`Failed to run the archive importer: ${child.error.message}`);
     return 1;
   }
 
