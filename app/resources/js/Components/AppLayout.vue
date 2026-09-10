@@ -19,6 +19,7 @@
         <!-- Nav links -->
         <div class="flex items-center gap-1">
           <NavLink href="/chat"    :active="$page.url.startsWith('/chat')">Chat</NavLink>
+          <NavLink href="/history" :active="$page.url.startsWith('/history')">History</NavLink>
           <NavLink href="/memory"  :active="$page.url.startsWith('/memory')">Memory</NavLink>
           <NavLink href="/graph"   :active="$page.url.startsWith('/graph')">Graph</NavLink>
           <NavLink href="/agents"  :active="$page.url.startsWith('/agents')">Agents</NavLink>

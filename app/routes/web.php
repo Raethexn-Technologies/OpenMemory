@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AgentController;
 use App\Http\Controllers\ChatController;
+use App\Http\Controllers\ConversationHistoryController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\GraphController;
 use App\Http\Controllers\IngestController;
@@ -72,6 +73,22 @@ Route::post('/mcp/store', [McpController::class, 'store'])->name('mcp.store');
 Route::post('/mcp/prepare', [McpController::class, 'prepare'])->name('mcp.prepare');
 Route::post('/mcp/sync', [McpController::class, 'sync'])->name('mcp.sync');
 Route::post('/mcp/search', [McpController::class, 'search'])->name('mcp.search');
+
+// Imported AI history. Every route is scoped to the corpus owner resolved by
+// ConversationHistoryController::ownerId(). Imported conversations never enter
+// the public memory graph, chat recall, or MCP responses; this surface is the
+// only place they are read, and the raw route is the only place the preserved
+// unredacted source is served.
+Route::get('/history', [ConversationHistoryController::class, 'index'])->name('history');
+Route::get('/history/conversations/{conversationId}', [ConversationHistoryController::class, 'show'])->name('history.show');
+Route::get('/api/history/conversations', [ConversationHistoryController::class, 'list'])->name('history.list');
+Route::post('/api/history/search', [ConversationHistoryController::class, 'search'])->name('history.search');
+Route::post('/api/history/ask', [ConversationHistoryController::class, 'askQuestion'])
+    ->middleware('throttle:20,1')
+    ->name('history.ask');
+Route::post('/api/history/timeline', [ConversationHistoryController::class, 'timeline'])->name('history.timeline');
+Route::get('/api/history/conversations/{conversationId}/raw', [ConversationHistoryController::class, 'raw'])->name('history.raw');
+Route::delete('/api/history/conversations/{conversationId}', [ConversationHistoryController::class, 'destroy'])->name('history.destroy');
 
 // Three.js mission control surface
 Route::get('/3d', [GraphController::class, 'threeD'])->name('threed');
