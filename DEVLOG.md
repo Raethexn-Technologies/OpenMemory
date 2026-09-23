@@ -1944,3 +1944,19 @@ The Hebbian increment currently applies a flat ALPHA regardless of how many node
 The `reinforceFromMemories` method joins on exact content string equality. If the same fact is summarized slightly differently across two turns, the join misses the second instance. A fuzzy join using trigram similarity or cosine embedding distance would be more robust, but the exact join is correct for the current pipeline because the same LLM prompt and same content are used consistently.
 
 ---
+
+## 2026-09-23: Authenticated local ownership foundation
+
+Private browser routes now use Laravel authentication and an explicit corpus binding. Existing configured owner values remain CLI import defaults and cannot authenticate a requester. A local account command prompts for a password, and a separate binding command assigns a legacy namespace without rewriting source records.
+
+Browser principal strings no longer establish local ownership. OpenMemory logout invalidates the Laravel session independently of Internet Identity sign-out. Global memory inspection filters both mock and adapter responses to explicitly public records.
+
+The ownership regression suite uses fabricated archives and real authentication middleware, including explicit CSRF checks. The architecture records remain proposed where later implementation has not validated them; no resolver or federated source was added.
+
+## 2026-09-23: Disclosure and untrusted evidence boundary
+
+The disclosure audit traced imported history, live chat, document extraction, memory metadata, consolidation, commit ingestion, MCP, optional agents, browser adapters, diagnostics, and CLI output. Model credentials no longer imply permission to transmit context; operation grants default to empty, and History Ask also requires an explicit request choice.
+
+Retrieved evidence now travels separately from invariant application instructions. Private document processing and private memory metadata extraction remain local, while public chat proposals use the existing approval flow. Provider errors, malformed model output, and normal application exception handling no longer intentionally record payloads.
+
+Synthetic tests exercise denial before transmission, adversarial evidence placement, ownership isolation, private document processing, credential output, and mock versus adapter-backed public filtering. The implementation report records remaining limitations, including shared MCP authority, provider retention, deployment-wide grants, and the optional agent's lack of a security sandbox. No schema migration or additional provider was introduced.

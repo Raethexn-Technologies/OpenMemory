@@ -10,7 +10,7 @@ Two things live here, and they meet in the same corpus:
 
 **Historical memory.** Conversation archives you export from providers. `memory:import-archive` reads an export where it already sits on disk, normalizes it into a provider-neutral model, and keeps the exact provider JSON alongside the normalized rows. Imports are idempotent, so re-exporting next month merges rather than duplicates.
 
-**Live memory.** Durable facts written and recalled while you work, through MCP. Store a decision in Codex, recall it from Claude Code or Gemini CLI without re-explaining the project. This was the original product and it still works exactly as before. It is now one source of memory rather than the whole category.
+**Live memory.** Durable facts written and recalled while you work, through MCP. Store a decision in Codex, recall it from Claude Code or Gemini CLI without re-explaining the project. This was the original product, and its existing MCP interfaces remain available. It is now one source of memory rather than the whole category.
 
 The interesting question is not only "find the conversation where I talked about X". Search is necessary and not sufficient. The question a multi-year, multi-provider corpus makes answerable is what someone could learn about themselves from it: what subjects they keep returning to, what they planned and never mentioned again, when an interest first appeared, where their position changed, and which patterns are invisible while each provider's history sits in its own silo.
 
@@ -18,7 +18,17 @@ Every claim OpenMemory makes about that history has to be traceable. An answer c
 
 [ROADMAP.md](./ROADMAP.md) defines the direction. [ADOPTION.md](./ADOPTION.md) defines the demo and community path. [VISION.md](./VISION.md) covers the design decisions and research questions in depth. [DEVLOG.md](./DEVLOG.md) is the running record of what was discovered building it. [RESEARCH.md](./RESEARCH.md) is the active research agenda. [SCIENCE.md](./SCIENCE.md) explains the mathematics and biology behind the graph layer.
 
+The [federated context report](./docs/architecture/FEDERATED_CONTEXT_REPORT.md) is the working architectural direction. Its [ADRs](./docs/adr/README.md) remain proposed where implementation has not validated them.
+
+## Disclosure defaults
+
+Model processing is disabled until the operator explicitly permits an operation. History Ask additionally requires an unchecked per-request choice before selected excerpts leave for a model. Documents default to private local processing, and all chat memory proposals require review before storage.
+
+Read the [disclosure trust model](./docs/architecture/DISCLOSURE_BOUNDARY.md) before enabling model calls or public ingestion. The [security-phase report](./docs/architecture/DISCLOSURE_IMPLEMENTATION.md) records verification and remaining limitations.
+
 ## Try it
+
+Before browsing private data, follow [authenticated ownership setup](./docs/architecture/OWNERSHIP_SETUP.md) to create a local login and bind any existing corpus. Imports remain local and do not require a browser session.
 
 Import an export you already have:
 
@@ -28,7 +38,7 @@ node bin/openmemory.js import-archive ~/Downloads/chatgpt-export.zip --user me -
 node bin/openmemory.js import-archive ~/Downloads/chatgpt-export.zip --user me
 ```
 
-Then open `/history` to browse, search, and ask questions of the corpus.
+Bind the `me` namespace to your local account, sign in at `/login`, and open `/history` to inspect the corpus.
 
 Or try the cross-tool live memory workflow:
 
@@ -46,9 +56,9 @@ node bin/openmemory.js import all --dry-run
 
 The research graph is an experimental retrieval layer, not a requirement for trusting the product.
 
-Identity works differently depending on the tool. The browser chat UI authenticates the user through Internet Identity (`@dfinity/auth-client`) and signs writes to the ICP canister with the delegation that II returns. Until the user has signed in, the browser holds an `AnonymousIdentity` and the canister rejects writes from anonymous callers, so no memories are stored. CLI tools running in terminals (Claude Code, Gemini, Codex) share a portable Ed25519 identity file at `~/.config/openmemory/identity.json`, generated once with `node setup-identity.js`, and write through the MCP server rather than through a browser. A typed memory graph sits in PostgreSQL alongside the canister records, tracking relationships between memories and applying Physarum conductance dynamics that shift edge weights based on how the LLM actually uses each connection over time.
+Browser access to local user data uses Laravel password authentication. A unique ownership binding selects the account's corpus and legacy local records. Internet Identity remains a separate provider identity for signed canister writes and owner reads; browser-supplied principal strings do not authenticate Laravel.
 
-Imported conversation history has a third identity, and it is the one most likely to trip someone up. `memory:import-archive` runs in a terminal, where neither an Internet Identity delegation nor a browser session exists, so the corpus owner comes from `OPENMEMORY_LOCAL_USER_ID` in `.env`, or from `--user` on the command. The `/history` surface resolves the same value and falls back to the browser session only when it is unset. If the two disagree, an archive imported from a shell is invisible in the browser that is meant to review it.
+Local imports accept an owner key through `--user` or `OPENMEMORY_LOCAL_USER_ID`. Neither establishes browser authority. Existing corpora require an explicit `openmemory:corpus:bind` command before the authenticated owner can inspect them. The existing MCP application key remains separate from both browser login and provider identity.
 
 ---
 
@@ -67,7 +77,7 @@ php artisan memory:import-archive ~/Downloads/chatgpt-export.zip --user=me
 node bin/openmemory.js import-archive ~/Downloads/claude-export.zip --user me
 ```
 
-Set `OPENMEMORY_LOCAL_USER_ID` in `.env` so the CLI and the browser agree on who owns the corpus, and `--user` becomes optional.
+Set `OPENMEMORY_LOCAL_USER_ID` in `.env` to the explicitly bound import-owner key if you want `--user` to be optional. The value is only a CLI default and grants no browser access.
 
 A ZIP, an extracted folder, and a bare `conversations.json` are all accepted. The report says what happened:
 
@@ -115,7 +125,7 @@ Gemini is the one provider whose export is not a conversation export. Takeout sh
 
 The history surface is at `/history`. It has four views.
 
-**Ask** takes a question, retrieves message-level evidence with deterministic lexical scoring, and returns an answer whose every claim cites specific excerpts. Citations are validated after generation: a reference the model invents is reported as unresolved and removed rather than rendered as a source. An unresolvable citation is worse than none, because it looks like proof.
+**Ask** retrieves message-level evidence with deterministic lexical scoring. Explicitly enabled generation can also return an answer prompted to cite its supporting excerpts. Citations are validated after generation: a reference the model invents is reported as unresolved and removed rather than rendered as a source. An unresolvable citation is worse than none, because it looks like proof.
 
 **Explore** lists conversations with provider, title, and date filters, and opens any of them to read the messages, the branches, the attachments, and the preserved source.
 
@@ -129,7 +139,7 @@ Imported conversations default to `private` and are never public. Concretely:
 
 - They do not enter the memory graph, so they cannot reach chat recall.
 - They are not visible to MCP clients. An agent connected through MCP reads public graph records and cannot pull a person's archived history.
-- Only excerpts selected by the user's own question cross a model boundary, capped by `conversations.ask.evidence_limit` and `conversations.ask.excerpt_chars`.
+- Only explicitly authorized generation sends question-selected excerpts across a model boundary, capped by `conversations.ask.evidence_limit` and `conversations.ask.excerpt_chars`.
 - Setting `CONVERSATIONS_ASK_GENERATE_ANSWER=false` disables generation entirely. Ask still works and returns evidence, and nothing is sent to a model.
 
 That last boundary is the point. Sending a message to ChatGPT is not consent to send it to a different provider later. Retrieval is the product; generation is a convenience layered on top of it.
@@ -138,7 +148,7 @@ That last boundary is the point. Sending a message to ChatGPT is not consent to 
 
 A corpus of AI history is full of text written by AI systems, much of it instructions, because instructing models is what people use assistants for. Some of it could have been planted.
 
-Evidence excerpts are delimited, labelled with their provider and date, and introduced by a policy stating that instructions found inside them are content to be reported rather than commands to follow. The user's question is the only instruction in the turn: retrieved text never arrives as a system instruction and never arrives as though the user had typed it. Gemini responses, which Takeout stores as HTML, are converted to plain text with script and style bodies removed, so no imported markup is ever rendered.
+Evidence excerpts are delimited, labelled with their provider and date, and introduced by a policy stating that instructions found inside them are content to be reported rather than commands to follow. Static application policy and the user's request remain separate from a JSON evidence message. Retrieved text never populates system instructions, although this separation does not guarantee that a model will ignore malicious evidence. Gemini responses, which Takeout stores as HTML, are converted to plain text with script and style bodies removed, so no imported markup is ever rendered.
 
 ---
 
@@ -150,7 +160,7 @@ The application is a standard Laravel and Vue web app. The interesting parts are
 
 **Storage trigger.** Before summarizing a conversation turn, the server passes the exchange to `MemorabilityService`, which evaluates novelty, significance, durability, and connection richness against the 20 most recently created nodes. The evaluation returns one of three decisions: store a new node, update an existing node with a specific ID, or skip the turn entirely. This filter prevents ephemeral exchanges (greetings, clarifying questions, transient status updates) from creating nodes, keeping the graph focused on durable knowledge.
 
-**Memory records.** When a redacted turn passes the storage trigger, the server summarizes it, classifies it as public, private, or sensitive, applies a second deterministic redaction pass to the summary, and proceeds down the write path. Redaction findings can only raise sensitivity, never lower it. In the browser chat UI, private and sensitive records require user approval before the browser signs the write with the Internet Identity delegation and sends it directly to the ICP canister. The canister records `msg.caller` as the owner of that record and rejects writes from anonymous principals, so a signed-out browser cannot store memories. CLI tools writing through the MCP server POST to the Laravel `/mcp/store` endpoint in mock mode, which handles redaction, graph extraction, and node storage server-side without a browser session.
+**Memory records.** When a redacted turn passes the storage trigger, the server summarizes it, classifies it as public, private, or sensitive, applies a second deterministic redaction pass to the summary, and proceeds down the write path. Redaction findings can only raise sensitivity, never lower it. In the browser chat UI, all proposed memory records require user approval before the browser signs the write with the Internet Identity delegation and sends it directly to the ICP canister. The canister records `msg.caller` as the owner of that record and rejects writes from anonymous principals, so a signed-out browser cannot store memories. CLI tools writing through the MCP server POST to the Laravel `/mcp/store` endpoint in mock mode, which handles redaction, graph extraction, and node storage server-side without a browser session.
 
 **Document ingestion.** `POST /api/documents/ingest` accepts pasted text or Markdown files, redacts the source text, creates a document anchor node, chunks the redacted source with `DocumentChunkerService`, and runs each chunk through the same `GraphExtractionService` used for chat memories. Chunk nodes are stored with `source = 'document'` and connected back to the anchor with `part_of` edges, so uploaded knowledge enters the same graph primitives as chat-derived memory. `EvidenceFactExtractionService` also extracts smaller source-backed facts from each successfully stored chunk and writes them to `evidence_facts` with `source_node_id`, `source_document_id`, quote-derived character spans, confidence, and chunk metadata. `GET /api/documents` lists the document anchors for the current user. The HTTP API defaults ingested documents to `public` because graph-guided retrieval and grounded document QA only load public nodes into the LLM context window; redaction findings can escalate the effective sensitivity to `private` or `sensitive`.
 
@@ -192,7 +202,7 @@ The three memory tiers are the core of the trust model:
 
 | Type | LLM context | Owner panel | Requires approval |
 |---|---|---|---|
-| public | Yes | Yes | No |
+| public | Only with a model grant | Yes | Yes, for chat proposals |
 | private | No | Yes | Yes |
 | sensitive | No | Yes | Yes |
 
@@ -224,7 +234,7 @@ The redaction layer sits beside this access-control model. Access control decide
 ```bash
 cd app
 cp .env.example .env
-# Set OPENROUTER_API_KEY in .env (get a key at https://openrouter.ai/keys)
+# Optional: configure a model key and explicit MODEL_DISCLOSURE_OPERATIONS
 php artisan key:generate
 composer install
 npm install
@@ -241,7 +251,7 @@ Open http://localhost:8000. Memory runs in mock mode by default, so no canister 
 
 ```bash
 cp app/.env.example app/.env
-# Set OPENROUTER_API_KEY in app/.env
+# Optional: configure model credentials and explicit disclosure operation grants
 
 docker compose up -d
 docker compose exec app php artisan key:generate
@@ -254,7 +264,7 @@ Open http://localhost:8080.
 
 ## Mock mode
 
-Setting `ICP_MOCK_MODE=true` (the default) replaces the ICP canister with Laravel's file cache. This is the right way to run the application locally or in CI when you don't have a running dfx replica or deployed canister. The LLM still calls OpenRouter for chat responses, but no ICP tooling is required.
+Setting `ICP_MOCK_MODE=true` (the default) replaces the ICP canister with Laravel's file cache. This is the right way to run the application locally or in CI when you don't have a running dfx replica or deployed canister. With the chat operation explicitly enabled, the LLM calls OpenRouter for responses, but no ICP tooling is required.
 
 Private and sensitive memories show the same approval dialogs in mock mode that they do in live mode. The graph layer runs identically in both modes because it operates entirely within PostgreSQL.
 

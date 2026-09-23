@@ -28,6 +28,12 @@ Do not commit `.env` files. The root `.gitignore` and each component's local `.g
 
 `REDACTION_HASH_KEY` can be set to a separate HMAC key for deterministic redaction tokens. If it is unset, the Laravel `APP_KEY` is used. Treat either value as secret because a stable token lets the system recognize the same redacted value across writes without storing the raw value.
 
+## Authenticated local ownership
+
+Laravel session authentication protects private browser routes. Each user has an explicit unique corpus binding; configuration, principal strings, and MCP keys cannot establish browser ownership. Global memory inspection returns only explicitly public records in mock and adapter-backed modes. The [setup guide](./docs/architecture/OWNERSHIP_SETUP.md) describes migration, transport requirements, and remaining limitations.
+
+The subsequent [disclosure boundary](./docs/architecture/DISCLOSURE_BOUNDARY.md) adds default-deny model operations, explicit History Ask and document choices, separate evidence messages, approval before public chat publication, and metadata-only application diagnostics. Its limitations include deployment-wide grants, external provider retention, and unsandboxed optional agent tools.
+
 ## Scope
 
 The following areas are in scope for security reports:
@@ -44,7 +50,7 @@ The following areas are in scope for security reports:
 
 **The model-provider boundary.** A message a user once sent to one provider is not thereby consented to a different provider. Only redacted excerpts selected by the user's own question may cross a model boundary, bounded by `conversations.ask.evidence_limit` and `conversations.ask.excerpt_chars`, and `CONVERSATIONS_ASK_GENERATE_ANSWER=false` must disable generation entirely while leaving retrieval working. A change that sends whole conversations, unredacted text, or archive contents to a model is in scope.
 
-**Prompt injection carried inside imported history.** Imported archives contain text written by other AI systems, much of it instructions, and some of it potentially planted. Retrieved excerpts must never reach a model as a system instruction and must never be presented as though the user had typed them: they are delimited, labelled with provider and date, and introduced by a policy stating that instructions inside them are content to be reported. Gemini responses, which Takeout stores as HTML, are converted to text with script and style bodies removed rather than tag-stripped. A change that inlines imported content into a system prompt or a user turn, or that renders imported markup in the UI, is in scope.
+**Prompt injection carried inside imported history.** Imported archives contain text written by other AI systems, much of it instructions, and some of it potentially planted. Retrieved excerpts must never reach a model as a system instruction and must never be presented as though the user had typed them: they are delimited, labelled with provider and date, and introduced by a policy stating that instructions inside them are content to be reported. Gemini responses, which Takeout stores as HTML, are converted to text with script and style bodies removed rather than tag-stripped. A change that inlines imported content into a system prompt or the authenticated user's request, or that renders imported markup in the UI, is in scope.
 
 **API key validation for `/mcp/store`.** The Laravel endpoint that accepts memory writes from the MCP server and the agent requires an `X-OMA-API-Key` header. Missing or incorrect validation of that header allows unauthenticated memory writes.
 

@@ -13,7 +13,7 @@ OpenMemory is a research project maintained by Raethexn Technologies. The codeba
 ```bash
 cd app
 cp .env.example .env
-# Set OPENROUTER_API_KEY in .env
+# Set a model key and explicit MODEL_DISCLOSURE_OPERATIONS only if needed
 php artisan key:generate
 composer install
 npm install
@@ -28,7 +28,7 @@ Open http://localhost:8000. Memory runs in mock mode by default, so no canister 
 
 ```bash
 cp app/.env.example app/.env
-# Set OPENROUTER_API_KEY in app/.env
+# Set model credentials and operation grants only when model processing is needed
 docker compose up -d
 docker compose exec app php artisan key:generate
 docker compose exec app php artisan migrate
@@ -38,11 +38,15 @@ Open http://localhost:8080.
 
 ---
 
+## Local account setup
+
+Browser routes that inspect or mutate local data require a Laravel login. Follow the [ownership setup guide](./docs/architecture/OWNERSHIP_SETUP.md) after migrating the database. Existing corpora require an explicit operator binding; configuring an import-owner key no longer grants browser access.
+
 ## Mock mode and development without ICP
 
 Setting `ICP_MOCK_MODE=true` (the default) replaces the ICP canister with Laravel's file cache. This is the recommended starting point for anyone contributing to the application layer. No canister, adapter, or ICP installation is required, which makes it practical for local development and CI environments.
 
-The consent flow runs identically in mock mode. Private and sensitive memories still require user approval before being written, so you can develop and test the full approval dialog flow without touching any ICP infrastructure.
+The consent flow runs identically in mock mode. All chat memory proposals require user approval before being written, so you can develop and test the full approval dialog flow without touching any ICP infrastructure.
 
 The redaction flow also runs in mock mode. Payment cards, bank details, government IDs, credentials, private keys, and comparable floor categories should be redacted before they reach transcripts, LLM prompts, graph nodes, document chunks, MCP writes, or mock ICP storage.
 
@@ -62,13 +66,19 @@ The backend test suite uses SQLite in-memory and mock mode throughout, so no API
 
 ---
 
+## Disclosure boundary tests
+
+The [trust model](./docs/architecture/DISCLOSURE_BOUNDARY.md) separates ownership from model and publication permission. New model call sites must name an authorized operation, retain static system instructions, and place retrieved text in an EvidenceMessages envelope. Extend the synthetic disclosure tests rather than disabling authorization to restore an old implicit workflow.
+
+Run `npm run test:cli` and `npm run test:security` from the repository root. The latter exercises optional agent and adapter code with isolated dependency stubs, without installing or contacting their real providers.
+
 ## Memory types
 
 The three-tier memory model is the core architectural claim of the project. Please preserve it in any contribution:
 
 | Type | LLM context | Owner read | Requires approval |
 |---|---|---|---|
-| public | Yes | Yes | No |
+| public | Only with a model grant | Yes | Yes, for chat proposals |
 | private | No | Yes, owner only | Yes |
 | sensitive | No | Yes, owner only | Yes |
 
