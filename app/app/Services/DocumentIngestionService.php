@@ -61,12 +61,20 @@ class DocumentIngestionService
         string $userId,
         string $title,
         string $text,
-        string $sensitivity = 'public',
+        string $sensitivity = 'private',
+        bool $allowModelProcessing = false,
     ): array {
         $redaction = $this->redactor->redact($text, $userId);
         $text = $redaction->text;
         $sensitivity = $this->redactor->enforceSensitivity($sensitivity, $redaction);
 
+        $titleRedaction = $this->redactor->redact($title, $userId);
+        $title = $titleRedaction->text;
+        $sensitivity = $this->redactor->enforceSensitivity($sensitivity, $titleRedaction);
+        if ($allowModelProcessing) {
+            \App\Services\LLM\ModelDisclosure::authorize('document_processing');
+        }
+        $processWithModel = $allowModelProcessing && $sensitivity === 'public';
         $chunks = $this->chunker->chunk($text);
         $total = count($chunks);
 
@@ -83,7 +91,9 @@ class DocumentIngestionService
         $factsCreated = 0;
 
         foreach ($chunks as $index => $chunk) {
-            $extracted = $this->graphExtractor->extract($chunk, $sensitivity);
+            $extracted = $processWithModel
+                ? $this->graphExtractor->extract($chunk, $sensitivity, 'document_processing')
+                : GraphExtractionService::localMetadata($chunk, $sensitivity);
 
             if ($extracted === null) {
                 // Extraction returned an unparseable response. Skip rather than
@@ -91,7 +101,6 @@ class DocumentIngestionService
                 Log::warning('DocumentIngestionService: skipping chunk after extraction failure', [
                     'document_node_id' => $anchorNode->id,
                     'chunk_index' => $index,
-                    'chunk_preview' => mb_substr($chunk, 0, 80),
                 ]);
                 $skipped++;
 
@@ -122,18 +131,19 @@ class DocumentIngestionService
                 weight: 0.9,
             );
 
-            $factsCreated += $this->factExtractor->extractAndStoreForNode(
+            $factsCreated += $processWithModel ? $this->factExtractor->extractAndStoreForNode(
                 userId: $userId,
                 sourceNode: $chunkNode,
                 sourceDocument: $anchorNode,
                 chunk: $chunk,
                 chunkIndex: $index,
-            );
+            ) : 0;
 
             $nodesCreated++;
         }
 
         return [
+            'model_processing' => $processWithModel,
             'document_node_id' => $anchorNode->id,
             'document_label' => $anchorNode->label,
             'chunks_total' => $total,

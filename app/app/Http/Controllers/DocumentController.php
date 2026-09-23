@@ -52,12 +52,9 @@ class DocumentController extends Controller
      *
      * Accepts either a plain-text/markdown file upload or a raw text paste.
      *
-     * Sensitivity defaults to 'public'. This is intentional: private and sensitive
-     * nodes are excluded from graph-guided retrieval in MemoryGraphService::findContextSeeds()
-     * and retrieveContext(), so a private document would appear in the graph explorer
-     * but the assistant would never use it as LLM context. If the user wants the
-     * document to affect chat responses, it must be public. If they want graph-only
-     * storage without LLM exposure, they can pass sensitivity=private explicitly.
+     * Documents default to private and local-only processing. Explicit public
+     * sensitivity permits public graph/MCP disclosure. Model processing also
+     * requires allow_model_processing and the document_processing server grant.
      *
      * ICP write (mock mode only): the document anchor content is stored in the ICP
      * canister after successful ingestion, matching the mock-mode public write path
@@ -76,6 +73,7 @@ class DocumentController extends Controller
             'text'        => 'nullable|string|max:500000',
             'file'        => 'nullable|file|mimes:txt,md|max:10240', // 10 MB
             'sensitivity' => 'nullable|in:public,private,sensitive',
+            'allow_model_processing' => 'sometimes|boolean',
         ]);
 
         if (empty($validated['text']) && ! $request->hasFile('file')) {
@@ -93,13 +91,14 @@ class DocumentController extends Controller
             : $validated['text'];
         $textRedaction = $this->redactor->redact($text, $userId);
 
-        $sensitivity = $validated['sensitivity'] ?? 'public';
+        $sensitivity = $validated['sensitivity'] ?? 'private';
 
         $result = $this->ingestion->ingest(
             userId:      $userId,
             title:       $validated['title'],
             text:        $text,
             sensitivity: $sensitivity,
+            allowModelProcessing: $validated['allow_model_processing'] ?? false,
         );
 
         $effectiveSensitivity = $result['effective_sensitivity'] ?? $sensitivity;
@@ -114,7 +113,7 @@ class DocumentController extends Controller
             $this->icp->storeMemory(
                 userId:     $userId,
                 sessionId:  $sessionId,
-                content:    "Document ingested: {$validated['title']}. " . mb_substr($textRedaction->text, 0, 200),
+                content:    "Document ingested: {$result['document_label']}. " . mb_substr($textRedaction->text, 0, 200),
                 metadata:   json_encode([
                     'source'           => 'document_ingest',
                     'document_node_id' => $result['document_node_id'],

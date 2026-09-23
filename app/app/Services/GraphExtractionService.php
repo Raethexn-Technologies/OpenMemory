@@ -51,8 +51,12 @@ PROMPT;
      * Returns array with keys: type, label, tags, people, projects, sensitivity
      * Returns null if the LLM response cannot be parsed.
      */
-    public function extract(string $content, string $sensitivityType): ?array
+    public function extract(string $content, string $sensitivityType, string $operation = 'public_extraction'): ?array
     {
+        if ($sensitivityType !== 'public' || ! \App\Services\LLM\ModelDisclosure::allows($operation)) {
+            return self::localMetadata($content, $sensitivityType);
+        }
+
         $messages = [
             ['role' => 'user', 'content' => "Memory fact: \"{$content}\""],
         ];
@@ -60,7 +64,7 @@ PROMPT;
         // Graph extraction is the heaviest cognitive task in the ingest path —
         // structured multi-field classification with downstream impact on every
         // edge wired from this node. Route to the reason model.
-        $raw = trim($this->llm->chatFor(LlmService::TASK_REASON, self::EXTRACT_PROMPT, $messages));
+        $raw = trim($this->llm->chatFor(LlmService::TASK_REASON, self::EXTRACT_PROMPT, \App\Services\LLM\EvidenceMessages::task('Extract metadata from the evidence.', $messages), $operation));
 
         $result = [];
 
@@ -68,7 +72,7 @@ PROMPT;
             $valid = ['memory', 'person', 'project', 'document', 'task', 'event', 'concept', 'goal'];
             $result['type'] = in_array($m[1], $valid) ? $m[1] : 'memory';
         } else {
-            Log::warning('GraphExtractionService: missing NODE_TYPE', ['raw' => mb_substr($raw, 0, 300)]);
+            Log::warning('GraphExtractionService: missing NODE_TYPE', ['error_category' => 'invalid_model_output']);
 
             return null;
         }
@@ -89,10 +93,14 @@ PROMPT;
     }
 
     /**
-     * Parse a comma-separated line from the LLM output.
-     *
-     * @return array<int, string>
+     * Preserve local storage without disclosing content for model extraction.
      */
+    public static function localMetadata(string $content, string $sensitivity): array
+    {
+        return ['type' => 'memory', 'label' => mb_substr($content, 0, 60), 'tags' => [],
+            'people' => [], 'projects' => [], 'sensitivity' => $sensitivity];
+    }
+
     private function parseCsvLine(string $raw, string $field): array
     {
         if (! preg_match("/^{$field}:\s*(.+)$/m", $raw, $m)) {

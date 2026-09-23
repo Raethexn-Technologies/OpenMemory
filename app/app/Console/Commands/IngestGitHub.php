@@ -56,7 +56,7 @@ class IngestGitHub extends Command
             try {
                 $items = $github->fetchCommits($userId, $repo, $limit);
             } catch (Throwable $e) {
-                $this->warn("  fetch failed: {$e->getMessage()}");
+                $this->warn("  fetch failed: Request failed.");
                 $totals['errors']++;
                 continue;
             }

@@ -90,7 +90,7 @@ export function useIcpMemory({ identity, canisterId, host }) {
     // fetchRootKey is only needed for local dfx replicas, not mainnet.
     if (host.includes('localhost') || host.includes('127.0.0.1')) {
       await agent.fetchRootKey().catch((e) =>
-        console.warn('[useIcpMemory] fetchRootKey failed (replica may not be running):', e.message)
+        console.warn('[useIcpMemory] fetchRootKey failed (replica may not be running):')
       );
     }
 
@@ -119,7 +119,7 @@ export function useIcpMemory({ identity, canisterId, host }) {
       });
       return id;
     } catch (err) {
-      console.error('[useIcpMemory] storeMemory failed:', err);
+      console.error('[useIcpMemory] storeMemory failed:');
       return null;
     }
   }
@@ -154,8 +154,8 @@ export function useIcpMemory({ identity, canisterId, host }) {
         })),
       };
     } catch (err) {
-      console.error('[useIcpMemory] getMyMemories failed:', err);
-      return { ok: false, error: err.message ?? String(err) };
+      console.error('[useIcpMemory] getMyMemories failed:');
+      return { ok: false, error: 'Canister request failed.' };
     }
   }
 

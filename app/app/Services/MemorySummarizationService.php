@@ -65,7 +65,7 @@ PROMPT;
         // This call is both a summarisation AND a classification, but the
         // classification is what bounds cost — a single PUBLIC/PRIVATE/SENSITIVE
         // label off a two-turn exchange. Route to the classify model.
-        $result = trim($this->llm->chatFor(LlmService::TASK_CLASSIFY, self::SUMMARIZE_PROMPT, $messages));
+        $result = trim($this->llm->chatFor(LlmService::TASK_CLASSIFY, self::SUMMARIZE_PROMPT, \App\Services\LLM\EvidenceMessages::task('Summarize this conversation turn.', $messages), 'chat'));
 
         if ($result === 'NO_MEMORY' || empty($result)) {
             return null;
@@ -81,7 +81,7 @@ PROMPT;
         // LLM responded with something we can't parse — discard rather than silently downgrade
         // a potentially Sensitive or Private classification to Public.
         Log::warning('MemorySummarizationService: unparseable LLM response — discarding', [
-            'raw' => mb_substr($result, 0, 200),
+            'error_category' => 'invalid_model_output',
         ]);
         return null;
     }

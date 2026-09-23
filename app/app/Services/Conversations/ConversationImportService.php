@@ -127,7 +127,7 @@ class ConversationImportService
             $report->warnAll($adapter->warnings());
 
             if ($import !== null) {
-                $this->finishImportRow($import, ConversationImport::STATUS_FAILED, $report, $exception->getMessage());
+                $this->finishImportRow($import, ConversationImport::STATUS_FAILED, $report, 'Import failed.');
             }
 
             throw $exception;

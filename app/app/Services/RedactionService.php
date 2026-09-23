@@ -56,8 +56,9 @@ class RedactionService
         ?string $userId = null,
         ?array $policy = null,
         ?string $preset = null,
+        bool $force = false,
     ): RedactionResult {
-        if (! config('redaction.enabled', true) || $text === '') {
+        if ((! $force && ! config('redaction.enabled', true)) || $text === '') {
             return new RedactionResult($text, [], 'public', $preset ?? $this->defaultPresetName());
         }
 

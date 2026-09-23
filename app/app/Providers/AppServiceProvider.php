@@ -33,6 +33,8 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
+        $this->app->singleton(\Illuminate\Contracts\Debug\ExceptionHandler::class,
+            \App\Exceptions\SafeExceptionHandler::class);
         $this->app->bind(LlmProviderInterface::class, function () {
             return new OpenRouterProvider(
                 apiKey: config('services.llm.openrouter_api_key') ?? '',

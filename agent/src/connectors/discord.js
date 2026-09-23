@@ -104,8 +104,8 @@ export class DiscordConnector extends BaseConnector {
           showOptions,
         });
       } catch (err) {
-        console.error('[Discord] handleMessage error:', err);
-        await send(`An error occurred: ${err.message}`);
+        console.error('[Discord] operation failed');
+        await send(`An error occurred: Operation failed.`);
       }
     });
 
@@ -154,7 +154,7 @@ export class DiscordConnector extends BaseConnector {
     });
 
     this.client.on('ready', () => {
-      console.log(`[Discord] Logged in as ${this.client.user.tag}`);
+      console.log('[Discord] Connected');
     });
   }
 

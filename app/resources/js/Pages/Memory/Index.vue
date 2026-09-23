@@ -5,10 +5,10 @@
       <!-- Header -->
       <div class="flex items-start justify-between">
         <div>
-          <h1 class="text-lg font-semibold text-gray-100">Memory Inspector</h1>
+          <h1 class="text-lg font-semibold text-gray-100">Legacy Memory Inspector</h1>
           <p class="text-sm text-gray-500 mt-1">
             <template v-if="isMock">
-              All records from the <span class="text-amber-400">mock cache</span>.
+              Public records only from the <span class="text-amber-400">mock cache</span>.
             </template>
             <template v-else>
               <span class="text-emerald-400">Public records only</span> from the ICP canister.

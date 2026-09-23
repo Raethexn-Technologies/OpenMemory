@@ -256,7 +256,7 @@ class ConsolidationServiceTest extends TestCase
             'Only 4 unconsolidated nodes remain — below the minimum of 5.');
     }
 
-    public function test_sensitivity_of_concept_node_is_most_restrictive(): void
+    public function test_sensitive_nodes_do_not_enter_model_consolidation(): void
     {
         // Mix of public and sensitive nodes in the cluster.
         $nodes = [];
@@ -293,7 +293,7 @@ class ConsolidationServiceTest extends TestCase
             ->where('type', 'concept')
             ->first();
 
-        $this->assertSame('sensitive', $concept->sensitivity,
-            'The concept node must inherit the most restrictive sensitivity from the cluster.');
+        $this->assertNull($concept);
+        $this->assertNull($nodes[2]->fresh()->consolidated_at);
     }
 }

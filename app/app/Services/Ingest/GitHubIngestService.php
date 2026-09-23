@@ -58,6 +58,7 @@ class GitHubIngestService
 
         $response = Http::withHeaders($this->headers())
             ->timeout(15)
+            ->withoutRedirecting()
             ->get(self::API_BASE . "/repos/{$repoSlug}/commits", [
                 'per_page' => max(1, min(100, $limit)),
             ]);
@@ -68,11 +69,9 @@ class GitHubIngestService
 
         if ($response->failed()) {
             Log::warning('GitHubIngestService: fetch failed', [
-                'repo'   => $repoSlug,
                 'status' => $response->status(),
-                'body'   => mb_substr($response->body(), 0, 200),
             ]);
-            throw new RuntimeException("GitHub fetch failed ({$response->status()}): " . $response->body());
+            throw new RuntimeException('GitHub fetch failed.');
         }
 
         $items = [];

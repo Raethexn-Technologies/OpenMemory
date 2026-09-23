@@ -67,7 +67,7 @@ PROMPT;
             ],
         ];
 
-        $result = trim($this->llm->chatFor(LlmService::TASK_SUMMARIZE, self::PROMPT, $messages));
+        $result = trim($this->llm->chatFor(LlmService::TASK_SUMMARIZE, self::PROMPT, \App\Services\LLM\EvidenceMessages::task('Summarize the evidence.', $messages), 'ingestion'));
 
         if ($result === '' || $result === 'NO_MEMORY') {
             return null;
@@ -83,8 +83,7 @@ PROMPT;
         // Same policy as MemorySummarizationService: an unparseable response
         // must not silently downgrade an unknown classification to public.
         Log::warning('IngestSummarizer: unparseable LLM response — discarding', [
-            'source' => $sourceLabel,
-            'raw'    => mb_substr($result, 0, 200),
+            'error_category' => 'invalid_model_output',
         ]);
 
         return null;

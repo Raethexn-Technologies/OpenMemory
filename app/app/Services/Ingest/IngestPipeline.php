@@ -60,6 +60,9 @@ class IngestPipeline
      */
     public function run(string $userId, string $sessionId, array $items): array
     {
+        if (! config('disclosure.ingest_publication', false)) {
+            throw new \Illuminate\Auth\Access\AuthorizationException('Ingest publication is not authorized.');
+        }
         $stored = 0;
         $skipped = 0;
         $nonPublicDropped = 0;
@@ -110,8 +113,7 @@ class IngestPipeline
             $extract = $this->summarizer->extract($item['source_label'], $redactedText);
         } catch (Throwable $e) {
             Log::warning('IngestPipeline: redact/summarise failure', [
-                'source' => $item['source_label'] ?? '?',
-                'error'  => $e->getMessage(),
+                'error_category' => 'ingest_failed',
             ]);
             $errors++;
             return false;
@@ -133,8 +135,6 @@ class IngestPipeline
         // pending table and surface to the user", not silent drop.
         if ($effectiveType !== 'public') {
             Log::info('IngestPipeline: dropping non-public item (approval flow not implemented)', [
-                'source'         => $item['source_label'],
-                'external_id'    => $item['external_id'],
                 'classification' => $effectiveType,
             ]);
             $nonPublicDropped++;
@@ -171,8 +171,7 @@ class IngestPipeline
             return true;
         } catch (Throwable $e) {
             Log::warning('IngestPipeline: persistence failure', [
-                'source' => $item['source_label'],
-                'error'  => $e->getMessage(),
+                'error_category' => 'ingest_failed',
             ]);
             $errors++;
             return false;

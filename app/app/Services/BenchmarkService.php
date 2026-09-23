@@ -304,11 +304,11 @@ TEMPLATE;
         $messages = [['role' => 'user', 'content' => $userMessage]];
 
         try {
-            $raw = $this->llm->chat(self::JUDGE_SYSTEM, $messages);
+            $raw = $this->llm->chat(self::JUDGE_SYSTEM, \App\Services\LLM\EvidenceMessages::task('Evaluate the evidence against the question and themes.', $messages), 'benchmark');
 
             return $this->parseJudgeResponse($raw);
         } catch (\Throwable $e) {
-            Log::warning('BenchmarkService: judge LLM call failed', ['error' => $e->getMessage()]);
+            Log::warning('BenchmarkService: judge LLM call failed', ['error_category' => 'model_failed']);
 
             return null;
         }

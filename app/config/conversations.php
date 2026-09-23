@@ -15,15 +15,8 @@ return [
     |
     */
 
-    // Stable owner identity for imported history.
-    //
-    // The chat UI derives a user identity from Internet Identity or from a
-    // per-session fallback, and a terminal command has neither. Imported history
-    // needs one identity that both the CLI and the browser agree on, or an
-    // archive imported from a shell would be invisible in the app that is meant
-    // to review it. Set this to any stable string, or to your Internet Identity
-    // principal if you want imported history to sit under the same owner as your
-    // canister-signed memories.
+    // This value is only a CLI import default, never browser authentication.
+    // Bind an existing corpus explicitly with openmemory:corpus:bind.
     'local_user_id' => env('OPENMEMORY_LOCAL_USER_ID', ''),
 
     // Store the exact provider JSON for each imported conversation alongside the
@@ -85,7 +78,7 @@ return [
         // calling any model. Useful when no API key is configured, and the
         // honest default for anyone who does not want their history summarized
         // by a third-party model at all.
-        'generate_answer' => env('CONVERSATIONS_ASK_GENERATE_ANSWER', true),
+        'generate_answer' => env('CONVERSATIONS_ASK_GENERATE_ANSWER', false),
     ],
 
 ];

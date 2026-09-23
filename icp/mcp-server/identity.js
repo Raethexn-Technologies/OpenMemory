@@ -29,7 +29,7 @@ export function loadIdentity() {
   try {
     data = JSON.parse(readFileSync(filePath, 'utf8'));
   } catch (err) {
-    console.error(`[OMA identity] Failed to parse identity file at ${filePath}: ${err.message}`);
+    console.error('[OMA identity] Identity file could not be parsed.');
     return null;
   }
 
@@ -49,7 +49,7 @@ export function loadIdentity() {
   // Verify reconstructed principal matches stored principal (detects corruption).
   const reconstructed = identity.getPrincipal().toText();
   if (data.principal && reconstructed !== data.principal) {
-    console.error(`[OMA identity] Principal mismatch — file may be corrupted. Stored: ${data.principal}, Reconstructed: ${reconstructed}`);
+    console.error('[OMA identity] Identity principal mismatch.');
     return null;
   }
 

@@ -319,6 +319,9 @@ const toolImplementations = {
  * @returns {Promise<string | object | Array>}
  */
 export async function executeTool(name, input) {
+  if (process.env.AGENT_ALLOW_UNSANDBOXED_TOOLS !== 'true') {
+    return 'Error: Agent tools are disabled.';
+  }
   const impl = toolImplementations[name];
 
   if (!impl) {
@@ -328,9 +331,9 @@ export async function executeTool(name, input) {
   try {
     const result = await impl(input);
     // Stringify objects and arrays so Claude receives readable text.
-    if (typeof result === 'string') return result;
-    return JSON.stringify(result, null, 2);
+    if (typeof result === 'string') return result.slice(0, 12000);
+    return JSON.stringify(result, null, 2).slice(0, 12000);
   } catch (err) {
-    return `Error: ${err.message}`;
+    return 'Error: Tool operation failed.';
   }
 }

@@ -61,21 +61,10 @@ export class Agent {
       ? memories.map((m) => `- ${m.content ?? JSON.stringify(m)}`).join('\n')
       : '(no memories stored yet)';
 
-    const prompt = [
-      'Recent git history:',
-      gitLog || '(no commits yet)',
-      '',
-      'Stored memory context:',
-      memoryText,
-      '',
-      `User context: ${context}`,
-      '',
-      'Propose 2 to 5 concrete next steps for this project. Each step should be specific enough to implement in a single focused session.',
-      'Return only the JSON structure specified in the system prompt.',
-    ].join('\n');
+    const evidence = JSON.stringify({ kind: 'openmemory.untrusted_evidence.v1', git_history: gitLog.slice(0, 12000), memories: memoryText.slice(0, 12000) });
 
     const response = await chat(
-      [{ role: 'user', content: prompt }],
+      [{ role: 'user', content: context }, { role: 'user', content: evidence }],
       [],
       SYSTEM_PROMPT
     );
@@ -88,7 +77,7 @@ export class Agent {
     // Extract JSON from the response. Claude may wrap it in a code fence.
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      throw new Error(`Research response did not contain valid JSON. Response: ${text}`);
+      throw new Error('Research response did not contain valid JSON.');
     }
 
     const parsed = JSON.parse(jsonMatch[0]);
@@ -171,6 +160,7 @@ export class Agent {
    * @returns {Promise<void>}
    */
   async handleMessage({ text, userId, send, showOptions }) {
+    if (process.env.AGENT_ALLOW_CHANNEL_DISCLOSURE !== 'true') return;
     try {
       const lower = text.toLowerCase();
       const isResearch = RESEARCH_KEYWORDS.some((kw) => lower.includes(kw));
@@ -182,7 +172,7 @@ export class Agent {
         try {
           options = await this.research(text);
         } catch (err) {
-          await send(`Failed to generate options: ${err.message}`);
+          await send(`Failed to generate options: Operation failed.`);
           return;
         }
 
@@ -192,7 +182,7 @@ export class Agent {
         try {
           selectedIndex = await showOptions(prompt, options);
         } catch (err) {
-          await send(`Option selection failed or timed out: ${err.message}`);
+          await send(`Option selection failed or timed out: Operation failed.`);
           return;
         }
 
@@ -232,8 +222,8 @@ export class Agent {
         await send(result);
       }
     } catch (err) {
-      console.error('[Agent] handleMessage error:', err);
-      await send(`An error occurred: ${err.message}`);
+      console.error('[Agent] operation failed');
+      await send(`An error occurred: Operation failed.`);
     }
   }
 }

@@ -61,7 +61,7 @@ class IngestController extends Controller
             try {
                 $items = $this->github->fetchCommits($userId, $repo, $limit);
             } catch (Throwable $e) {
-                $repoErrors[$repo] = $e->getMessage();
+                $repoErrors[$repo] = 'Repository ingestion failed.';
                 $summary['errors']++;
                 continue;
             }

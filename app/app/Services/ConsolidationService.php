@@ -71,7 +71,8 @@ PROMPT;
      */
     public function consolidate(string $userId): array
     {
-        $clusters = $this->clusterDetector->detect($userId);
+        $clusters = \App\Services\LLM\ModelDisclosure::allows('consolidation')
+            ? $this->clusterDetector->detect($userId) : [];
 
         $evaluated = 0;
         $consolidated = 0;
@@ -93,6 +94,7 @@ PROMPT;
 
             // Skip clusters that have already been consolidated.
             $unconsolidated = MemoryNode::where('user_id', $userId)
+                ->where('sensitivity', 'public')
                 ->whereIn('id', $nodeIds)
                 ->whereNull('consolidated_at')
                 ->where('type', '!=', 'goal')
@@ -128,10 +130,11 @@ PROMPT;
     private function consolidateCluster(string $userId, array $episodicIds): ?MemoryNode
     {
         $nodes = MemoryNode::where('user_id', $userId)
+            ->where('sensitivity', 'public')
             ->whereIn('id', $episodicIds)
             ->get(['id', 'label', 'content', 'sensitivity', 'tags']);
 
-        if ($nodes->isEmpty()) {
+        if ($nodes->isEmpty() || $nodes->count() !== count($episodicIds)) {
             return null;
         }
 
@@ -141,10 +144,10 @@ PROMPT;
             ['role' => 'user', 'content' => "Memory facts to consolidate:\n{$facts}"],
         ];
 
-        $summary = trim($this->llm->chat(self::SUMMARIZE_PROMPT, $messages));
+        $summary = trim($this->llm->chat(self::SUMMARIZE_PROMPT, \App\Services\LLM\EvidenceMessages::task('Consolidate the evidence.', $messages), 'consolidation'));
 
         if (empty($summary)) {
-            Log::warning('ConsolidationService: empty LLM summary', ['episodic_ids' => $episodicIds]);
+            Log::warning('ConsolidationService: empty LLM summary', ['result_count' => count($episodicIds)]);
 
             return null;
         }
@@ -218,7 +221,8 @@ PROMPT;
 
         // Mark all episodic nodes as consolidated.
         MemoryNode::where('user_id', $userId)
-            ->whereIn('id', $episodicIds)
+            ->where('sensitivity', 'public')
+                ->whereIn('id', $episodicIds)
             ->update(['consolidated_at' => $now]);
 
         return $concept;

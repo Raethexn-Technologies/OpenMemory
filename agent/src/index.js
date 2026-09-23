@@ -15,7 +15,12 @@ if (connectors.length === 0) {
 }
 
 for (const connector of connectors) {
-  await connector.start();
+  try {
+    await connector.start();
+  } catch {
+    console.error('Connector startup failed.');
+    process.exit(1);
+  }
 }
 
 console.log(`OpenMemory Agent running with ${connectors.length} connector(s)`);

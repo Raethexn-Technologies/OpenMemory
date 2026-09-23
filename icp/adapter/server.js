@@ -75,7 +75,7 @@ const idlFactory = ({ IDL }) => {
 async function getActor() {
   const agent = new HttpAgent({ host: DFX_HOST });
   if (DFX_HOST.includes('localhost')) {
-    await agent.fetchRootKey().catch(console.warn);
+    await agent.fetchRootKey();
   }
   return Actor.createActor(idlFactory, { agent, canisterId: CANISTER_ID });
 }
@@ -91,6 +91,7 @@ app.post('/store', async (req, res) => {
   const { user_id, session_id, content, metadata, memory_type } = req.body;
 
   if (MOCK_MODE) {
+    if (memory_type !== 'public') return res.status(403).json({ error: 'Unsigned adapter accepts only explicitly public records.' });
     const id = `${user_id}:${Date.now()}`;
     mockStore.push({
       id, user_id, session_id, content,
@@ -118,15 +119,15 @@ app.get('/memories/:userId', async (req, res) => {
   const { userId } = req.params;
 
   if (MOCK_MODE) {
-    return res.json({ memories: mockStore.filter(m => m.user_id === userId) });
+    return res.json({ memories: mockStore.filter(m => m.user_id === userId && m.memory_type === 'public') });
   }
 
   try {
     const actor = await getActor();
-    res.json({ memories: (await actor.get_memories(userId)).map(formatRecord) });
+    res.json({ memories: (await actor.get_memories(userId)).map(formatRecord).filter(m => m.memory_type === 'public') });
   } catch (err) {
-    console.error('get_memories error:', err);
-    res.status(500).json({ error: err.message });
+    console.error('get_memories error:');
+    res.status(500).json({ error: 'Adapter request failed.' });
   }
 });
 
@@ -135,15 +136,15 @@ app.get('/memories/session/:sessionId', async (req, res) => {
   const { sessionId } = req.params;
 
   if (MOCK_MODE) {
-    return res.json({ memories: mockStore.filter(m => m.session_id === sessionId) });
+    return res.json({ memories: mockStore.filter(m => m.session_id === sessionId && m.memory_type === 'public') });
   }
 
   try {
     const actor = await getActor();
-    res.json({ memories: (await actor.get_memories_by_session(sessionId)).map(formatRecord) });
+    res.json({ memories: (await actor.get_memories_by_session(sessionId)).map(formatRecord).filter(m => m.memory_type === 'public') });
   } catch (err) {
-    console.error('get_memories_by_session error:', err);
-    res.status(500).json({ error: err.message });
+    console.error('get_memories_by_session error:');
+    res.status(500).json({ error: 'Adapter request failed.' });
   }
 });
 
@@ -152,15 +153,15 @@ app.get('/memories/recent', async (req, res) => {
   const limit = parseInt(req.query.limit || '20', 10);
 
   if (MOCK_MODE) {
-    return res.json({ memories: mockStore.slice(-limit) });
+    return res.json({ memories: mockStore.filter(m => m.memory_type === 'public').slice(-limit) });
   }
 
   try {
     const actor = await getActor();
-    res.json({ memories: (await actor.list_recent_memories(BigInt(limit))).map(formatRecord) });
+    res.json({ memories: (await actor.list_recent_memories(BigInt(limit))).map(formatRecord).filter(m => m.memory_type === 'public') });
   } catch (err) {
-    console.error('list_recent_memories error:', err);
-    res.status(500).json({ error: err.message });
+    console.error('list_recent_memories error:');
+    res.status(500).json({ error: 'Adapter request failed.' });
   }
 });
 
@@ -180,14 +181,14 @@ app.get('/health', async (req, res) => {
       canister_id: CANISTER_ID,
     });
   } catch (err) {
-    res.status(503).json({ status: 'error', error: err.message, mock: false, canister_id: CANISTER_ID });
+    res.status(503).json({ status: 'error', error: 'Adapter request failed.', mock: false, canister_id: CANISTER_ID });
   }
 });
 
 // ─── Helpers ───────────────────────────────────────────────────────
 function formatRecord(r) {
   // memory_type is a Candid variant: { Public: null } | { Private: null } | { Sensitive: null }
-  const memType = r.memory_type ? Object.keys(r.memory_type)[0].toLowerCase() : 'public';
+  const memType = r.memory_type ? Object.keys(r.memory_type)[0].toLowerCase() : 'unknown';
   return {
     id:          r.id,
     user_id:     r.user_id,
@@ -199,6 +200,10 @@ function formatRecord(r) {
   };
 }
 
+app.use((err, req, res, next) => {
+  res.status(400).json({ error: 'Invalid adapter request.' });
+});
+
 app.listen(PORT, () => {
-  console.log(`OMA ICP Adapter :${PORT} [mock=${MOCK_MODE}] [dfx=${DFX_HOST}]`);
+  console.log('OMA ICP Adapter started');
 });

@@ -24,7 +24,7 @@ class DocumentIngestionTest extends TestCase
         $extractor = $this->mockExtractor('concept');
         $service = $this->service($extractor);
 
-        $result = $service->ingest('user-1', 'My Goals', $this->multiParagraphText(), 'public');
+        $result = $service->ingest('user-1', 'My Goals', $this->multiParagraphText(), 'public', true);
 
         $this->assertArrayHasKey('document_node_id', $result);
         $this->assertDatabaseHas('memory_nodes', [
@@ -40,7 +40,7 @@ class DocumentIngestionTest extends TestCase
         $extractor = $this->mockExtractor('concept');
         $service = $this->service($extractor);
 
-        $result = $service->ingest('user-1', 'My Goals', $this->multiParagraphText(), 'public');
+        $result = $service->ingest('user-1', 'My Goals', $this->multiParagraphText(), 'public', true);
 
         $anchor = MemoryNode::find($result['document_node_id']);
         $this->assertEmpty($anchor->tags);
@@ -51,7 +51,7 @@ class DocumentIngestionTest extends TestCase
         $extractor = $this->mockExtractor('concept');
         $service = $this->service($extractor);
 
-        $result = $service->ingest('user-1', 'My Goals', $this->multiParagraphText(), 'public');
+        $result = $service->ingest('user-1', 'My Goals', $this->multiParagraphText(), 'public', true);
 
         $this->assertGreaterThan(0, $result['nodes_created']);
 
@@ -67,7 +67,7 @@ class DocumentIngestionTest extends TestCase
         $extractor = $this->mockExtractor('concept');
         $service = $this->service($extractor);
 
-        $result = $service->ingest('user-1', 'My Goals', $this->multiParagraphText(), 'public');
+        $result = $service->ingest('user-1', 'My Goals', $this->multiParagraphText(), 'public', true);
 
         $anchorId = $result['document_node_id'];
         $chunkNodes = MemoryNode::where('user_id', 'user-1')
@@ -88,7 +88,7 @@ class DocumentIngestionTest extends TestCase
         $extractor = $this->mockExtractor('concept');
         $service = $this->service($extractor);
 
-        $result = $service->ingest('user-1', 'My Goals', $this->multiParagraphText(), 'public');
+        $result = $service->ingest('user-1', 'My Goals', $this->multiParagraphText(), 'public', true);
 
         $anchorId = $result['document_node_id'];
         $chunk = MemoryNode::where('user_id', 'user-1')
@@ -107,7 +107,7 @@ class DocumentIngestionTest extends TestCase
 
         $service = $this->service($extractor);
 
-        $result = $service->ingest('user-1', 'Bad Doc', $this->multiParagraphText(), 'public');
+        $result = $service->ingest('user-1', 'Bad Doc', $this->multiParagraphText(), 'public', true);
 
         $this->assertSame(0, $result['nodes_created']);
         $this->assertGreaterThan(0, $result['chunks_skipped']);
@@ -131,20 +131,7 @@ class DocumentIngestionTest extends TestCase
     public function test_ingest_redacts_floor_values_before_graph_extraction_and_storage(): void
     {
         $extractor = Mockery::mock(GraphExtractionService::class);
-        $extractor->shouldReceive('extract')
-            ->once()
-            ->with(
-                Mockery::on(fn (string $content) => ! str_contains($content, '4111') && str_contains($content, 'PAYMENT_CARD#')),
-                'sensitive',
-            )
-            ->andReturn([
-                'type' => 'memory',
-                'label' => 'Billing card placeholder',
-                'tags' => ['billing'],
-                'people' => [],
-                'projects' => [],
-                'sensitivity' => 'sensitive',
-            ]);
+        $extractor->shouldNotReceive('extract');
 
         $service = $this->service($extractor);
 
@@ -168,7 +155,7 @@ class DocumentIngestionTest extends TestCase
         $extractor = $this->mockExtractor('memory');
         $service = $this->service($extractor);
 
-        $result = $service->ingest('user-1', 'Multi', $this->multiParagraphText(), 'public');
+        $result = $service->ingest('user-1', 'Multi', $this->multiParagraphText(), 'public', true);
 
         $this->assertSame($result['chunks_total'], $result['nodes_created'] + $result['chunks_skipped']);
     }
@@ -191,7 +178,7 @@ class DocumentIngestionTest extends TestCase
 
         $service = $this->service($extractor, $factExtractor);
 
-        $result = $service->ingest('user-1', 'My Goals', $this->multiParagraphText(), 'public');
+        $result = $service->ingest('user-1', 'My Goals', $this->multiParagraphText(), 'public', true);
 
         $this->assertSame($result['nodes_created'] * 2, $result['facts_created']);
     }

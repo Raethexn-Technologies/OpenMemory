@@ -70,7 +70,11 @@ PROMPT;
      */
     public function evaluate(string $userMessage, string $assistantResponse, string $userId): array
     {
+        if (! \App\Services\LLM\ModelDisclosure::allows('chat')) {
+            return ['decision' => 'skip', 'node_id' => null];
+        }
         $recentNodes = MemoryNode::where('user_id', $userId)
+            ->where('sensitivity', 'public')
             ->whereNull('consolidated_at')
             ->latest()
             ->limit(self::CANDIDATE_LIMIT)
@@ -93,7 +97,7 @@ PROMPT;
             ],
         ];
 
-        $result = trim($this->llm->chat(self::EVALUATE_PROMPT, $messages));
+        $result = trim($this->llm->chat(self::EVALUATE_PROMPT, \App\Services\LLM\EvidenceMessages::task('Evaluate this conversation turn.', $messages), 'chat'));
 
         if ($result === 'STORE_NEW') {
             return ['decision' => 'store_new', 'node_id' => null];
@@ -107,15 +111,14 @@ PROMPT;
             $nodeId = $m[1];
 
             // Verify the node belongs to this user before trusting the ID.
-            $exists = MemoryNode::where('user_id', $userId)->whereKey($nodeId)->exists();
+            $exists = $recentNodes->contains('id', $nodeId);
             if ($exists) {
                 return ['decision' => 'update_existing', 'node_id' => $nodeId];
             }
 
             // Node ID hallucinated or belongs to a different user — store as new.
             Log::warning('MemorabilityService: UPDATE_EXISTING node not found, storing as new', [
-                'node_id' => $nodeId,
-                'user_id' => $userId,
+                'error_category' => 'invalid_candidate',
             ]);
 
             return ['decision' => 'store_new', 'node_id' => null];
@@ -123,7 +126,7 @@ PROMPT;
 
         // Unparseable response — default to skip to avoid polluting the graph.
         Log::warning('MemorabilityService: unparseable LLM response — skipping', [
-            'raw' => mb_substr($result, 0, 200),
+            'error_category' => 'invalid_model_output',
         ]);
 
         return ['decision' => 'skip', 'node_id' => null];

@@ -108,6 +108,11 @@
             </button>
           </div>
 
+          <label v-if="answerGenerationEnabled" class="mt-4 flex gap-2 text-xs text-amber-400">
+            <input v-model="generateAnswer" type="checkbox" />
+            Send this question and selected redacted excerpts to the configured model provider to generate an answer.
+          </label>
+
           <p v-if="!answerGenerationEnabled" class="mt-4 text-xs text-amber-400/90">
             Answer generation is switched off. Questions return the matching excerpts and nothing is sent to a model.
           </p>
@@ -378,6 +383,7 @@ const props = defineProps({
 const overview = computed(() => props.overview)
 const imports = computed(() => props.imports)
 const suggestedSubjects = computed(() => props.suggested_subjects)
+const generateAnswer = ref(false)
 const answerGenerationEnabled = computed(() => props.answer_generation_enabled)
 
 const tabs = [
@@ -405,7 +411,7 @@ const runAsk = async () => {
   askResult.value = null
 
   try {
-    askResult.value = await post('/api/history/ask', { question: question.value })
+    askResult.value = await post('/api/history/ask', { question: question.value, generate: generateAnswer.value && answerGenerationEnabled.value })
   } catch {
     askResult.value = null
   } finally {

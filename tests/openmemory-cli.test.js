@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { spawnSync } from 'node:child_process';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -88,5 +89,25 @@ test('an unknown command prints help and fails', async () => {
     assert.match(out.join(NEWLINE), /import-archive/);
   } finally {
     console.log = original;
+  }
+});
+
+test('MCP setup output never echoes supplied API keys or URL credentials', () => {
+  const root = mkdtempSync(join(tmpdir(), 'openmemory-setup-test-'));
+  try {
+    const result = spawnSync(process.execPath, [
+      'icp/mcp-server/setup-clients.js', '--mode', 'mock',
+      '--api-key', 'CLI-SECRET-CANARY',
+      '--app-url', 'https://user:URL-SECRET-CANARY@example.test/?token=QUERY-SECRET-CANARY',
+      '--identity-file', join(root, 'missing-identity.json'),
+    ], { encoding: 'utf8', env: { ...process.env, OMA_API_KEY: 'ENV-SECRET-CANARY' } });
+    assert.equal(result.status, 0);
+    const output = result.stdout + result.stderr;
+    for (const secret of ['CLI-SECRET-CANARY', 'URL-SECRET-CANARY', 'QUERY-SECRET-CANARY', 'ENV-SECRET-CANARY']) {
+      assert.equal(output.includes(secret), false);
+    }
+    assert.match(output, /configure|locally/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });

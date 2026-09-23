@@ -50,7 +50,7 @@ class IcpMemoryService
             return $this->mockStore($userId, $sessionId, $content, $metadata, $memoryType);
         }
 
-        $response = Http::timeout(10)->post("{$this->baseUrl}/store", [
+        $response = Http::timeout(10)->withoutRedirecting()->post("{$this->baseUrl}/store", [
             'user_id'     => $userId,
             'session_id'  => $sessionId,
             'content'     => $content,
@@ -59,8 +59,8 @@ class IcpMemoryService
         ]);
 
         if ($response->failed()) {
-            Log::error('ICP storeMemory failed', ['status' => $response->status(), 'body' => $response->body()]);
-            throw new RuntimeException('ICP canister store failed: ' . $response->body());
+            Log::error('ICP storeMemory failed', ['status' => $response->status()]);
+            throw new RuntimeException('ICP canister store failed.');
         }
 
         return $response->json('id', 'unknown');
@@ -79,10 +79,10 @@ class IcpMemoryService
             return $this->mockGet($userId);
         }
 
-        $response = Http::timeout(10)->get("{$this->baseUrl}/memories/{$userId}");
+        $response = Http::timeout(10)->withoutRedirecting()->get("{$this->baseUrl}/memories/{$userId}");
 
         if ($response->failed()) {
-            Log::warning('ICP getMemories failed', ['user_id' => $userId]);
+            Log::warning('ICP getMemories failed', ['error_category' => 'adapter_request_failed']);
             return [];
         }
 
@@ -101,10 +101,7 @@ class IcpMemoryService
      */
     public function getPublicMemories(string $userId): array
     {
-        return array_values(array_filter(
-            $this->getMemories($userId),
-            fn ($r) => ($r['memory_type'] ?? 'public') === 'public'
-        ));
+        return $this->publicRecords($this->getMemories($userId));
     }
 
     /**
@@ -118,7 +115,7 @@ class IcpMemoryService
             return [];
         }
 
-        $response = Http::timeout(10)->get("{$this->baseUrl}/memories/session/{$sessionId}");
+        $response = Http::timeout(10)->withoutRedirecting()->get("{$this->baseUrl}/memories/session/{$sessionId}");
 
         if ($response->failed()) {
             return [];
@@ -128,7 +125,7 @@ class IcpMemoryService
     }
 
     /**
-     * List recent memories across all users (for inspector dashboard).
+     * List explicitly public records across users for the inspector.
      */
     public function listRecentMemories(int $limit = 20): array
     {
@@ -136,13 +133,20 @@ class IcpMemoryService
             return $this->mockListRecent($limit);
         }
 
-        $response = Http::timeout(10)->get("{$this->baseUrl}/memories/recent", ['limit' => $limit]);
+        $response = Http::timeout(10)->withoutRedirecting()->get("{$this->baseUrl}/memories/recent", ['limit' => $limit]);
 
         if ($response->failed()) {
             return [];
         }
 
-        return $response->json('memories', []);
+        return $this->publicRecords($response->json('memories', []));
+    }
+
+    private function publicRecords(array $records): array
+    {
+        return array_values(array_filter($records, static fn ($record) =>
+            is_array($record) && ($record['memory_type'] ?? null) === 'public'
+        ));
     }
 
     public function mode(): string
@@ -209,7 +213,7 @@ class IcpMemoryService
                 'canister_id' => $this->canisterId(),
                 'count'       => null,
                 'healthy'     => false,
-                'error'       => $e->getMessage(),
+                'error'       => 'Adapter request failed.',
             ];
         }
     }
@@ -265,6 +269,6 @@ class IcpMemoryService
 
     private function mockListRecent(int $limit): array
     {
-        return array_slice(cache()->get('mock_icp_recent', []), -$limit);
+        return array_slice($this->publicRecords(cache()->get('mock_icp_recent', [])), -$limit);
     }
 }

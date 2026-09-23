@@ -21,7 +21,7 @@ class EvidenceFactExtractionServiceTest extends TestCase
         $llm = Mockery::mock(LlmService::class);
         $llm->shouldReceive('chatFor')
             ->once()
-            ->with(LlmService::TASK_REASON, Mockery::any(), Mockery::any())
+            ->with(LlmService::TASK_REASON, Mockery::any(), Mockery::any(), 'document_processing')
             ->andReturn(json_encode([
                 'facts' => [
                     [

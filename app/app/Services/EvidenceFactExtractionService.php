@@ -60,13 +60,17 @@ PROMPT;
         string $chunk,
         int $chunkIndex,
     ): int {
+        if ($sourceNode->user_id !== $userId || $sourceNode->sensitivity !== 'public'
+            || ($sourceDocument && ($sourceDocument->user_id !== $userId || $sourceDocument->sensitivity !== 'public'))) {
+            return 0;
+        }
         try {
             $facts = $this->extract($chunk);
         } catch (\Throwable $e) {
             Log::warning('EvidenceFactExtractionService: extraction failed', [
                 'source_node_id' => $sourceNode->id,
                 'chunk_index' => $chunkIndex,
-                'error' => $e->getMessage(),
+                'error_category' => 'extraction_failed',
             ]);
 
             return 0;
@@ -114,12 +118,12 @@ PROMPT;
         }
 
         $messages = [['role' => 'user', 'content' => "Document chunk:\n{$chunk}"]];
-        $raw = trim($this->llm->chatFor(LlmService::TASK_REASON, self::FACT_PROMPT, $messages));
+        $raw = trim($this->llm->chatFor(LlmService::TASK_REASON, self::FACT_PROMPT, \App\Services\LLM\EvidenceMessages::task('Extract facts from the evidence.', $messages), 'document_processing'));
         $decoded = $this->decodeJson($raw);
 
         if (! is_array($decoded)) {
             Log::warning('EvidenceFactExtractionService: unparseable JSON response', [
-                'raw' => mb_substr($raw, 0, 300),
+                'error_category' => 'invalid_model_output',
             ]);
 
             return [];

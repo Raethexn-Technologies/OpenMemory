@@ -28,7 +28,13 @@ function hasFlag(name) {
 }
 
 function trimTrailingSlash(value) {
-  return String(value || '').replace(/\/$/, '');
+  try {
+    const url = new URL(String(value || ''));
+    url.username = ''; url.password = ''; url.search = ''; url.hash = '';
+    return url.toString().replace(/\/$/, '');
+  } catch {
+    return '<configure-app-url-locally>';
+  }
 }
 
 function readIdentityPrincipal(filePath) {
@@ -68,7 +74,7 @@ Usage:
 Options:
   --mode mock|live       Configuration mode. Default: mock.
   --app-url <url>        Laravel/OpenMemory app URL.
-  --api-key <key>        MCP API key. Defaults to OMA_API_KEY or placeholder.
+  Generated output always uses a key placeholder. Set OMA_API_KEY locally.
   --user-id <id>         Mock-mode user id. Defaults to OMA_USER_ID or placeholder.
   --write-scope <scope>  public, public,private, or none. Default: public.
   --canister-id <id>     Live ICP canister id.
@@ -90,7 +96,7 @@ if (!['mock', 'live'].includes(mode)) {
 }
 
 const writeScope = valueFor('--write-scope') || process.env.WRITE_SCOPE || 'public';
-const apiKey = valueFor('--api-key') || process.env.OMA_API_KEY || '<set MCP_API_KEY from app/.env>';
+const apiKey = '<set MCP_API_KEY locally; never paste credentials into shared output>';
 const identityFile = valueFor('--identity-file') || process.env.OMA_IDENTITY_FILE || defaultIdentityPath;
 const principal = readIdentityPrincipal(identityFile) || '<your-principal>';
 

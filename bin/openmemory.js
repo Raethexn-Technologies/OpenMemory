@@ -220,7 +220,7 @@ function commandSetupClients(args) {
   });
 
   if (child.error) {
-    console.error(`Failed to run setup-clients: ${child.error.message}`);
+    console.error(`Failed to run setup-clients: Process start failed.`);
     return 1;
   }
 
@@ -258,7 +258,7 @@ function commandImportArchive(args) {
   });
 
   if (child.error) {
-    console.error(`Failed to run the archive importer: ${child.error.message}`);
+    console.error(`Failed to run the archive importer: Process start failed.`);
     return 1;
   }
 
@@ -627,7 +627,7 @@ function addCommandCheck(checks, name, command, args, required) {
     checks.push({
       name,
       status: required ? 'fail' : 'warn',
-      detail: result.error ? result.error.message : (result.stderr || 'command returned non-zero status').trim(),
+      detail: 'Command check failed.',
     });
     return;
   }
@@ -699,7 +699,7 @@ async function addAppStatusCheck(checks, appUrl) {
     checks.push({
       name: 'Laravel status endpoint',
       status: 'warn',
-      detail: `not reachable at ${appUrl}/api/status (${error.message})`,
+      detail: 'Application status endpoint is unavailable.',
     });
   } finally {
     clearTimeout(timer);
@@ -759,7 +759,13 @@ function printImportSummary(sources, homeDir, projectDir, candidates, skipped) {
 }
 
 function trimTrailingSlash(value) {
-  return String(value || '').replace(/\/$/, '');
+  try {
+    const url = new URL(String(value || ''));
+    url.username = ''; url.password = ''; url.search = ''; url.hash = '';
+    return url.toString().replace(/\/$/, '');
+  } catch {
+    return 'http://localhost:8080';
+  }
 }
 
 function firstLine(text) {
@@ -774,7 +780,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   main().then((code) => {
     process.exitCode = code;
   }).catch((error) => {
-    console.error(error.message);
+    console.error('OpenMemory command failed.');
     process.exitCode = 1;
   });
 }

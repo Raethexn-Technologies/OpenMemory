@@ -204,4 +204,21 @@ describe('History/Index', () => {
 
         expect(wrapper.text()).toContain('nothing is sent to a model');
     });
+
+    it('requires an unchecked per-request choice before sending history to a model', async () => {
+        const wrapper = mountPage({ overview: seededOverview, conversations: conversationsPage });
+        const request = vi.fn().mockResolvedValue({
+            json: async () => ({ answer_state: 'no_evidence', terms: [], evidence: [], conversations: [], matched_count: 0, candidate_count: 0 }),
+        });
+        vi.stubGlobal('fetch', request);
+        await wrapper.find('input[type="text"]').setValue('ledger');
+        expect(wrapper.find('input[type="checkbox"]').element.checked).toBe(false);
+        await wrapper.find('form').trigger('submit');
+        await flushPromises();
+        expect(JSON.parse(request.mock.calls[0][1].body).generate).toBe(false);
+        await wrapper.find('input[type="checkbox"]').setValue(true);
+        await wrapper.find('form').trigger('submit');
+        await flushPromises();
+        expect(JSON.parse(request.mock.calls[1][1].body).generate).toBe(true);
+    });
 });

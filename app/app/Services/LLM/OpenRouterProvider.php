@@ -70,6 +70,8 @@ class OpenRouterProvider implements LlmProviderInterface
         }
 
         $response = Http::withHeaders($headers)
+            ->timeout(45)
+            ->withoutRedirecting()
             ->post(self::API_URL, [
                 'model'      => $this->model,
                 'max_tokens' => $this->maxTokens,
@@ -78,7 +80,7 @@ class OpenRouterProvider implements LlmProviderInterface
 
         if ($response->failed()) {
             throw new RuntimeException(
-                'OpenRouter API error (' . $response->status() . '): ' . $response->body()
+                'Model provider request failed.'
             );
         }
 

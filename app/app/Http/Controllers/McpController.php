@@ -135,12 +135,13 @@ class McpController extends Controller
         ]);
 
         $redaction = $this->redactor->redact($validated['content'], $validated['user_id']);
-        $sensitivity = $this->redactor->enforceSensitivity($validated['sensitivity'], $redaction);
+        $contextRedaction = $this->redactor->redact($validated['context'] ?? '', $validated['user_id']);
+        $sensitivity = $this->redactor->enforceSensitivity($validated['sensitivity'], $redaction, $contextRedaction);
         if ($sensitivity === 'sensitive') {
             $sensitivity = 'private';
         }
 
-        $metadata = $validated['context'] ?? null;
+        $metadata = isset($validated['context']) ? $contextRedaction->text : null;
         if ($redaction->applied()) {
             $metadata = json_encode([
                 'context' => $metadata,

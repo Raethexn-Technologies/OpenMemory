@@ -10,7 +10,8 @@
     "openmemory": "node ./bin/openmemory.js",
     "doctor": "node ./bin/openmemory.js doctor",
     "setup-clients": "node ./bin/openmemory.js setup-clients",
-    "test:cli": "node --test tests/openmemory-cli.test.js"
+    "test:cli": "node --test tests/openmemory-cli.test.js",
+    "test:security": "node --test tests/disclosure-boundary.test.js"
   },
   "engines": {
     "node": ">=18"
