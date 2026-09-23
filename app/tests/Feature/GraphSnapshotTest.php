@@ -114,7 +114,7 @@ class GraphSnapshotTest extends TestCase
         $this->snapshot('user-1', '2026-01-01 10:00:00');
         $this->snapshot('user-1', '2026-01-01 10:15:00');
 
-        $response = $this->withSession(['chat_user_id' => 'user-1'])
+        $response = $this->withOwnerSession(['chat_user_id' => 'user-1'])
             ->getJson('/api/graph/snapshots');
 
         $response->assertOk();
@@ -129,7 +129,7 @@ class GraphSnapshotTest extends TestCase
         $this->snapshot('user-1', '2026-01-01 10:00:00');
         $this->snapshot('user-2', '2026-01-01 10:00:00');
 
-        $response = $this->withSession(['chat_user_id' => 'user-1'])
+        $response = $this->withOwnerSession(['chat_user_id' => 'user-1'])
             ->getJson('/api/graph/snapshots');
 
         $response->assertOk();
@@ -144,7 +144,7 @@ class GraphSnapshotTest extends TestCase
             'payload' => ['clusters' => [['id' => 'abc', 'node_ids' => [], 'node_count' => 0, 'mean_weight' => 0.0]]],
         ]);
 
-        $response = $this->withSession(['chat_user_id' => 'user-1'])
+        $response = $this->withOwnerSession(['chat_user_id' => 'user-1'])
             ->getJson("/api/graph/snapshots/{$snap->id}");
 
         $response->assertOk();
@@ -160,7 +160,7 @@ class GraphSnapshotTest extends TestCase
             'payload' => ['clusters' => []],
         ]);
 
-        $this->withSession(['chat_user_id' => 'user-2'])
+        $this->withOwnerSession(['chat_user_id' => 'user-2'])
             ->getJson("/api/graph/snapshots/{$snap->id}")
             ->assertNotFound();
     }

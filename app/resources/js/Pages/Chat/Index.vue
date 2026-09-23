@@ -10,6 +10,8 @@
       <div class="flex items-center justify-between">
         <div>
           <h1 class="text-lg font-semibold text-gray-100">Chat</h1>
+          <p class="text-xs text-amber-400">Sending uses the configured model provider with your message, up to ten recent messages, and selected public context. Replies and proposed memories are retained locally.</p>
+          <p class="text-xs text-gray-500">Your OpenMemory login controls local data. Internet Identity controls canister access.</p>
           <p class="text-xs text-gray-500 mt-0.5 flex items-center gap-1.5 flex-wrap">
             <!-- Identity badge — shows the current Internet Identity state -->
             <span
@@ -93,34 +95,6 @@
           class="text-xs text-red-400 hover:text-red-200 px-2 py-1 rounded transition-colors flex-shrink-0"
         >
           Dismiss
-        </button>
-      </div>
-
-      <!-- Identity divergence warning -->
-      <!-- The session locked in a principal from an earlier sign-in, but the user is
-           now authenticated as someone else. Reads continue using the session principal
-           and new writes use the current one until the session is reset. -->
-      <div
-        v-if="identityDiverged"
-        class="flex items-start gap-3 bg-yellow-950/50 border border-yellow-700/40 rounded-xl px-4 py-3 text-sm"
-        role="alert"
-      >
-        <svg class="w-4 h-4 text-yellow-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-        </svg>
-        <div class="flex-1">
-          <p class="text-yellow-300 font-medium">Signed in as a different principal</p>
-          <p class="text-yellow-500/80 text-xs mt-0.5">
-            This session is bound to a previous principal. Reads will use the old one;
-            new writes will use your current Internet Identity principal. Start a new
-            session to realign them.
-          </p>
-        </div>
-        <button
-          @click="resetSession"
-          class="text-xs text-yellow-400 hover:text-yellow-200 border border-yellow-700/50 hover:border-yellow-500 px-2 py-1 rounded transition-colors flex-shrink-0"
-        >
-          Reset session
         </button>
       </div>
 
@@ -329,15 +303,15 @@
           </svg>
           <div class="flex-1 min-w-0">
             <p class="text-yellow-300 font-medium mb-1">
-              {{ pendingApproval.type === 'sensitive' ? 'Sensitive memory — review before storing' : 'Private memory — review before storing' }}
+              {{ pendingApproval.type === 'public' ? 'Public memory: review before publishing' : (pendingApproval.type === 'sensitive' ? 'Sensitive memory: review before storing' : 'Private memory: review before storing') }}
             </p>
             <p class="text-yellow-200/80 mb-3 italic">"{{ pendingApproval.content }}"</p>
             <p class="text-yellow-600/70 text-xs mb-3 font-mono">
-              <template v-if="pendingApproval.type === 'sensitive'">
-                The agent flagged this as sensitive. Approving will store it under your principal — only you can read it back. Rejecting discards it permanently.
+              <template v-if="pendingApproval.type === 'public'">
+                Approving publishes this content to public graph, model recall, and MCP readers. Other applications may retain copies.
               </template>
               <template v-else>
-                The agent flagged this as private. Approving stores it under your principal — it won't be shared with the LLM or any public endpoint. Rejecting discards it.
+                Approving saves an owner-only memory. Live mode sends it to the ICP canister; mock mode stores it locally. Rejecting does not delete the chat transcript or provider copies.
               </template>
             </p>
             <div class="flex gap-2">
@@ -425,9 +399,7 @@
       </div>
 
       <!-- Input -->
-      <!-- Send is gated on II readiness when ICP is live: a fast send before
-           initIdentity() resolves would post principal: null and lock the chat
-           into the anonymous fallback identity for the rest of the session. -->
+      <!-- Wait for delegation restoration before attempting live canister writes. -->
       <div class="flex gap-3">
         <input
           v-model="input"
@@ -499,10 +471,7 @@ const logoutError = ref(null);
 
 const iiConfigured = computed(() => !!props.ii_provider_url);
 
-// In ICP live mode we must wait for AuthClient to finish restoring any prior
-// delegation before accepting input — otherwise a fast first turn posts
-// principal: null and the backend locks the session to the anonymous fallback
-// even though the user already had a valid II session in browser storage.
+// Wait for delegation restoration before attempting live canister writes.
 const sendBlocked = computed(() => props.icp_mode === 'icp' && !isReady.value);
 
 // Three-state badge:
@@ -529,17 +498,6 @@ const displayUserId = computed(() => {
   if (!isReady.value) return '…';
   return isAuthenticated.value ? principal.value : 'anonymous';
 });
-
-// Detect identity divergence: the session locked in a principal from an earlier
-// sign-in, but the currently authenticated principal is different. Reads still
-// use the session principal; new writes use the current one until the session
-// resets. Only meaningful when the session has already adopted a browser principal.
-const identityDiverged = computed(() =>
-  props.identity_source === 'browser' &&
-  !!props.user_id &&
-  isAuthenticated.value &&
-  props.user_id !== principal.value
-);
 
 // ─── ICP memory writer (live mode only) ───────────────────────────
 const icpMode     = computed(() => props.icp_mode);
@@ -572,23 +530,17 @@ async function handleLogout() {
   loggingOut.value = true;
   logoutError.value = null;
 
-  // Logout must be atomic: the backend session forget happens FIRST. If that
-  // POST fails, we do not clear the II delegation and we do not navigate —
-  // otherwise the UI would say "signed out" while the Laravel session still
-  // held the old chat_user_id and the next /chat/send would retrieve under
-  // the stale principal. The user can retry from the same Sign out button.
+  // Preserve the legacy acknowledgement without changing local account ownership.
   try {
     await axios.post('/chat/identity-logout');
   } catch (err) {
-    console.warn('[chat] identity-logout backend call failed', err);
-    logoutError.value = 'Could not sign out of the chat session. You are still signed in. Please try again.';
+    console.warn('[chat] identity-logout backend call failed');
+    logoutError.value = 'Could not complete Internet Identity sign-out. Your OpenMemory login is separate. Please try again.';
     loggingOut.value = false;
     return;
   }
 
-  // Backend session is cleared. Now safe to drop the local panel state, the
-  // II delegation, and navigate. The reload also clears any in-memory chat
-  // history bound to the previous principal.
+  // Clear provider-specific state without deleting the local account transcript.
   showMyMemories.value    = false;
   myMemories.value        = [];
   myMemoriesError.value   = null;
@@ -717,7 +669,7 @@ async function writeMemoryToBrowser(content, type, metadata) {
       });
       effectiveType = data.memory_type ?? effectiveType;
     } catch (err) {
-      console.warn('[chat] graph sync failed after browser memory write', err);
+      console.warn('[chat] graph sync failed after browser memory write');
     }
 
     memoryState.value = { status: 'success', content, source: 'browser', type: effectiveType };
@@ -781,7 +733,7 @@ async function send() {
     try {
       await initIdentity();
     } catch (err) {
-      console.warn('[chat] II init failed in send guard', err);
+      console.warn('[chat] II init failed in send guard');
     }
   }
 
@@ -796,7 +748,6 @@ async function send() {
   try {
     const { data } = await axios.post('/chat/send', {
       message:   text,
-      principal: isAuthenticated.value ? principal.value : null,
     });
 
     messages.value.push({ role: 'assistant', content: data.message });
@@ -810,28 +761,11 @@ async function send() {
       // stored, but pulsing now keeps the feedback loop tight either way.
       ambientGraph.value?.pulse();
 
-      if (data.memory_type !== 'public') {
-        // Private and Sensitive always require user review before storing — in both modes.
-        // Live mode: user approves → browser signs → writes to canister.
-        // Mock mode: user approves → browser POSTs to /chat/store-memory → file cache write.
-        pendingApproval.value = {
-          content:  data.memory,
-          type:     data.memory_type,
-          metadata: data.memory_metadata ?? null,
-        };
-      } else if (icpMode.value === 'icp' && canisterId.value) {
-        // Public in live mode: auto-sign and write to canister.
-        await writeMemoryToBrowser(data.memory, data.memory_type, data.memory_metadata ?? null);
-      } else {
-        // Public in mock mode: server already wrote. Report success.
-        memoryState.value = {
-          status:  'success',
-          content: data.memory,
-          source:  'server',
-          type:    data.memory_type,
-        };
-        clearMemoryState();
-      }
+      pendingApproval.value = {
+        content: data.memory,
+        type: data.memory_type,
+        metadata: data.memory_metadata ?? null,
+      };
     }
   } catch (err) {
     messages.value.push({
@@ -859,7 +793,7 @@ onMounted(async () => {
   try {
     await initIdentity();
   } catch (err) {
-    console.warn('[chat] II init failed:', err);
+    console.warn('[chat] II init failed:');
   }
   await scrollToBottom();
 });

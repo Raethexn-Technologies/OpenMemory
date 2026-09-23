@@ -46,7 +46,7 @@ class GraphControllerMaintenanceTest extends TestCase
         $llm->shouldIgnoreMissing();
         $this->app->instance(LlmService::class, $llm);
 
-        $response = $this->withSession(['chat_user_id' => $this->userId])
+        $response = $this->withOwnerSession(['chat_user_id' => $this->userId])
             ->postJson('/api/graph/consolidate');
 
         $response->assertOk();
@@ -100,7 +100,7 @@ class GraphControllerMaintenanceTest extends TestCase
         $llm->shouldReceive('chat')->andReturn('User works on the project.');
         $this->app->instance(LlmService::class, $llm);
 
-        $response = $this->withSession(['chat_user_id' => $this->userId])
+        $response = $this->withOwnerSession(['chat_user_id' => $this->userId])
             ->postJson('/api/graph/consolidate');
 
         $response->assertOk();
@@ -148,7 +148,7 @@ class GraphControllerMaintenanceTest extends TestCase
             'weight'       => 0.6,
         ]);
 
-        $response = $this->withSession(['chat_user_id' => $this->userId])
+        $response = $this->withOwnerSession(['chat_user_id' => $this->userId])
             ->postJson('/api/graph/prune');
 
         $response->assertOk();
@@ -193,7 +193,7 @@ class GraphControllerMaintenanceTest extends TestCase
             'weight'       => 0.05,
         ]);
 
-        $response = $this->withSession(['chat_user_id' => $this->userId])
+        $response = $this->withOwnerSession(['chat_user_id' => $this->userId])
             ->postJson('/api/graph/prune');
 
         $response->assertOk();
@@ -234,7 +234,7 @@ class GraphControllerMaintenanceTest extends TestCase
         DB::table('memory_nodes')->where('id', $other->id)
             ->update(['created_at' => now()->subDays(100)]);
 
-        $this->withSession(['chat_user_id' => $this->userId])
+        $this->withOwnerSession(['chat_user_id' => $this->userId])
             ->postJson('/api/graph/prune')
             ->assertOk();
 

@@ -28,6 +28,7 @@
 
         <!-- Global mode badge — honest about what's connected -->
         <div class="flex items-center gap-2">
+          <button v-if="$page.props.auth?.user" type="button" class="text-sm text-gray-300" @click="router.post('/logout')">Sign out of OpenMemory</button>
           <span
             :class="[
               'flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border font-mono',
@@ -52,7 +53,7 @@
 
 <script setup>
 import { computed } from 'vue';
-import { usePage } from '@inertiajs/vue3';
+import { usePage, router } from '@inertiajs/vue3';
 import NavLink from './NavLink.vue';
 
 const page = usePage();

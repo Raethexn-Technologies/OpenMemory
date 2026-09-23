@@ -25,6 +25,7 @@ class ConversationHistoryControllerTest extends TestCase
     {
         parent::setUp();
         config()->set('conversations.local_user_id', $this->userId);
+        $this->withOwnerSession(['chat_user_id' => $this->userId]);
     }
 
     private function seedConversation(?string $userId = null, string $provider = 'chatgpt', string $title = 'Ledger design'): Conversation

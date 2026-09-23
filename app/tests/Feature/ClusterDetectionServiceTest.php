@@ -156,7 +156,7 @@ class ClusterDetectionServiceTest extends TestCase
     {
         $this->node('user-1', 'Node A');
 
-        $response = $this->withSession(['chat_user_id' => 'user-1'])
+        $response = $this->withOwnerSession(['chat_user_id' => 'user-1'])
             ->getJson('/api/graph/clusters');
 
         $response->assertOk();
@@ -169,7 +169,7 @@ class ClusterDetectionServiceTest extends TestCase
 
     public function test_clusters_api_returns_empty_for_user_with_no_nodes(): void
     {
-        $response = $this->withSession(['chat_user_id' => 'user-nobody'])
+        $response = $this->withOwnerSession(['chat_user_id' => 'user-nobody'])
             ->getJson('/api/graph/clusters');
 
         $response->assertOk();

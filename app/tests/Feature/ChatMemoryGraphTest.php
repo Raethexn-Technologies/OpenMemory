@@ -21,7 +21,7 @@ class ChatMemoryGraphTest extends TestCase
     use MockeryPHPUnitIntegration;
     use RefreshDatabase;
 
-    public function test_public_mock_memory_is_written_and_synced_during_send(): void
+    public function test_public_mock_memory_waits_for_explicit_publication_approval(): void
     {
         $this->bindLlmForSend();
 
@@ -29,7 +29,8 @@ class ChatMemoryGraphTest extends TestCase
         $icp->shouldIgnoreMissing();
         $icp->shouldReceive('getPublicMemories')->once()->with('user-1')->andReturn([]);
         $icp->shouldReceive('isMockMode')->once()->andReturn(true);
-        $icp->shouldReceive('storeMemory')->once()->andReturn('mem-1');
+        $icp->shouldNotReceive('storeMemory');
+        $icp->shouldReceive('mockStoreApproved')->once()->andReturn('mem-1');
         $icp->shouldReceive('mode')->andReturn('mock');
         $this->app->instance(IcpMemoryService::class, $icp);
 
@@ -51,7 +52,7 @@ class ChatMemoryGraphTest extends TestCase
         ]);
         $this->app->instance(GraphExtractionService::class, $graphExtractor);
 
-        $response = $this->withSession([
+        $response = $this->withOwnerSession([
             'chat_session_id' => 'session-1',
             'chat_user_id' => 'user-1',
         ])->postJson('/chat/send', [
@@ -59,7 +60,12 @@ class ChatMemoryGraphTest extends TestCase
         ]);
 
         $response->assertOk();
-        $response->assertJsonPath('memory_id', 'mem-1');
+        $response->assertJsonPath('memory_id', null);
+        $response->assertJsonPath('memory_requires_approval', true);
+        $this->assertDatabaseCount('memory_nodes', 0);
+        $this->postJson('/chat/store-memory', [
+            'content' => 'User builds Laravel graph tools.', 'memory_type' => 'public',
+        ])->assertOk()->assertJsonPath('id', 'mem-1');
         $response->assertJsonPath('memory_type', 'public');
         $response->assertJsonPath('active_node_ids', []);
         $this->assertDatabaseCount('memory_nodes', 1);
@@ -77,7 +83,7 @@ class ChatMemoryGraphTest extends TestCase
         $icp = Mockery::mock(IcpMemoryService::class);
         $icp->shouldIgnoreMissing();
         $icp->shouldReceive('getPublicMemories')->once()->with('user-1')->andReturn([]);
-        $icp->shouldReceive('isMockMode')->twice()->andReturn(true);
+        $icp->shouldReceive('isMockMode')->once()->andReturn(true);
         $icp->shouldReceive('mode')->andReturn('mock');
         $icp->shouldReceive('mockStoreApproved')->once()->andReturn('mem-private-1');
         $this->app->instance(IcpMemoryService::class, $icp);
@@ -100,7 +106,7 @@ class ChatMemoryGraphTest extends TestCase
         ]);
         $this->app->instance(GraphExtractionService::class, $graphExtractor);
 
-        $sendResponse = $this->withSession([
+        $sendResponse = $this->withOwnerSession([
             'chat_session_id' => 'session-1',
             'chat_user_id' => 'user-1',
         ])->postJson('/chat/send', [
@@ -111,7 +117,7 @@ class ChatMemoryGraphTest extends TestCase
         $sendResponse->assertJsonPath('memory_type', 'private');
         $this->assertDatabaseCount('memory_nodes', 0);
 
-        $storeResponse = $this->withSession([
+        $storeResponse = $this->withOwnerSession([
             'chat_session_id' => 'session-1',
             'chat_user_id' => 'user-1',
         ])->postJson('/chat/store-memory', [
@@ -140,7 +146,7 @@ class ChatMemoryGraphTest extends TestCase
 
                 return ! str_contains($encoded, '4111 1111 1111 1111')
                     && str_contains($encoded, 'PAYMENT_CARD#');
-            }))
+            }), 'chat')
             ->andReturn('I will remember the card placeholder only.');
         $llm->shouldReceive('provider')->andReturn('test-provider');
         $this->app->instance(LlmService::class, $llm);
@@ -159,7 +165,7 @@ class ChatMemoryGraphTest extends TestCase
         $icp = Mockery::mock(IcpMemoryService::class);
         $icp->shouldIgnoreMissing();
         $icp->shouldReceive('getPublicMemories')->once()->with('user-1')->andReturn([]);
-        $icp->shouldReceive('isMockMode')->twice()->andReturn(true);
+        $icp->shouldReceive('isMockMode')->once()->andReturn(true);
         $icp->shouldReceive('mode')->andReturn('mock');
         $icp->shouldNotReceive('storeMemory');
         $icp->shouldReceive('mockStoreApproved')
@@ -205,7 +211,7 @@ class ChatMemoryGraphTest extends TestCase
             ]);
         $this->app->instance(GraphExtractionService::class, $graphExtractor);
 
-        $sendResponse = $this->withSession([
+        $sendResponse = $this->withOwnerSession([
             'chat_session_id' => 'session-1',
             'chat_user_id' => 'user-1',
         ])->postJson('/chat/send', [
@@ -223,7 +229,7 @@ class ChatMemoryGraphTest extends TestCase
             'content' => $sendResponse->json('redacted_message'),
         ]);
 
-        $storeResponse = $this->withSession([
+        $storeResponse = $this->withOwnerSession([
             'chat_session_id' => 'session-1',
             'chat_user_id' => 'user-1',
         ])->postJson('/chat/store-memory', [
@@ -260,7 +266,7 @@ class ChatMemoryGraphTest extends TestCase
         ]);
         $this->app->instance(GraphExtractionService::class, $graphExtractor);
 
-        $response = $this->withSession([
+        $response = $this->withOwnerSession([
             'chat_session_id' => 'session-live',
             'chat_user_id' => 'user-live',
         ])->postJson('/chat/sync-graph-memory', [
@@ -298,7 +304,7 @@ class ChatMemoryGraphTest extends TestCase
             ]);
         $this->app->instance(GraphExtractionService::class, $graphExtractor);
 
-        $response = $this->withSession([
+        $response = $this->withOwnerSession([
             'chat_session_id' => 'session-live',
             'chat_user_id' => 'user-live',
         ])->postJson('/chat/sync-graph-memory', [
@@ -362,7 +368,7 @@ class ChatMemoryGraphTest extends TestCase
         $summarizer->shouldReceive('extract')->once()->andReturn(null);
         $this->app->instance(MemorySummarizationService::class, $summarizer);
 
-        $response = $this->withSession([
+        $response = $this->withOwnerSession([
             'chat_session_id' => 'session-1',
             'chat_user_id' => 'user-1',
         ])->postJson('/chat/send', [
@@ -448,10 +454,12 @@ class ChatMemoryGraphTest extends TestCase
         $llm->shouldNotReceive('buildSystemPrompt');
         $llm->shouldReceive('chat')
             ->once()
-            ->with('grounded system prompt', [[
+            ->with('grounded system prompt', \App\Services\LLM\EvidenceMessages::attach([[
                 'role' => 'user',
                 'content' => 'What does the policy require?',
-            ]])
+            ]], array_map(static fn ($record) => array_intersect_key($record, array_flip([
+                'fact_id', 'fact_text', 'source_label', 'span_start', 'span_end',
+            ])), $evidence)), 'chat')
             ->andReturn('Grounded answer. [EVID:fact-1]');
         $llm->shouldReceive('provider')->andReturn('test-provider');
         $this->app->instance(LlmService::class, $llm);
@@ -473,7 +481,7 @@ class ChatMemoryGraphTest extends TestCase
         $icp->shouldReceive('mode')->andReturn('mock');
         $this->app->instance(IcpMemoryService::class, $icp);
 
-        $response = $this->withSession([
+        $response = $this->withOwnerSession([
             'chat_session_id' => 'session-1',
             'chat_user_id' => 'user-1',
         ])->postJson('/chat/send', [
@@ -504,7 +512,7 @@ class ChatMemoryGraphTest extends TestCase
         $summarizer->shouldReceive('extract')->once()->andReturn(null);
         $this->app->instance(MemorySummarizationService::class, $summarizer);
 
-        $response = $this->withSession([
+        $response = $this->withOwnerSession([
             'chat_session_id' => 'session-cold',
             'chat_user_id' => 'user-cold',
         ])->postJson('/chat/send', [
@@ -555,7 +563,7 @@ class ChatMemoryGraphTest extends TestCase
         $icp->shouldReceive('mode')->andReturn('mock');
         $this->app->instance(IcpMemoryService::class, $icp);
 
-        $response = $this->withSession([
+        $response = $this->withOwnerSession([
             'chat_session_id' => 'session-cold',
             'chat_user_id' => 'user-cold',
         ])->postJson('/chat/send', [
@@ -586,7 +594,7 @@ class ChatMemoryGraphTest extends TestCase
             'relationship' => 'related_to', 'weight' => 1.0,
         ]);
 
-        $response = $this->withSession([
+        $response = $this->withOwnerSession([
             'chat_session_id' => 'session-1',
             'chat_user_id' => 'user-1',
         ])->postJson('/chat/send', [
@@ -606,7 +614,7 @@ class ChatMemoryGraphTest extends TestCase
             ->with(
                 'Invalid RETRIEVAL_STRATEGY configured; falling back to default.',
                 Mockery::on(fn (array $context) => $context['key'] === 'RETRIEVAL_STRATEGY'
-                    && $context['invalid_value'] === 'not-a-strategy'
+                    && ! isset($context['invalid_value'])
                     && $context['fallback'] === 'goal_graph'),
             );
 
@@ -618,7 +626,7 @@ class ChatMemoryGraphTest extends TestCase
             'tags' => [], 'confidence' => 1.0, 'source' => 'chat',
         ]);
 
-        $response = $this->withSession([
+        $response = $this->withOwnerSession([
             'chat_session_id' => 'session-1',
             'chat_user_id' => 'user-1',
         ])->postJson('/chat/send', [
@@ -694,7 +702,7 @@ class ChatMemoryGraphTest extends TestCase
         $this->app->instance(MemorySummarizationService::class, $summarizer);
     }
 
-    public function test_identity_logout_clears_session_user_and_transcript(): void
+    public function test_external_identity_logout_preserves_openmemory_owner_and_transcript(): void
     {
         $this->bindUnusedControllerDependencies();
 
@@ -704,7 +712,7 @@ class ChatMemoryGraphTest extends TestCase
             'content' => 'Previous principal said this.',
         ]);
 
-        $response = $this->withSession([
+        $response = $this->withOwnerSession([
             'chat_session_id' => 'session-1',
             'chat_user_id' => 'previous-principal',
             'identity_source' => 'browser',
@@ -713,9 +721,9 @@ class ChatMemoryGraphTest extends TestCase
         $response->assertOk();
         $response->assertJsonPath('ok', true);
 
-        $this->assertNull(session()->get('chat_user_id'));
-        $this->assertNull(session()->get('identity_source'));
-        $this->assertNull(session()->get('chat_session_id'));
-        $this->assertDatabaseMissing('messages', ['session_id' => 'session-1']);
+        $this->assertSame('previous-principal', session()->get('chat_user_id'));
+        $this->assertSame('openmemory', session()->get('identity_source'));
+        $this->assertSame('session-1', session()->get('chat_session_id'));
+        $this->assertDatabaseHas('messages', ['session_id' => 'session-1']);
     }
 }

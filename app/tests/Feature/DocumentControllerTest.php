@@ -36,15 +36,14 @@ class DocumentControllerTest extends TestCase
             'text' => $this->sampleText(),
         ]);
 
-        $response->assertStatus(422);
-        $response->assertJsonPath('error', 'No user identity. Please refresh.');
+        $response->assertUnauthorized();
     }
 
     public function test_ingest_requires_title(): void
     {
         $this->mockIcp();
 
-        $response = $this->withSession(['chat_user_id' => 'user-1'])
+        $response = $this->withOwnerSession(['chat_user_id' => 'user-1'])
             ->postJson('/api/documents/ingest', ['text' => $this->sampleText()]);
 
         $response->assertStatus(422);
@@ -55,7 +54,7 @@ class DocumentControllerTest extends TestCase
     {
         $this->mockIcp();
 
-        $response = $this->withSession(['chat_user_id' => 'user-1'])
+        $response = $this->withOwnerSession(['chat_user_id' => 'user-1'])
             ->postJson('/api/documents/ingest', ['title' => 'Empty']);
 
         $response->assertStatus(422);
@@ -69,7 +68,7 @@ class DocumentControllerTest extends TestCase
         $this->mockIcp();
         $this->mockExtractor();
 
-        $response = $this->withSession([
+        $response = $this->withOwnerSession([
             'chat_user_id' => 'user-1',
             'chat_session_id' => 'session-1',
         ])->postJson('/api/documents/ingest', [
@@ -93,7 +92,7 @@ class DocumentControllerTest extends TestCase
 
         $this->mockExtractor();
 
-        $response = $this->withSession([
+        $response = $this->withOwnerSession([
             'chat_user_id' => 'user-1',
             'chat_session_id' => 'session-1',
         ])->postJson('/api/documents/ingest', [
@@ -116,7 +115,7 @@ class DocumentControllerTest extends TestCase
 
         $this->mockExtractor();
 
-        $response = $this->withSession([
+        $response = $this->withOwnerSession([
             'chat_user_id' => 'user-1',
             'chat_session_id' => 'session-1',
         ])->postJson('/api/documents/ingest', [
@@ -137,23 +136,10 @@ class DocumentControllerTest extends TestCase
         $this->app->instance(IcpMemoryService::class, $icp);
 
         $extractor = Mockery::mock(GraphExtractionService::class);
-        $extractor->shouldReceive('extract')
-            ->once()
-            ->with(
-                Mockery::on(fn (string $content) => ! str_contains($content, '4111') && str_contains($content, 'PAYMENT_CARD#')),
-                'sensitive',
-            )
-            ->andReturn([
-                'type' => 'concept',
-                'label' => 'Redacted billing document',
-                'tags' => ['billing'],
-                'people' => [],
-                'projects' => [],
-                'sensitivity' => 'sensitive',
-            ]);
+        $extractor->shouldNotReceive('extract');
         $this->app->instance(GraphExtractionService::class, $extractor);
 
-        $response = $this->withSession([
+        $response = $this->withOwnerSession([
             'chat_user_id' => 'user-1',
             'chat_session_id' => 'session-1',
         ])->postJson('/api/documents/ingest', [
@@ -173,14 +159,14 @@ class DocumentControllerTest extends TestCase
         $this->assertStringNotContainsString('4111', $node->content);
     }
 
-    public function test_ingest_defaults_to_public_sensitivity(): void
+    public function test_ingest_defaults_to_private_sensitivity(): void
     {
         // shouldIgnoreMissing() lets storeMemory() be called silently (default=public triggers it).
         // The assertion here is on node sensitivity, not on whether storeMemory was called.
         $this->mockIcp();
         $this->mockExtractor();
 
-        $this->withSession([
+        $this->withOwnerSession([
             'chat_user_id' => 'user-1',
             'chat_session_id' => 'session-1',
         ])->postJson('/api/documents/ingest', [
@@ -191,7 +177,7 @@ class DocumentControllerTest extends TestCase
         $nodes = MemoryNode::where('user_id', 'user-1')->get();
         $this->assertNotEmpty($nodes);
         foreach ($nodes as $node) {
-            $this->assertSame('public', $node->sensitivity, "Expected public but got {$node->sensitivity} for node '{$node->label}'");
+            $this->assertSame('private', $node->sensitivity);
         }
     }
 
@@ -200,7 +186,7 @@ class DocumentControllerTest extends TestCase
     public function test_index_requires_session(): void
     {
         $response = $this->getJson('/api/documents');
-        $response->assertStatus(422);
+        $response->assertUnauthorized();
     }
 
     public function test_index_returns_only_anchor_nodes(): void
@@ -229,7 +215,7 @@ class DocumentControllerTest extends TestCase
             'source' => 'document',
         ]);
 
-        $response = $this->withSession(['chat_user_id' => 'user-1'])
+        $response = $this->withOwnerSession(['chat_user_id' => 'user-1'])
             ->getJson('/api/documents');
 
         $response->assertOk();
@@ -251,7 +237,7 @@ class DocumentControllerTest extends TestCase
             'source' => 'document_anchor',
         ]);
 
-        $response = $this->withSession(['chat_user_id' => 'user-1'])
+        $response = $this->withOwnerSession(['chat_user_id' => 'user-1'])
             ->getJson('/api/documents');
 
         $response->assertOk();

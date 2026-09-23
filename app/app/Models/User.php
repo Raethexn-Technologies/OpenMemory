@@ -6,11 +6,30 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Str;
 
 class User extends Authenticatable
 {
     /** @use HasFactory<\Database\Factories\UserFactory> */
     use HasFactory, Notifiable;
+
+    protected static function booted(): void
+    {
+        static::creating(function (User $user): void {
+            $user->owner_uuid = (string) Str::uuid();
+        });
+        static::created(function (User $user): void {
+            CorpusOwnerBinding::create(['user_id' => $user->id, 'owner_key' => $user->owner_uuid]);
+        });
+    }
+
+    public function corpusOwnerKey(): string
+    {
+        $key = CorpusOwnerBinding::where('user_id', $this->id)->value('owner_key');
+        abort_unless(is_string($key) && $key !== '', 403, 'No corpus ownership binding exists.');
+
+        return $key;
+    }
 
     /**
      * The attributes that are mass assignable.

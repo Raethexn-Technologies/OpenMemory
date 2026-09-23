@@ -240,7 +240,7 @@ class MultiAgentReinforcementTest extends TestCase
 
     public function test_agents_index_page_loads(): void
     {
-        $response = $this->withSession([
+        $response = $this->withOwnerSession([
             'chat_user_id' => 'user-agents-page',
             'chat_session_id' => 'session-agents',
         ])->get('/agents');
@@ -250,7 +250,7 @@ class MultiAgentReinforcementTest extends TestCase
 
     public function test_create_agent_api_returns_agent_record(): void
     {
-        $response = $this->withSession([
+        $response = $this->withOwnerSession([
             'chat_user_id' => 'user-create',
             'chat_session_id' => 'session-create',
         ])->postJson('/api/agents', [
@@ -268,7 +268,7 @@ class MultiAgentReinforcementTest extends TestCase
     {
         $agent = $this->makeAgent('user-trust', 'Test', 0.5);
 
-        $response = $this->withSession([
+        $response = $this->withOwnerSession([
             'chat_user_id' => 'user-trust',
             'chat_session_id' => 'session-trust',
         ])->patchJson("/api/agents/{$agent->id}/trust", [
@@ -289,7 +289,7 @@ class MultiAgentReinforcementTest extends TestCase
         $nodeB = $this->makeNode($agentB->graph_user_id, 'Shared API fact');
         app(MultiAgentGraphService::class)->reinforceShared([$nodeA->id], $agentA);
 
-        $response = $this->withSession([
+        $response = $this->withOwnerSession([
             'chat_user_id' => 'owner-shared-api',
             'chat_session_id' => 'session-shared-api',
         ])->getJson('/api/agents/shared-edges');
@@ -323,7 +323,7 @@ class MultiAgentReinforcementTest extends TestCase
             'weight' => 0.5,
         ]);
 
-        $response = $this->withSession([
+        $response = $this->withOwnerSession([
             'chat_user_id' => 'owner-agent-graph',
             'chat_session_id' => 'session-agent-graph',
         ])->getJson("/api/agents/{$agent->id}/graph");
@@ -338,7 +338,7 @@ class MultiAgentReinforcementTest extends TestCase
     {
         $agent = $this->makeAgent('owner-one', 'Alpha', 0.7);
 
-        $this->withSession([
+        $this->withOwnerSession([
             'chat_user_id' => 'owner-two',
             'chat_session_id' => 'session-agent-graph',
         ])->getJson("/api/agents/{$agent->id}/graph")
@@ -362,7 +362,7 @@ class MultiAgentReinforcementTest extends TestCase
             'weight' => 0.5,
         ]);
 
-        $response = $this->withSession([
+        $response = $this->withOwnerSession([
             'chat_user_id' => 'owner-simulate',
             'chat_session_id' => 'session-simulate',
         ])->postJson("/api/agents/{$agentA->id}/simulate");
@@ -397,7 +397,7 @@ class MultiAgentReinforcementTest extends TestCase
         app(MultiAgentGraphService::class)->reinforceShared([$nodeA->id], $agentA);
         $this->assertDatabaseCount('shared_memory_edges', 1);
 
-        $response = $this->withSession([
+        $response = $this->withOwnerSession([
             'chat_user_id' => 'owner-destroy',
             'chat_session_id' => 'session-destroy',
         ])->deleteJson("/api/agents/{$agentA->id}");

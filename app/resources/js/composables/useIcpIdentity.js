@@ -80,8 +80,8 @@ async function initIdentity() {
             // Surface the failure to the UI but always flip isReady so the chat
             // can render. The canister still rejects anonymous writes, so live
             // memory storage stays blocked until the user can sign in.
-            state.initError.value = err?.message ?? String(err);
-            console.error('[useIcpIdentity] init failed:', err);
+            state.initError.value = 'Identity initialization failed.';
+            console.error('[useIcpIdentity] init failed:');
         } finally {
             state.isReady.value = true;
         }
@@ -112,7 +112,7 @@ async function loginIdentity({ providerUrl } = {}) {
                 resolve(true);
             },
             onError: (err) => {
-                console.error('[useIcpIdentity] login failed:', err);
+                console.error('[useIcpIdentity] login failed:');
                 resolve(false);
             },
         });

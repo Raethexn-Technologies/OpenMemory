@@ -68,7 +68,7 @@ function mountChat(overrides = {}) {
         props: {
             session_id: 'session-1',
             user_id: 'test-principal',
-            identity_source: 'browser',
+            identity_source: 'openmemory',
             messages: [],
             llm_provider: 'mock',
             icp_mode: 'mock',
@@ -189,6 +189,10 @@ describe('Chat redaction UI', () => {
         await flushPromises();
 
         await sendMessage(wrapper, 'I like distributed systems.');
+        expect(mocks.storeMemory).not.toHaveBeenCalled();
+        expect(wrapper.text()).toContain('Public memory: review before publishing');
+        await buttonByText(wrapper, 'Sign & store').trigger('click');
+        await flushPromises();
 
         expect(mocks.storeMemory).toHaveBeenCalledWith({
             sessionId: 'session-1',
@@ -256,7 +260,7 @@ describe('Chat Internet Identity lifecycle', () => {
         expect(buttonByText(wrapper, 'Sign in')).toBeUndefined();
     });
 
-    it('omits the principal from /chat/send when signed out', async () => {
+    it('sends chat without an external principal identity claim', async () => {
         _setMockAuth(false);
         axios.post.mockResolvedValueOnce({
             data: {
@@ -275,7 +279,6 @@ describe('Chat Internet Identity lifecycle', () => {
 
         expect(axios.post).toHaveBeenNthCalledWith(1, '/chat/send', {
             message: 'hello',
-            principal: null,
         });
     });
 
@@ -299,6 +302,10 @@ describe('Chat Internet Identity lifecycle', () => {
         await flushPromises();
 
         await sendMessage(wrapper, 'I like distributed systems.');
+        expect(mocks.storeMemory).not.toHaveBeenCalled();
+        expect(wrapper.text()).toContain('Public memory: review before publishing');
+        await buttonByText(wrapper, 'Sign & store').trigger('click');
+        await flushPromises();
 
         expect(mocks.storeMemory).not.toHaveBeenCalled();
         expect(wrapper.text()).toContain('Memory not stored');

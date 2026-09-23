@@ -13,7 +13,7 @@ class ThreeDPageTest extends TestCase
 
     public function test_threed_page_loads(): void
     {
-        $this->withSession(['chat_user_id' => 'user-1'])
+        $this->withOwnerSession(['chat_user_id' => 'user-1'])
             ->get('/3d')
             ->assertOk();
     }
@@ -27,7 +27,7 @@ class ThreeDPageTest extends TestCase
             'trust_score' => 0.5,
         ]);
 
-        $response = $this->withSession(['chat_user_id' => 'user-1'])
+        $response = $this->withOwnerSession(['chat_user_id' => 'user-1'])
             ->get('/3d');
 
         $response->assertOk();
@@ -39,7 +39,7 @@ class ThreeDPageTest extends TestCase
 
     public function test_threed_page_passes_empty_agents_when_none_exist(): void
     {
-        $response = $this->withSession(['chat_user_id' => 'user-1'])
+        $response = $this->withOwnerSession(['chat_user_id' => 'user-1'])
             ->get('/3d');
 
         $response->assertOk();
@@ -64,7 +64,7 @@ class ThreeDPageTest extends TestCase
             'trust_score' => 0.5,
         ]);
 
-        $response = $this->withSession(['chat_user_id' => 'user-1'])
+        $response = $this->withOwnerSession(['chat_user_id' => 'user-1'])
             ->get('/3d');
 
         $response->assertInertia(fn ($page) => $page

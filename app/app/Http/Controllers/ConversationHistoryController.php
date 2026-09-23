@@ -11,7 +11,6 @@ use App\Services\Conversations\ConversationEvidenceRetrievalService;
 use App\Services\Conversations\CorpusOverviewService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -48,7 +47,8 @@ class ConversationHistoryController extends Controller
             'imports' => $this->importRows($userId),
             'conversations' => $this->conversationPage($request, $userId),
             'filters' => $this->filters($request),
-            'answer_generation_enabled' => (bool) config('conversations.ask.generate_answer', true),
+            'answer_generation_enabled' => (bool) config('conversations.ask.generate_answer', false)
+                && \App\Services\LLM\ModelDisclosure::allows('history_ask'),
         ]);
     }
 
@@ -220,31 +220,14 @@ class ConversationHistoryController extends Controller
     }
 
     /**
-     * Resolve the owner of imported history.
-     *
-     * A configured local identity wins, because that is what makes a CLI import
-     * and a browser session look at the same corpus. Without one, the session
-     * identity is used, which keeps the surface working out of the box while
-     * making it obvious why an import run from a terminal is not visible.
+     * Resolve only the authenticated account's explicit corpus binding.
      */
     private function ownerId(Request $request): string
     {
-        $configured = config('conversations.local_user_id');
+        $user = $request->user('web');
+        abort_unless($user, 401);
 
-        if (is_string($configured) && trim($configured) !== '') {
-            return trim($configured);
-        }
-
-        $sessionUser = $request->session()->get('chat_user_id');
-
-        if (is_string($sessionUser) && $sessionUser !== '') {
-            return $sessionUser;
-        }
-
-        $generated = 'session_' . Str::random(8);
-        $request->session()->put('chat_user_id', $generated);
-
-        return $generated;
+        return $user->corpusOwnerKey();
     }
 
     /**

@@ -61,7 +61,7 @@ class IngestControllerTest extends TestCase
         $icp->shouldReceive('storeMemory')->once()->andReturn('icp-1');
         $this->app->instance(IcpMemoryService::class, $icp);
 
-        $response = $this->withSession(['chat_user_id' => 'test-user', 'chat_session_id' => 'sess-1'])
+        $response = $this->withOwnerSession(['chat_user_id' => 'test-user', 'chat_session_id' => 'sess-1'])
             ->postJson('/api/ingest/github', ['repos' => ['owner/repo']]);
 
         $response->assertOk();
@@ -98,7 +98,7 @@ class IngestControllerTest extends TestCase
         // Live mode also forbids request-supplied repo overrides — use config.
         config(['services.ingest.repos' => 'owner/repo']);
 
-        $response = $this->withSession(['chat_user_id' => 'test-user'])->postJson('/api/ingest/github');
+        $response = $this->withOwnerSession(['chat_user_id' => 'test-user'])->postJson('/api/ingest/github');
 
         $response->assertOk();
         $response->assertJsonPath('summary.stored', 1);
@@ -130,7 +130,7 @@ class IngestControllerTest extends TestCase
         $icp->shouldNotReceive('storeMemory');
         $this->app->instance(IcpMemoryService::class, $icp);
 
-        $response = $this->withSession(['chat_user_id' => 'test-user'])
+        $response = $this->withOwnerSession(['chat_user_id' => 'test-user'])
             ->postJson('/api/ingest/github', ['repos' => ['owner/repo']]);
 
         $response->assertOk();
@@ -174,7 +174,7 @@ class IngestControllerTest extends TestCase
             ->andReturn(null);
         $this->app->instance(IngestSummarizer::class, $summarizer);
 
-        $response = $this->withSession(['chat_user_id' => 'test-user'])
+        $response = $this->withOwnerSession(['chat_user_id' => 'test-user'])
             ->postJson('/api/ingest/github', ['repos' => ['owner/repo']]);
 
         $response->assertOk();
@@ -198,7 +198,7 @@ class IngestControllerTest extends TestCase
         $icp->shouldReceive('isMockMode')->andReturn(true);
         $this->app->instance(IcpMemoryService::class, $icp);
 
-        $response = $this->withSession(['chat_user_id' => 'test-user'])
+        $response = $this->withOwnerSession(['chat_user_id' => 'test-user'])
             ->postJson('/api/ingest/github', ['repos' => ['owner/repo']]);
 
         $response->assertOk();
@@ -217,25 +217,24 @@ class IngestControllerTest extends TestCase
 
         config(['services.ingest.repos' => 'configured/repo']);
 
-        $response = $this->withSession(['chat_user_id' => 'test-user'])
+        $response = $this->withOwnerSession(['chat_user_id' => 'test-user'])
             ->postJson('/api/ingest/github', ['repos' => ['attacker/private-repo']]);
 
         $response->assertStatus(403);
         $this->assertStringContainsString('not allowed in live mode', $response->json('error'));
     }
 
-    public function test_missing_session_returns_422(): void
+    public function test_unauthenticated_request_returns_401(): void
     {
         $response = $this->postJson('/api/ingest/github', ['repos' => ['owner/repo']]);
-        $response->assertStatus(422);
-        $response->assertJsonPath('error', 'No user identity. Open /chat first.');
+        $response->assertUnauthorized();
     }
 
     public function test_no_repos_returns_422(): void
     {
         config(['services.ingest.repos' => '']);
 
-        $response = $this->withSession(['chat_user_id' => 'test-user'])
+        $response = $this->withOwnerSession(['chat_user_id' => 'test-user'])
             ->postJson('/api/ingest/github');
 
         $response->assertStatus(422);

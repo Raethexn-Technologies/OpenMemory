@@ -44,12 +44,12 @@ class SimulateDayTest extends TestCase
 
     public function test_demo_endpoint_requires_session_user(): void
     {
-        $this->postJson('/api/demo/simulate-day')->assertStatus(422);
+        $this->postJson('/api/demo/simulate-day')->assertUnauthorized();
     }
 
     public function test_demo_endpoint_seeds_current_session_user_and_returns_summary(): void
     {
-        $response = $this->withSession([
+        $response = $this->withOwnerSession([
             'chat_user_id' => 'session-demo-user',
             'chat_session_id' => 'session-demo-id',
         ])->postJson('/api/demo/simulate-day?fresh=1');

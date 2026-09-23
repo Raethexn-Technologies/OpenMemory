@@ -53,7 +53,7 @@ class AgentAlignmentTest extends TestCase
         $a = $this->agent('owner-1', 'Alpha');
         $b = $this->agent('owner-1', 'Beta');
 
-        $response = $this->withSession(['chat_user_id' => 'owner-1'])
+        $response = $this->withOwnerSession(['chat_user_id' => 'owner-1'])
             ->getJson('/api/agents/alignment');
 
         $response->assertOk();
@@ -62,7 +62,7 @@ class AgentAlignmentTest extends TestCase
 
     public function test_alignment_returns_empty_pairs_with_no_agents(): void
     {
-        $response = $this->withSession(['chat_user_id' => 'owner-nobody'])
+        $response = $this->withOwnerSession(['chat_user_id' => 'owner-nobody'])
             ->getJson('/api/agents/alignment');
 
         $response->assertOk();
@@ -73,7 +73,7 @@ class AgentAlignmentTest extends TestCase
     {
         $this->agent('owner-1', 'Solo');
 
-        $response = $this->withSession(['chat_user_id' => 'owner-1'])
+        $response = $this->withOwnerSession(['chat_user_id' => 'owner-1'])
             ->getJson('/api/agents/alignment');
 
         $response->assertOk();
@@ -94,7 +94,7 @@ class AgentAlignmentTest extends TestCase
         $n4 = $this->node($b->graph_user_id, 'Beta fact two');
         $this->edge($b->graph_user_id, $n3->id, $n4->id, 0.9);
 
-        $response = $this->withSession(['chat_user_id' => 'owner-1'])
+        $response = $this->withOwnerSession(['chat_user_id' => 'owner-1'])
             ->getJson('/api/agents/alignment');
 
         $response->assertOk();
@@ -118,7 +118,7 @@ class AgentAlignmentTest extends TestCase
         $n4 = $this->node($b->graph_user_id, 'Beta only 2');
         $this->edge($b->graph_user_id, $n3->id, $n4->id, 0.9);
 
-        $response = $this->withSession(['chat_user_id' => 'owner-1'])
+        $response = $this->withOwnerSession(['chat_user_id' => 'owner-1'])
             ->getJson('/api/agents/alignment');
 
         $response->assertOk();
@@ -132,7 +132,7 @@ class AgentAlignmentTest extends TestCase
         $this->agent('owner-1', 'Empty Beta');
 
         // No nodes, no edges — retrieveContext returns [] for both agents
-        $response = $this->withSession(['chat_user_id' => 'owner-1'])
+        $response = $this->withOwnerSession(['chat_user_id' => 'owner-1'])
             ->getJson('/api/agents/alignment');
 
         $response->assertOk();
@@ -152,7 +152,7 @@ class AgentAlignmentTest extends TestCase
         $this->edge($a->graph_user_id, $aShared->id, $aOnly->id, 0.9);
         $this->edge($b->graph_user_id, $bShared->id, $bOnly->id, 0.9);
 
-        $response = $this->withSession(['chat_user_id' => 'owner-1'])
+        $response = $this->withOwnerSession(['chat_user_id' => 'owner-1'])
             ->getJson('/api/agents/alignment');
 
         $response->assertOk();
@@ -174,7 +174,7 @@ class AgentAlignmentTest extends TestCase
         $n4 = $this->node($b->graph_user_id, 'B node 2');
         $this->edge($b->graph_user_id, $n3->id, $n4->id, 0.9);
 
-        $response = $this->withSession(['chat_user_id' => 'owner-1'])
+        $response = $this->withOwnerSession(['chat_user_id' => 'owner-1'])
             ->getJson('/api/agents/alignment');
 
         $response->assertOk();
@@ -192,7 +192,7 @@ class AgentAlignmentTest extends TestCase
         $this->agent('owner-1', 'Alpha');
         $this->agent('owner-2', 'Intruder');
 
-        $response = $this->withSession(['chat_user_id' => 'owner-1'])
+        $response = $this->withOwnerSession(['chat_user_id' => 'owner-1'])
             ->getJson('/api/agents/alignment');
 
         $response->assertOk();
@@ -205,7 +205,7 @@ class AgentAlignmentTest extends TestCase
         $a = $this->agent('owner-1', 'Researcher');
         $b = $this->agent('owner-1', 'Analyst');
 
-        $response = $this->withSession(['chat_user_id' => 'owner-1'])
+        $response = $this->withOwnerSession(['chat_user_id' => 'owner-1'])
             ->getJson('/api/agents/alignment');
 
         $response->assertOk();
@@ -230,7 +230,7 @@ class AgentAlignmentTest extends TestCase
             'weight' => 0.5,
         ]);
 
-        $this->withSession(['chat_user_id' => 'owner-1'])
+        $this->withOwnerSession(['chat_user_id' => 'owner-1'])
             ->getJson('/api/agents/alignment');
 
         $edge->refresh();

@@ -39,10 +39,7 @@ class ChatController extends Controller
         $sessionId = session()->get('chat_session_id', (string) Str::uuid());
         session()->put('chat_session_id', $sessionId);
 
-        // identity_source tracks where the user_id came from.
-        // 'browser' = browser principal from Internet Identity (set on first /chat/send with a principal).
-        // 'session' = server-generated fallback used before the user has signed in.
-        $userId = session()->get('chat_user_id', 'session_'.Str::random(8));
+        $userId = auth('web')->user()->corpusOwnerKey();
         session()->put('chat_user_id', $userId);
 
         $messages = Message::where('session_id', $sessionId)
@@ -66,13 +63,8 @@ class ChatController extends Controller
     /**
      * Handle a new chat message.
      *
-     * Identity flow:
-     *   - The browser obtains its principal from Internet Identity (AuthClient
-     *     delegation) and sends it as `principal`. Signed-out browsers omit it.
-     *   - On first message, we store that principal as the user_id and mark the
-     *     identity_source as 'browser'. Subsequent messages verify it matches.
-     *   - If no principal is supplied (signed out, or a direct API call), the
-     *     session-generated fallback is used and identity_source remains 'session'.
+     * Laravel ownership comes only from the authenticated OpenMemory account.
+     * A browser principal is an external identifier, not authentication proof.
      *
      * Memory write flow (live ICP mode):
      *   - Laravel returns the memory_summary to the browser.
@@ -83,7 +75,7 @@ class ChatController extends Controller
      *
      * Memory write flow (mock mode):
      *   - Laravel writes server-side to the file cache (no canister available).
-     *   - The principal still comes from the browser (II or empty); it just isn't cryptographically enforced.
+     *   - The authenticated account owns server-side mock records.
      */
     public function send(Request $request)
     {
@@ -92,28 +84,15 @@ class ChatController extends Controller
             'principal' => 'nullable|string|max:128|regex:/^[a-z0-9][a-z0-9\-]*[a-z0-9]$/',
         ]);
 
+        \App\Services\LLM\ModelDisclosure::authorize('chat');
         $sessionId = session()->get('chat_session_id');
         if (! $sessionId) {
             return response()->json(['error' => 'Session not found. Please refresh.'], 422);
         }
 
-        // Accept the Internet Identity principal sent by the browser on first
-        // message; lock it in after that so later turns cannot silently re-bind.
-        $userId = session()->get('chat_user_id');
-        $identitySource = session()->get('identity_source', 'session');
-        $incomingPrincipal = $validated['principal'] ?? null;
-
-        if ($incomingPrincipal && $identitySource === 'session') {
-            // First browser-principal message — adopt it and upgrade identity source.
-            $userId = $incomingPrincipal;
-            session()->put('chat_user_id', $userId);
-            session()->put('identity_source', 'browser');
-            $identitySource = 'browser';
-        }
-
-        if (! $userId) {
-            return response()->json(['error' => 'No user identity. Please refresh.'], 422);
-        }
+        // External principal strings never select a local ownership namespace.
+        $userId = $request->user('web')->corpusOwnerKey();
+        $identitySource = 'openmemory';
 
         // Redact before the message is persisted or sent to any LLM call. This
         // keeps hard-floor secrets out of the transcript, prompt history, memory
@@ -145,7 +124,6 @@ class ChatController extends Controller
         if (! in_array($strategy, MemoryGraphService::STRATEGIES, true)) {
             Log::warning('Invalid RETRIEVAL_STRATEGY configured; falling back to default.', [
                 'key' => 'RETRIEVAL_STRATEGY',
-                'invalid_value' => $strategy,
                 'fallback' => 'goal_graph',
             ]);
             $strategy = 'goal_graph';
@@ -182,8 +160,11 @@ class ChatController extends Controller
 
         // Get recent conversation history for context
         $history = Message::where('session_id', $sessionId)
-            ->orderBy('created_at')
+            ->orderByDesc('id')
+            ->limit(10)
             ->get(['role', 'content'])
+            ->reverse()
+            ->values()
             ->map(fn ($m) => [
                 'role' => $m->role,
                 'content' => $this->redactor->redact($m->content, $userId)->text,
@@ -198,7 +179,11 @@ class ChatController extends Controller
         }
 
         // Generate AI response
-        $aiResponse = $this->llm->chat($systemPrompt, $history);
+        $selectedEvidence = array_map(static fn (array $record) => array_intersect_key($record, array_flip([
+            'id', 'content', 'timestamp', 'fact_id', 'fact_text', 'source_label', 'span_start', 'span_end',
+        ])), $groundedMode ? $groundedEvidence : ($graphContext ?: array_slice($memories ?? [], 0, 12)));
+        $history = \App\Services\LLM\EvidenceMessages::attach($history, $selectedEvidence);
+        $aiResponse = $this->llm->chat($systemPrompt, $history, 'chat');
         $assistantRedaction = $this->redactor->redact($aiResponse, $userId);
         $safeAiResponse = $assistantRedaction->text;
 
@@ -234,30 +219,9 @@ class ChatController extends Controller
             );
 
             $metadata = $this->memoryMetadata($userRedaction, $assistantRedaction, $memoryRedaction);
-            $graphMetadata = ($redactionMetadata = $this->combinedRedaction($userRedaction, $assistantRedaction, $memoryRedaction))
-                ? ['redaction' => $redactionMetadata]
-                : [];
 
-            if ($this->icp->isMockMode() && ($memory['type'] ?? 'public') === 'public') {
-                // Mock mode, public only: safe to write server-side without consent.
-                $memoryId = $this->icp->storeMemory(
-                    userId: $userId,
-                    sessionId: $sessionId,
-                    content: $memory['content'],
-                    metadata: $metadata,
-                    memoryType: 'public',
-                );
-                $this->syncMemoryGraph(
-                    userId: $userId,
-                    content: $memory['content'],
-                    memoryType: 'public',
-                    sessionId: $sessionId,
-                    metadata: $graphMetadata,
-                );
-            }
-            // Private / Sensitive (both modes) and all types in live ICP mode:
-            //   The browser shows an approval UI and POSTs to /chat/store-memory (mock)
-            //   or signs directly to the canister (live). The graph sync runs after that store succeeds.
+            // Classification is not consent to publish. Every proposed memory
+            // waits for the existing owner approval flow in both storage modes.
         }
 
         $metadata ??= $this->memoryMetadata($userRedaction, $assistantRedaction, $memoryRedaction);
@@ -265,6 +229,7 @@ class ChatController extends Controller
         return response()->json([
             'message' => $safeAiResponse,
             'memory_id' => $memoryId,
+            'memory_requires_approval' => $memory !== null,
             'memory' => $memory['content'] ?? null,
             'memory_type' => $memory['type'] ?? null,
             'memory_metadata' => $metadata,
@@ -284,12 +249,12 @@ class ChatController extends Controller
     }
 
     /**
-     * Store a browser-approved Private or Sensitive memory in mock mode.
+     * Store a browser-approved memory in mock mode.
      *
      * In live ICP mode the browser writes directly to the canister (browser-signed).
      * In mock mode there is no canister, so the browser POSTs here after the user
      * clicks "Sign & store" in the approval UI. This keeps the consent flow identical
-     * between mock and live mode — the server never writes Private/Sensitive without approval.
+     * between mock and live mode — the server never writes a proposed memory without approval.
      */
     public function storeMemory(Request $request)
     {
@@ -299,7 +264,7 @@ class ChatController extends Controller
 
         $validated = $request->validate([
             'content' => 'required|string|max:2000',
-            'memory_type' => 'required|in:private,sensitive',
+            'memory_type' => 'required|in:public,private,sensitive',
             'metadata' => 'nullable|string|max:1000',
         ]);
 
@@ -386,26 +351,10 @@ class ChatController extends Controller
     }
 
     /**
-     * Forget the browser identity bound to this Laravel session.
-     *
-     * Called by the chat UI after the user signs out of Internet Identity.
-     * Without this, the session keeps the previous chat_user_id and subsequent
-     * /chat/send calls — even with `principal: null` in the body — continue to
-     * retrieve and reinforce the prior principal's memory graph. The chat
-     * transcript is also reset because messages addressed to the old principal
-     * should not bleed into a new session.
+     * External sign-out does not change the authenticated OpenMemory account.
      */
     public function identityLogout(Request $request)
     {
-        $sessionId = session()->get('chat_session_id');
-        if ($sessionId) {
-            Message::where('session_id', $sessionId)->delete();
-        }
-
-        session()->forget('chat_user_id');
-        session()->forget('identity_source');
-        session()->forget('chat_session_id');
-
         return response()->json(['ok' => true]);
     }
 

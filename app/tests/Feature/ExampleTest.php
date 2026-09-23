@@ -23,14 +23,14 @@ class ExampleTest extends TestCase
 
     public function test_chat_page_loads(): void
     {
-        $this->get('/chat')
+        $this->withOwnerSession(['chat_user_id' => 'page-owner'])->get('/chat')
             ->assertStatus(200)
             ->assertSee('Chat\\/Index', false);
     }
 
     public function test_memory_page_loads(): void
     {
-        $this->get('/memory')
+        $this->withOwnerSession(['chat_user_id' => 'page-owner'])->get('/memory')
             ->assertStatus(200)
             ->assertSee('Memory\\/Index', false);
     }
@@ -40,7 +40,7 @@ class ExampleTest extends TestCase
     public function test_reset_preserves_user_identity(): void
     {
         // Establish a session with a user identity
-        $session = $this->withSession([
+        $session = $this->withOwnerSession([
             'chat_session_id' => 'sess-111',
             'chat_user_id' => 'user_abc123',
         ]);
@@ -61,7 +61,7 @@ class ExampleTest extends TestCase
     {
         Message::create(['session_id' => 'sess-222', 'role' => 'user', 'content' => 'Test']);
 
-        $this->withSession(['chat_session_id' => 'sess-222', 'chat_user_id' => 'user_xyz'])
+        $this->withOwnerSession(['chat_session_id' => 'sess-222', 'chat_user_id' => 'user_xyz'])
             ->post('/chat/reset');
 
         $this->assertDatabaseMissing('messages', ['session_id' => 'sess-222']);
@@ -69,10 +69,10 @@ class ExampleTest extends TestCase
 
     // ─── Principal-based identity ──────────────────────────────────────
 
-    public function test_send_adopts_browser_principal_on_first_message(): void
+    public function test_send_ignores_browser_principal_on_first_message(): void
     {
         // Simulate a fresh session with a server-generated fallback id
-        $this->withSession([
+        $this->withOwnerSession([
             'chat_session_id' => 'sess-333',
             'chat_user_id' => 'session_fallback',
             'identity_source' => 'session',
@@ -81,15 +81,15 @@ class ExampleTest extends TestCase
             'principal' => 'abc12-defgh-ijklm-nopqr-cai',
         ]);
 
-        // After the first message with a principal, the session user_id should be the principal
-        $this->assertEquals('abc12-defgh-ijklm-nopqr-cai', $this->app['session']->get('chat_user_id'));
-        $this->assertEquals('browser', $this->app['session']->get('identity_source'));
+        // The authenticated binding remains authoritative despite the supplied principal.
+        $this->assertEquals('session_fallback', $this->app['session']->get('chat_user_id'));
+        $this->assertEquals('openmemory', $this->app['session']->get('identity_source'));
     }
 
     public function test_send_does_not_replace_established_browser_principal(): void
     {
         // Once identity_source is 'browser', subsequent messages cannot change the user_id
-        $this->withSession([
+        $this->withOwnerSession([
             'chat_session_id' => 'sess-444',
             'chat_user_id' => 'original-principal-cai',
             'identity_source' => 'browser',
@@ -170,7 +170,7 @@ class ExampleTest extends TestCase
 
         // Simulate the browser calling /chat/store-memory after user approves
         // a sensitive memory in mock mode (mirrors live-mode browser→canister write)
-        $response = $this->withSession([
+        $response = $this->withOwnerSession([
             'chat_session_id' => 'sess-approve-test',
             'chat_user_id' => 'test-principal-xyz',
         ])->postJson('/chat/store-memory', [
@@ -187,16 +187,15 @@ class ExampleTest extends TestCase
         $this->assertEquals('User earns $120k annually', $cached[0]['content']);
     }
 
-    public function test_store_memory_endpoint_rejects_public_type(): void
+    public function test_store_memory_endpoint_accepts_owner_approved_public_type(): void
     {
-        // Public memories are written by ChatController::send() directly, not this endpoint.
-        // Accepting public here would bypass the approval-gate contract.
-        $this->withSession([
+        // Public classification alone does not publish. The owner approves here.
+        $this->withOwnerSession([
             'chat_session_id' => 'sess-pub-test',
             'chat_user_id' => 'test-principal-pub',
         ])->postJson('/chat/store-memory', [
             'content' => 'I enjoy hiking',
             'memory_type' => 'public',
-        ])->assertStatus(422); // validation rule: 'in:private,sensitive'
+        ])->assertOk()->assertJsonPath('memory_type', 'public');
     }
 }

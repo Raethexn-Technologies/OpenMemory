@@ -13,7 +13,7 @@ class GraphControllerTest extends TestCase
 
     public function test_graph_page_loads(): void
     {
-        $this->withSession(['chat_user_id' => 'user-1'])
+        $this->withOwnerSession(['chat_user_id' => 'user-1'])
             ->get('/graph')
             ->assertOk();
     }
@@ -83,7 +83,7 @@ class GraphControllerTest extends TestCase
             'weight' => 0.1,
         ]);
 
-        $response = $this->withSession(['chat_user_id' => 'user-1'])
+        $response = $this->withOwnerSession(['chat_user_id' => 'user-1'])
             ->getJson('/api/graph?types[]=memory&sensitivity[]=public');
 
         $response->assertOk();
@@ -123,7 +123,7 @@ class GraphControllerTest extends TestCase
             'weight' => 0.5,
         ]);
 
-        $response = $this->withSession(['chat_user_id' => 'user-1'])
+        $response = $this->withOwnerSession(['chat_user_id' => 'user-1'])
             ->getJson("/api/graph/neighborhood/{$root->id}");
 
         $response->assertOk();
@@ -144,7 +144,7 @@ class GraphControllerTest extends TestCase
             'source' => 'chat',
         ]);
 
-        $this->withSession(['chat_user_id' => 'user-2'])
+        $this->withOwnerSession(['chat_user_id' => 'user-2'])
             ->getJson("/api/graph/neighborhood/{$node->id}")
             ->assertNotFound();
     }
@@ -197,7 +197,7 @@ class GraphControllerTest extends TestCase
             'weight' => 0.4,
         ]);
 
-        $response = $this->withSession(['chat_user_id' => 'user-1'])
+        $response = $this->withOwnerSession(['chat_user_id' => 'user-1'])
             ->postJson('/api/graph/simulate');
 
         $response->assertOk();
@@ -277,7 +277,7 @@ class GraphControllerTest extends TestCase
 
         $expectedIds = array_column(app(\App\Services\MemoryGraphService::class)->retrieveContext('user-trace'), 'id');
 
-        $response = $this->withSession(['chat_user_id' => 'user-trace'])
+        $response = $this->withOwnerSession(['chat_user_id' => 'user-trace'])
             ->postJson('/api/graph/simulate?trace=1');
 
         $response->assertOk();
