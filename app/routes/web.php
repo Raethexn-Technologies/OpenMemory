@@ -39,6 +39,20 @@ Route::middleware(['auth:web', \App\Http\Middleware\SetAuthenticatedOwner::class
     Route::post('/chat/store-memory', [ChatController::class, 'storeMemory'])->name('chat.storeMemory');
     Route::post('/chat/sync-graph-memory', [ChatController::class, 'syncGraphMemory'])->name('chat.syncGraphMemory');
 
+    Route::get('/native-memory', [\App\Http\Controllers\NativeMemoryController::class, 'page'])->name('native-memory');
+    Route::prefix('/api/native-memories')->middleware(\App\Http\Middleware\NativeMemoryRequest::class)->group(function () {
+        $controller = \App\Http\Controllers\NativeMemoryController::class;
+        Route::get('/', [$controller, 'index']);
+        Route::post('/', [$controller, 'store']);
+        Route::post('/search', [$controller, 'search']);
+        Route::get('/export', [$controller, 'export']);
+        Route::post('/import', [$controller, 'import']);
+        Route::get('/{memoryId}', [$controller, 'show'])->whereUuid('memoryId');
+        Route::patch('/{memoryId}', [$controller, 'update'])->whereUuid('memoryId');
+        Route::delete('/{memoryId}', [$controller, 'destroy'])->whereUuid('memoryId');
+        Route::post('/{memoryId}/supersede', [$controller, 'supersede'])->whereUuid('memoryId');
+    });
+
     // Memory inspector
     Route::get('/memory', [MemoryController::class, 'index'])->name('memory.index');
     Route::get('/memory/refresh', [MemoryController::class, 'refresh'])->name('memory.refresh');

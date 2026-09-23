@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OpenMemory native memory export v1",
+  "description": "One bounded export page. Transfer every page while writes are paused. Runtime validation additionally checks UTF-8 byte limits, protected content, valid nonfuture dates, lifecycle links, and cycles.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "exported_at",
+    "native_memories",
+    "external_references",
+    "next_cursor"
+  ],
+  "properties": {
+    "format": {
+      "const": "openmemory-export-v1"
+    },
+    "exported_at": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "native_memories": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "$ref": "#/$defs/memory"
+      }
+    },
+    "external_references": {
+      "type": "array",
+      "maxItems": 0,
+      "description": "External artifact transfer is not supported in this version."
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/id"
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "memory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "content",
+        "attribution",
+        "state",
+        "superseded_by",
+        "revision",
+        "created_at",
+        "updated_at"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "content": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8000,
+          "description": "At most 8000 UTF-8 bytes; no blank-only content, null bytes, recognized credentials, or configured redaction-floor matches."
+        },
+        "attribution": {
+          "const": "user_asserted"
+        },
+        "state": {
+          "enum": [
+            "active",
+            "archived",
+            "superseded"
+          ]
+        },
+        "superseded_by": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/id"
+            }
+          ]
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "created_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "updated_at": {
+          "$ref": "#/$defs/timestamp"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "enum": [
+                  "active",
+                  "archived"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "superseded_by": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

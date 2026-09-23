@@ -20,7 +20,8 @@
         <div class="flex items-center gap-1">
           <NavLink href="/chat"    :active="$page.url.startsWith('/chat')">Chat</NavLink>
           <NavLink href="/history" :active="$page.url.startsWith('/history')">History</NavLink>
-          <NavLink href="/memory"  :active="$page.url.startsWith('/memory')">Memory</NavLink>
+          <NavLink href="/native-memory" :active="$page.url.startsWith('/native-memory')">Native memory</NavLink>
+          <NavLink href="/memory"  :active="$page.url.startsWith('/memory')">Legacy memory</NavLink>
           <NavLink href="/graph"   :active="$page.url.startsWith('/graph')">Graph</NavLink>
           <NavLink href="/agents"  :active="$page.url.startsWith('/agents')">Agents</NavLink>
           <NavLink href="/3d"      :active="$page.url === '/3d'">3D</NavLink>
@@ -38,7 +39,7 @@
             ]"
           >
             <span class="w-1.5 h-1.5 rounded-full" :class="isMock ? 'bg-amber-500' : 'bg-emerald-500 animate-pulse'"></span>
-            {{ isMock ? 'Mock memory' : 'ICP Live' }}
+            {{ $page.url.startsWith('/native-memory') ? 'Local SQL' : (isMock ? 'Mock memory' : 'ICP Live') }}
           </span>
         </div>
       </div>

@@ -51,3 +51,6 @@ app/storage/app/openmemory-archives/
 # OS
 .DS_Store
 Thumbs.db
+
+# Owner-controlled native-memory exports contain private content.
+openmemory-export-v*.json
