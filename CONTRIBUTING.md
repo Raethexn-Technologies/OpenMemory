@@ -62,7 +62,7 @@ php artisan test
 npm run test:front
 ```
 
-The backend test suite uses SQLite in-memory and mock mode throughout, so no API key or canister is needed to run it. The frontend suite runs Vitest against the Vue components and browser identity flow.
+The backend suite uses SQLite in-memory and synthetic integrations. Native-memory tests additionally disable model grants and configure an unavailable ICP endpoint, so no API key or canister is needed. The frontend suite runs Vitest against the Vue components and browser identity flow.
 
 ---
 
@@ -72,9 +72,21 @@ The [trust model](./docs/architecture/DISCLOSURE_BOUNDARY.md) separates ownershi
 
 Run `npm run test:cli` and `npm run test:security` from the repository root. The latter exercises optional agent and adapter code with isolated dependency stubs, without installing or contacting their real providers.
 
+## Local context development
+
+The [context guide](./docs/architecture/LOCAL_CONTEXT.md) defines source adapters, typed contracts, and separate retrieval/disclosure checks. Extend ContextResolverTest with fabricated evidence when changing this boundary, and never grant authority from query text or source results.
+
+The PHPUnit configuration uses a test-only 256 MiB budget because the expanded suite materializes large portability fixtures. This setting does not change production PHP memory limits. Application tests use local SQL and prevent unexpected HTTP calls.
+
+## Native memory development
+
+The [native-memory guide](./docs/architecture/NATIVE_MEMORY.md) documents the canonical SQL store and portable format. Preserve exact accepted content, owner-scoped queries, revision conflicts, and the separation from graph maintenance. Native writes and exports run local redaction-floor checks and reject protected content rather than silently rewriting it.
+
+Run php artisan test --filter=NativeMemoryTest from app when changing this boundary. Extend synthetic fixtures and frontend tests for new lifecycle behavior; do not use real exports or add native data to MCP or model calls.
+
 ## Memory types
 
-The three-tier memory model is the core architectural claim of the project. Please preserve it in any contribution:
+The legacy canister and graph integrations retain these sensitivity classifications. Native memory is a separate private SQL store, not another tier in this table:
 
 | Type | LLM context | Owner read | Requires approval |
 |---|---|---|---|

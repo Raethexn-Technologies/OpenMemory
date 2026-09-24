@@ -110,3 +110,9 @@ The shared MCP key remains broad and is not an owner identity. It cannot read im
 The optional agent remains disabled for disclosure by default. AGENT_ALLOW_UNSANDBOXED_TOOLS=true explicitly enables powerful existing tools, including interpreters and write operations; lexical path checks and executable allowlists are not a sandbox. Do not enable it against private personal data. This phase does not redesign agent execution, channel audience authorization, or MCP application grants.
 
 Deployment-wide operation grants are a transitional self-hosting boundary. They are not per-owner, per-application, per-provider, purpose-limited, expiring, or transactionally revocable grants. Configuration revocation prevents subsequent calls after reload, not a request already in flight. Federation and multi-tenant processing should wait for stronger destination-aware grants and connector isolation.
+
+## Phase 4 local application disclosure
+
+The [local context resolver](LOCAL_CONTEXT.md) adds a separate owner-approved application destination. Native SQL state and imported redacted excerpts pass through retrieval grants, normalization, minimization, and a disclosure recheck before delivery to the registered consumer. Model-operation grants remain independent, and resolution invokes no model or external provider.
+
+Only access metadata reaches the new audit table. Application credentials are returned once and stored as hashes; normal diagnostics exclude bearer headers and evidence payloads. This transport does not broaden MCP, raw-history, or native-write access.

@@ -1960,3 +1960,19 @@ The disclosure audit traced imported history, live chat, document extraction, me
 Retrieved evidence now travels separately from invariant application instructions. Private document processing and private memory metadata extraction remain local, while public chat proposals use the existing approval flow. Provider errors, malformed model output, and normal application exception handling no longer intentionally record payloads.
 
 Synthetic tests exercise denial before transmission, adversarial evidence placement, ownership isolation, private document processing, credential output, and mock versus adapter-backed public filtering. The implementation report records remaining limitations, including shared MCP authority, provider retention, deployment-wide grants, and the optional agent's lack of a security sandbox. No schema migration or additional provider was introduced.
+
+## 2026-09-23: Durable native memory and portability
+
+Intentional owner assertions now have a separate SQL store with portable UUIDs, explicit correction and supersession, reversible archival, and hard deletion. Authenticated ownership remains independent of corpus configuration and provider identity; neither MCP nor existing model paths receive native access.
+
+Paged JSON export and atomic import preserve accepted content, attribution, lifecycle, revision, timestamps, and replacement references. Identical records are skipped, conflicting records stop the page, and unknown fields or unsupported versions are rejected. Local protected-content checks run before storage and export without silently rewriting accepted statements.
+
+The native inspection page provides owner controls and text-only rendering. Synthetic tests cover ownership, CSRF, graph independence, absent external services, portability conflicts, and adversarial inputs. The Phase 3 report records verification and limitations; no resolver, federation, or automated extraction was introduced.
+
+## 2026-09-23: Local context contracts and application grants
+
+The local resolver now normalizes active native statements and redacted imported message excerpts into transient context bundles. Source-local lexical ranking and deterministic interleaving preserve provenance while exposing candidate limits, unavailable sources, and incomplete coverage without claiming lifetime knowledge.
+
+Application registrations use hashed, expiring bearer credentials and separate retrieval and recipient-disclosure grants. Owner sessions remain a distinct transport, and grant changes are checked again after retrieval. Neither application authority nor natural-language instructions can add raw-history access, native writes, or MCP permissions.
+
+Access events retain only verified identities, source outcomes, counts, duration, and timestamps. Owner controls support explicit registration, grant changes, revocation, and recent-event inspection. The Phase 4 guide and report document plaintext-recipient risks, conditional audit retention, source-wide grant limits, and tests; no external federation or automatic model generation was added.

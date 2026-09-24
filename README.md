@@ -6,7 +6,7 @@ Most people now talk to several assistants. Career decisions end up in one, mont
 
 OpenMemory brings that history together. It imports conversation exports from ChatGPT, Claude, and Gemini into one local corpus, preserves the original source of every conversation, and makes the whole thing searchable and answerable with evidence you can open and read.
 
-Two things live here, and they meet in the same corpus:
+Imported history and legacy live-memory integrations remain separate from the native store described below:
 
 **Historical memory.** Conversation archives you export from providers. `memory:import-archive` reads an export where it already sits on disk, normalizes it into a provider-neutral model, and keeps the exact provider JSON alongside the normalized rows. Imports are idempotent, so re-exporting next month merges rather than duplicates.
 
@@ -19,6 +19,22 @@ Every claim OpenMemory makes about that history has to be traceable. An answer c
 [ROADMAP.md](./ROADMAP.md) defines the direction. [ADOPTION.md](./ADOPTION.md) defines the demo and community path. [VISION.md](./VISION.md) covers the design decisions and research questions in depth. [DEVLOG.md](./DEVLOG.md) is the running record of what was discovered building it. [RESEARCH.md](./RESEARCH.md) is the active research agenda. [SCIENCE.md](./SCIENCE.md) explains the mathematics and biology behind the graph layer.
 
 The [federated context report](./docs/architecture/FEDERATED_CONTEXT_REPORT.md) is the working architectural direction. Its [ADRs](./docs/adr/README.md) remain proposed where implementation has not validated them.
+
+## Durable native memory
+
+OpenMemory now provides private, intentionally saved native memory in local SQL storage. Sign in and open /native-memory to create, inspect, correct, supersede, archive, delete, export, and import statements without an LLM, ICP, or OpenMemory Cloud.
+
+Imported conversations remain sources, not automatically canonical memories. The native store is also separate from the prunable graph and legacy MCP/canister records, and existing model permissions do not grant access to it.
+
+Read the [native-memory guide](./docs/architecture/NATIVE_MEMORY.md) for lifecycle semantics, authenticated API usage, self-hosting, and the inspectable openmemory-export-v1 format. The [implementation report](./docs/architecture/NATIVE_MEMORY_IMPLEMENTATION.md) records verification and remaining limitations.
+
+## Local context and application grants
+
+The local resolver returns bounded evidence from active native memory and the authenticated owner's imported history, with provenance and explicit source outcomes. It requires no model, external provider, ICP service, or vector database.
+
+Owners can register applications at /applications and separately grant retrieval and disclosure for each source. Bearer credentials do not authenticate owner routes or MCP, and no native-write or raw-history capability is granted. Read the [context contracts and grant model](./docs/architecture/LOCAL_CONTEXT.md) before authorizing a consumer.
+
+Context remains transient, and resolving it neither creates memory nor invokes a model. The [Phase 4 report](./docs/architecture/LOCAL_CONTEXT_IMPLEMENTATION.md) records verification, compatibility, and remaining limitations.
 
 ## Disclosure defaults
 

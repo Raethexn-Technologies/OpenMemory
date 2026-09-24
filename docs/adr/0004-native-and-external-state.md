@@ -21,3 +21,7 @@ This choice provides durable ownership, straightforward export, and a provider-i
 ## Acceptance evidence
 
 Native statements must survive restarts and export/import without ICP, Cloud, or an LLM. Tests must reject cross-owner replacement links and verify deletion, archival exclusion, and version history. Existing imports and graph behavior must remain compatible until an explicit migration is approved.
+
+## Phase 3 implementation checkpoint
+
+The 2026-09-23 implementation adds owner-scoped native SQL statements without promoting graph or imported records. Correction deliberately replaces current content, while explicit supersession retains the previous statement. The [native-memory guide](../architecture/NATIVE_MEMORY.md) defines lifecycle and portability, and [ADR 0011](0011-native-memory-portability.md) records the narrower implemented decisions. Broader source evidence and application grants remain proposed.

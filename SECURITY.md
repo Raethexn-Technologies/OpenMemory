@@ -57,3 +57,15 @@ The following areas are in scope for security reports:
 **Path traversal in agent file tools.** The `read_file`, `write_file`, and `list_directory` tools in the agent validate every path against `REPO_PATH` before performing any file system operation. A path that escapes `REPO_PATH` is rejected. Any bypass of this validation is in scope.
 
 **Shell command whitelisting in the agent.** The `run_command` tool only accepts a fixed set of executables: `git`, `npm`, `npx`, `node`, `php`, `composer`, and `pnpm`. Arguments matching known destructive flags (`--force`, `--hard`, `--no-verify`, `--allow-empty-message`) are also rejected. A bypass that allows arbitrary command execution is in scope.
+
+## Native memory and portable files
+
+Native memory is private owner-scoped SQL state, with no automatic MCP, model, or provider disclosure. Imports accept only the versioned native format and cannot assign another owner. The [native-memory guide](./docs/architecture/NATIVE_MEMORY.md) documents validation, protected-content checks, deletion, and export limitations.
+
+Exports are unencrypted files containing personal statements. Store them outside the repository, pause writes during paged transfer, and remove downloaded copies separately when deletion is intended. Content checks detect known patterns rather than guaranteeing that arbitrary text contains no secrets.
+
+## Context application authority
+
+The [local resolver](./docs/architecture/LOCAL_CONTEXT.md) accepts revocable application credentials only on its stateless bearer route. Source retrieval and recipient disclosure require separate explicit grants, while owner management remains session-authenticated and CSRF-protected.
+
+Source-wide grants permit applications to accumulate data through repeated requests. Revocation cannot recall plaintext already delivered, and the current grants do not authorize onward model/provider transmission. Require TLS outside trusted local development, protect application secrets, disable payload/header capture, and run the audit-retention schedule.

@@ -33,3 +33,7 @@ Application grants, provider authorization, and in-flight revocation remain unim
 ## Disclosure checkpoint on 2026-09-23
 
 A separate operation allowlist now controls model disclosure, with request-level choices for History Ask and documents. Public chat proposals require explicit approval rather than relying on model classification. This is transitional deployment configuration, not the proposed per-application grant system. See [ADR 0010](0010-disclosure-boundary.md) and the [trust boundary](../architecture/DISCLOSURE_BOUNDARY.md) for its tested limits.
+
+## Phase 4 application-grant checkpoint
+
+The 2026-09-23 local resolver adds hashed bearer registrations, source-specific retrieval and disclosure capabilities, grant revision checks, and metadata-only access events. This explicitly authorized application transport can receive bounded redacted history excerpts, while raw history remains owner-only and MCP remains excluded. Resource-level restrictions, provider connections, and onward-disclosure grants remain proposed. See [ADR 0012](0012-local-context-and-application-grants.md) for tested limits.

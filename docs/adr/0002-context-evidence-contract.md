@@ -21,3 +21,7 @@ A narrow evidence envelope improves integration and portable representation with
 ## Acceptance evidence
 
 The same envelope must represent native statements, redacted imported excerpts, and commit metadata without invented timestamps or lost provenance. Unknown required fields must fail validation. Raw conversation records must never be reachable through these contracts, and imported excerpts must remain unavailable through third-party transports.
+
+## Phase 4 local implementation checkpoint
+
+The 2026-09-23 local implementation validates native and imported-history fragments without adding commit metadata or federation. Explicit owner-approved application grants now permit bounded redacted excerpts through a separate bearer transport, superseding the earlier blanket third-party exclusion for that transport only. Raw history, MCP, chat recall, and public graph boundaries remain unchanged. See [ADR 0012](0012-local-context-and-application-grants.md) for the narrower implemented decision.

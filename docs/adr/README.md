@@ -14,5 +14,7 @@ These records accompany the [federated context architecture report](../architect
 | [0008](0008-execution-boundaries.md) | Local and remote execution need explicit trust boundaries. |
 | [0009](0009-core-cloud-boundary.md) | Core must provide useful independent operation without commercial dependencies. |
 | [0010](0010-disclosure-boundary.md) | Retrieval authority must not implicitly authorize external disclosure or publication. |
+| [0011](0011-native-memory-portability.md) | Owner-scoped native SQL memory supports explicit lifecycle and portable JSON transfer. |
+| [0012](0012-local-context-and-application-grants.md) | Local context separates application retrieval from recipient disclosure authority. |
 
 Acceptance requires evidence that the change strengthens user control, preserves portability, simplifies integration, permits optional managed hosting, and introduces only necessary complexity. Each record identifies its particular tradeoffs and validation gate. New decisions should supersede earlier records explicitly rather than rewriting their historical reasoning.
