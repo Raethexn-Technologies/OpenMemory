@@ -28,6 +28,17 @@ Route::post('/mcp/sync', [McpController::class, 'sync'])->name('mcp.sync');
 Route::post('/mcp/search', [McpController::class, 'search'])->name('mcp.search');
 
 Route::middleware(['auth:web', \App\Http\Middleware\SetAuthenticatedOwner::class])->group(function () {
+    Route::get('/applications', [\App\Http\Controllers\ContextApplicationController::class, 'page']);
+    Route::middleware(\App\Http\Middleware\ContextJson::class)->group(function () {
+        Route::post('/api/context/resolve', [\App\Http\Controllers\ContextController::class, 'owner'])->middleware('throttle:60,1');
+        $apps = \App\Http\Controllers\ContextApplicationController::class;
+        Route::get('/api/context/applications', [$apps, 'index']);
+        Route::post('/api/context/applications', [$apps, 'store'])->middleware('throttle:10,1');
+        Route::put('/api/context/applications/{applicationId}/grants', [$apps, 'update'])->whereUuid('applicationId');
+        Route::delete('/api/context/applications/{applicationId}', [$apps, 'destroy'])->whereUuid('applicationId');
+        Route::get('/api/context/access-events', [$apps, 'events']);
+    });
+
     // Chat
     Route::get('/chat', [ChatController::class, 'index'])->name('chat');
     Route::post('/chat/send', [ChatController::class, 'send'])->name('chat.send');

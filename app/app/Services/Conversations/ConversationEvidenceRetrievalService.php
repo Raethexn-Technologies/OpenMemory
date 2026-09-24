@@ -56,12 +56,18 @@ class ConversationEvidenceRetrievalService
                 'evidence' => [],
                 'conversations' => [],
                 'candidate_count' => 0,
+                'candidate_limit_reached' => false,
                 'matched_count' => 0,
             ];
         }
 
         $candidates = $this->candidates($userId, $terms, $filters);
-        $excerptChars = (int) config('conversations.ask.excerpt_chars', 600);
+        $cap = max(1, min(self::CANDIDATE_POOL, (int) ($filters['candidate_limit'] ?? self::CANDIDATE_POOL)));
+        $overflow = $candidates->count() > $cap;
+        $candidates = $candidates->take($cap);
+        $excerptChars = isset($filters['excerpt_chars'])
+            ? max(1, min(600, (int) $filters['excerpt_chars']))
+            : (int) config('conversations.ask.excerpt_chars', 600);
 
         $scored = [];
 
@@ -120,6 +126,9 @@ class ConversationEvidenceRetrievalService
                 'occurred_at' => $message->provider_created_at?->toIso8601String(),
                 'model_slug' => $message->model_slug,
                 'on_active_path' => (bool) $message->on_active_path,
+                'sequence' => $message->sequence,
+                'stored_at' => $message->created_at?->toIso8601String(),
+                'record_version' => (string) $message->content_hash,
                 'excerpt' => $this->excerpt((string) $message->content_text, $terms, $excerptChars),
                 'excerpt_truncated' => mb_strlen((string) $message->content_text) > $excerptChars,
                 'score' => round((float) $item['score'], 4),
@@ -145,6 +154,7 @@ class ConversationEvidenceRetrievalService
             'evidence' => $evidence,
             'conversations' => array_values($conversations),
             'candidate_count' => $candidates->count(),
+            'candidate_limit_reached' => $overflow,
             'matched_count' => $matched,
         ];
     }
@@ -165,8 +175,11 @@ class ConversationEvidenceRetrievalService
     private function candidates(string $userId, array $terms, array $filters)
     {
         $query = ConversationMessage::query()
+            ->select(['id', 'conversation_id', 'user_id', 'provider', 'role', 'content_text',
+                'provider_created_at', 'sequence', 'on_active_path', 'created_at', 'content_hash', 'model_slug'])
             ->with('conversation')
-            ->where('user_id', $userId);
+            ->where('user_id', $userId)
+            ->whereHas('conversation', fn ($q) => $q->where('user_id', $userId));
 
         if (! empty($filters['providers'])) {
             $query->whereIn('provider', $filters['providers']);
@@ -190,13 +203,14 @@ class ConversationEvidenceRetrievalService
 
         $query->where(function ($outer) use ($terms) {
             foreach ($terms as $term) {
-                $outer->orWhere('content_text', 'like', '%' . $this->escapeLike($term) . '%');
+                $outer->orWhereRaw("content_text LIKE ? ESCAPE '!'", ['%'.$this->escapeLike($term).'%']);
             }
         });
 
         return $query
             ->orderByDesc('provider_created_at')
-            ->limit(self::CANDIDATE_POOL)
+            ->orderBy('id')
+            ->limit(max(1, min(self::CANDIDATE_POOL, (int) ($filters['candidate_limit'] ?? self::CANDIDATE_POOL))) + 1)
             ->get();
     }
 
@@ -243,6 +257,6 @@ class ConversationEvidenceRetrievalService
 
     private function escapeLike(string $term): string
     {
-        return str_replace(['\\', '%', '_'], ['\\\\', '\%', '\_'], $term);
+        return str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $term);
     }
 }

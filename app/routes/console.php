@@ -47,3 +47,6 @@ if (config('services.ingest.schedule_enabled')) {
             ->withoutOverlapping(30);
     }
 }
+
+// Payload-free context access metadata has a bounded retention period.
+Schedule::command('context:audit:prune')->daily();
