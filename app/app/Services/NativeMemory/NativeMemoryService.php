@@ -168,11 +168,23 @@ class NativeMemoryService
             'limit' => 'sometimes|integer|min:1|max:1000',
         ]);
         $page = $this->listing($owner, $filters, true);
+        $records = [];
+        $bytes = 0;
+        foreach ($page['data'] as $record) {
+            // Leave space for the envelope and stricter JSON escaping by clients.
+            $size = strlen(json_encode($record, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_THROW_ON_ERROR)) + 1;
+            if ($bytes + $size > 8 * 1024 * 1024) {
+                $page['next_cursor'] = $records[array_key_last($records)]['id'];
+                break;
+            }
+            $records[] = $record;
+            $bytes += $size;
+        }
 
         return [
             'format' => self::FORMAT,
             'exported_at' => now()->utc()->format('Y-m-d\TH:i:s\Z'),
-            'native_memories' => $page['data'],
+            'native_memories' => $records,
             'external_references' => [],
             'next_cursor' => $page['next_cursor'],
         ];
@@ -206,7 +218,9 @@ class NativeMemoryService
             $skipped = 0;
             foreach ($records as $id => $record) {
                 if (isset($existing[$id])) {
-                    abort_unless($existing[$id]->portable() == $record, 409);
+                    foreach ($existing[$id]->portable() as $field => $value) {
+                        abort_unless($value === $record[$field], 409);
+                    }
                     $skipped++;
                 } else {
                     $new[$id] = $record;

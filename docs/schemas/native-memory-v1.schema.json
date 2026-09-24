@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "OpenMemory native memory export v1",
-  "description": "One bounded export page. Transfer every page while writes are paused. Runtime validation additionally checks UTF-8 byte limits, protected content, valid nonfuture dates, lifecycle links, and cycles.",
+  "description": "One export page with at most eight MiB of encoded records. Transfer every page while writes are paused. Runtime validation additionally checks UTF-8 byte limits, protected content, valid nonfuture dates, lifecycle links, and cycles.",
   "type": "object",
   "additionalProperties": false,
   "required": [

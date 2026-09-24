@@ -131,4 +131,41 @@ describe('native memory control', () => {
       params: { state: 'active', limit: 50, after: record.id },
     });
   });
+
+  it('keeps sensitive search text in a JSON body rather than a URL', async () => {
+    const wrapper = page();
+    await flushPromises();
+    axios.post.mockResolvedValue({ data: { data: [], next_cursor: null } });
+    await wrapper.get('input[maxlength="200"]').setValue('A private search phrase');
+    await wrapper.findAll('form')[1].trigger('submit');
+    await flushPromises();
+    expect(axios.post).toHaveBeenCalledWith('/api/native-memories/search', {
+      state: 'active', q: 'A private search phrase', limit: 50,
+    });
+    expect(axios.get).toHaveBeenCalledTimes(1);
+    expect(axios.get).toHaveBeenCalledWith('/api/native-memories', { params: { state: 'active', limit: 50 } });
+  });
+
+  it('downloads export pages and follows their continuation cursor', async () => {
+    const wrapper = page();
+    await flushPromises();
+    URL.createObjectURL = vi.fn().mockReturnValue('blob:synthetic');
+    URL.revokeObjectURL = vi.fn();
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    axios.get.mockResolvedValueOnce({ data: {
+      format: 'openmemory-export-v1', native_memories: [record],
+      external_references: [], next_cursor: record.id,
+    } });
+    await button(wrapper, 'Start export');
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:synthetic');
+    axios.get.mockResolvedValueOnce({ data: {
+      format: 'openmemory-export-v1', native_memories: [],
+      external_references: [], next_cursor: null,
+    } });
+    await button(wrapper, 'Download next export page');
+    expect(axios.get).toHaveBeenLastCalledWith('/api/native-memories/export', { params: { limit: 100, after: record.id } });
+    expect(wrapper.text()).toContain('The last export page was downloaded.');
+    expect(wrapper.findAll('button').some(b => b.text() === 'Download next export page')).toBe(false);
+  });
 });

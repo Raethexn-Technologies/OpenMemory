@@ -53,6 +53,7 @@ class NativeMemoryController extends Controller
             'after' => 'sometimes|nullable|uuid',
             'limit' => 'sometimes|integer|min:1|max:1000',
         ]);
+
         return response()->json($this->memories->listing($request->user('web'), $filters));
     }
 

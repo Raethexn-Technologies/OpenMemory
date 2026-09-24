@@ -18,6 +18,8 @@
         </include>
     </source>
     <php>
+        <!-- The full suite materializes bounded export/import payloads repeatedly. -->
+        <ini name="memory_limit" value="256M"/>
         <env name="APP_ENV" value="testing"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>

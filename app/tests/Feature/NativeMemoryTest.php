@@ -159,7 +159,7 @@ class NativeMemoryTest extends TestCase
         MemoryNode::create([
             'user_id' => $owner->corpusOwnerKey(), 'type' => 'memory', 'sensitivity' => 'private',
             'label' => 'Discardable graph record', 'content' => 'Not canonical.',
-            ])->forceFill(['created_at' => now()->subDays(100), 'updated_at' => now()->subDays(100)])->save();
+        ])->forceFill(['created_at' => now()->subDays(100), 'updated_at' => now()->subDays(100)])->save();
         $this->artisan('memory:prune')->assertSuccessful();
         cache()->flush();
         $this->assertDatabaseCount('memory_nodes', 0);
@@ -502,5 +502,44 @@ class NativeMemoryTest extends TestCase
             ->assertConflict();
         $this->getJson(self::API.'/export')->assertOk()->assertJsonPath('native_memories.0.revision', 2147483647);
         $this->deleteJson(self::API.'/'.$record['id'], ['revision' => 2147483647])->assertNoContent();
+    }
+
+    public function test_duplicate_comparison_requires_exact_content_but_not_json_key_order(): void
+    {
+        $this->owner();
+        $record = $this->createMemory('01');
+        $reordered = array_reverse($record, true);
+        $this->postJson(self::API.'/import', $this->envelope([$reordered]))
+            ->assertOk()->assertJsonPath('skipped', 1);
+        $record['content'] = '1';
+        $this->postJson(self::API.'/import', $this->envelope([$record]))->assertConflict();
+        $this->getJson(self::API.'/'.$record['id'])->assertJsonPath('data.content', '01');
+    }
+
+    public function test_export_pages_fit_import_limits_even_when_json_escaping_expands_content(): void
+    {
+        $owner = $this->owner();
+        $content = 'A'.str_repeat("\x01", 7999);
+        $rows = [];
+        for ($i = 0; $i < 200; $i++) {
+            $rows[] = [
+                'owner_id' => $owner->id, 'memory_id' => (string) Str::uuid(),
+                'content' => $content, 'attribution' => 'user_asserted', 'state' => 'active',
+                'revision' => 1, 'created_at' => now(), 'updated_at' => now(),
+            ];
+        }
+        foreach (array_chunk($rows, 50) as $chunk) {
+            NativeMemory::insert($chunk);
+        }
+        $response = $this->getJson(self::API.'/export?limit=1000')->assertOk();
+        $this->assertLessThan(10 * 1024 * 1024, strlen($response->getContent()));
+        $first = $response->json();
+        $this->assertNotNull($first['next_cursor']);
+        $second = $this->getJson(self::API.'/export?limit=1000&after='.$first['next_cursor'])->assertOk()->json();
+        $this->assertNull($second['next_cursor']);
+        $this->owner();
+        $this->postJson(self::API.'/import', $first)->assertOk()->assertJsonPath('imported', count($first['native_memories']));
+        $this->postJson(self::API.'/import', $second)->assertOk()->assertJsonPath('imported', count($second['native_memories']));
+        $this->getJson(self::API.'?limit=1000')->assertJsonCount(200, 'data');
     }
 }
