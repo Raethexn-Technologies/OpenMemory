@@ -29,7 +29,14 @@ Route::post('/mcp/search', [McpController::class, 'search'])->name('mcp.search')
 
 Route::middleware(['auth:web', \App\Http\Middleware\SetAuthenticatedOwner::class])->group(function () {
     Route::get('/applications', [\App\Http\Controllers\ContextApplicationController::class, 'page']);
+    Route::get('/sources/github', [\App\Http\Controllers\GitHubConnectionController::class, 'page']);
     Route::middleware(\App\Http\Middleware\ContextJson::class)->group(function () {
+        $github = \App\Http\Controllers\GitHubConnectionController::class;
+        Route::get('/api/context/github', [$github, 'index']);
+        Route::post('/api/context/github', [$github, 'store'])->middleware('throttle:6,1');
+        Route::post('/api/context/github/{connectionId}/repositories', [$github, 'repositories'])->whereUuid('connectionId')->middleware('throttle:10,1');
+        Route::put('/api/context/github/{connectionId}', [$github, 'update'])->whereUuid('connectionId')->middleware('throttle:10,1');
+        Route::delete('/api/context/github/{connectionId}', [$github, 'destroy'])->whereUuid('connectionId');
         Route::post('/api/context/resolve', [\App\Http\Controllers\ContextController::class, 'owner'])->middleware('throttle:60,1');
         $apps = \App\Http\Controllers\ContextApplicationController::class;
         Route::get('/api/context/applications', [$apps, 'index']);

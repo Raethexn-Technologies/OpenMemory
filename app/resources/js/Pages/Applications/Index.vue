@@ -2,10 +2,10 @@
   <AppLayout>
     <div class="max-w-4xl mx-auto w-full px-4 py-8 space-y-6 text-gray-200">
       <h1 class="text-xl font-semibold">Context applications</h1>
-      <p>These applications can receive bounded local context only through the grants you select.
+      <p>These applications can receive bounded context only through the grants you select.
         Retrieval and disclosure are separate permissions. Native writes and raw history remain unavailable.</p>
       <p>Disclosure gives an application private text that OpenMemory cannot recall.
-        These grants do not authorize onward model or provider disclosure, and cannot technically prevent copying after delivery.</p>
+        Model use is denied unless you separately authorize a destination below. OpenMemory cannot technically prevent copying after delivery.</p>
       <p v-if="error" role="alert" class="text-red-300">{{ error }}</p>
       <p v-if="notice" role="status">{{ notice }}</p>
 
@@ -18,11 +18,30 @@
         <fieldset>
           <legend>Explicit application capabilities</legend>
           <label v-for="capability in capabilities" :key="capability" class="block">
-            <input v-model="selected" type="checkbox" :value="capability" /> {{ capability }}
+            <input v-model="selected" type="checkbox" :value="capability" /> {{ capabilityLabels[capability] }} <code>{{ capability }}</code>
+          </label>
+        </fieldset>
+        <fieldset v-if="resources.length">
+          <legend>Explicitly granted GitHub repositories</legend>
+          <label v-for="resource in resources" :key="resource.id" class="block">
+            <input v-model="selectedResources" type="checkbox" :value="resource.id" /> {{ resource.reference }}
           </label>
         </fieldset>
         <p>Native access requires context.resolve, memory.read, and memory.disclose.
           History access separately requires context.resolve, history.search, and history.disclose.</p>
+        <p>GitHub access requires github.commits.read, github.disclose, and explicit repository grants.
+          The history.query_disclose.github grant additionally permits history-derived dates to constrain GitHub requests.</p>
+        <label class="block"><input v-model="modelEnabled" type="checkbox" /> Authorize this application to send selected source excerpts to one model destination</label>
+        <fieldset v-if="modelEnabled" class="space-y-2">
+          <legend>Model disclosure is an instruction to the application, not technical control over received plaintext.</legend>
+          <label class="block">Destination origin (for example https://api.openai.com)
+            <input v-model="modelDestination" required type="url" maxlength="200" class="block bg-gray-900 border p-2" /></label>
+          <label class="block">Exact model identifier
+            <input v-model="modelName" required maxlength="120" class="block bg-gray-900 border p-2" /></label>
+          <label v-for="source in modelSourceNames" :key="source" class="block">
+            <input v-model="modelSources" type="checkbox" :value="source" /> Permit model disclosure of {{ source }} evidence</label>
+          <p>Each source still requires its retrieval and application-disclosure grants. The client must ask before sending, and the model service controls its own retention.</p>
+        </fieldset>
         <button :disabled="busy" class="border rounded px-3 py-1">Register application</button>
       </form>
 
@@ -44,10 +63,26 @@
         <fieldset :disabled="busy || !!application.revoked_at">
           <legend>Granted capabilities</legend>
           <label v-for="capability in capabilities" :key="capability" class="block">
-            <input v-model="application.capabilities" type="checkbox" :value="capability" /> {{ capability }}
+            <input v-model="application.capabilities" type="checkbox" :value="capability" /> {{ capabilityLabels[capability] }} <code>{{ capability }}</code>
           </label>
         </fieldset>
         <button v-if="!application.revoked_at" :disabled="busy" @click="save(application)" class="mr-4">Save grants</button>
+        <fieldset v-if="resources.length" :disabled="busy || !!application.revoked_at">
+          <legend>Granted GitHub repositories</legend>
+          <label v-for="resource in resources" :key="resource.id" class="block">
+            <input v-model="application.source_resources" type="checkbox" :value="resource.id" /> {{ resource.reference }}
+          </label>
+        </fieldset>
+        <fieldset :disabled="busy || !!application.revoked_at">
+          <legend>Optional onward model permission</legend>
+          <label><input type="checkbox" :checked="!!application.model_disclosure" @change="application.model_disclosure = $event.target.checked ? { destination: '', model: '', sources: [] } : null" /> Authorize one named model destination</label>
+          <div v-if="application.model_disclosure">
+            <label class="block">Destination origin <input v-model="application.model_disclosure.destination" maxlength="200" class="bg-gray-900 border p-2" /></label>
+            <label class="block">Exact model <input v-model="application.model_disclosure.model" maxlength="120" class="bg-gray-900 border p-2" /></label>
+            <label v-for="source in modelSourceNames" :key="source" class="block">
+              <input v-model="application.model_disclosure.sources" type="checkbox" :value="source" /> {{ source }}</label>
+          </div>
+        </fieldset>
         <button v-if="!application.revoked_at" :disabled="busy" @click="revoke(application)" class="text-red-300">Revoke application</button>
       </article>
 
@@ -58,7 +93,8 @@
         <article v-for="event in events" :key="event.request_id" class="border border-gray-800 rounded p-3">
           <p>{{ event.created_at }} / {{ event.operation }} / {{ event.outcome }}</p>
           <p class="text-sm break-all">Application: {{ event.application_id || 'Direct owner request' }}.</p>
-          <p>{{ event.fragment_count }} fragments returned in {{ event.duration_ms }} milliseconds.</p>
+          <p>{{ event.fragment_count }} fragments selected in {{ event.duration_ms }} milliseconds. Core does not observe application receipt or model use.</p>
+          <p v-if="event.context_request_id" class="text-sm break-all">Context request: {{ event.context_request_id }}</p>
           <pre class="text-xs whitespace-pre-wrap">{{ JSON.stringify(event.sources, null, 2) }}</pre>
         </article>
       </section>
@@ -72,10 +108,24 @@ import axios from 'axios';
 import AppLayout from '../../Components/AppLayout.vue';
 
 const api = '/api/context/applications';
-const capabilities = ['context.resolve', 'memory.read', 'memory.disclose', 'history.search', 'history.disclose'];
+const capabilities = ['context.resolve', 'memory.read', 'memory.disclose', 'history.search', 'history.disclose',
+  'github.commits.read', 'github.disclose', 'history.query_disclose.github'];
+const capabilityLabels = {
+  'context.resolve': 'Allow context requests.', 'memory.read': 'Search saved memory.', 'memory.disclose': 'Return saved excerpts to this application.',
+  'history.search': 'Search private imported history.', 'history.disclose': 'Return selected history excerpts to this application.',
+  'github.commits.read': 'Read commits from granted repositories.', 'github.disclose': 'Return commit excerpts to this application.',
+  'history.query_disclose.github': 'Send dates learned from history to GitHub (connection consent is also required).',
+};
+const modelSourceNames = ['native_memory', 'history', 'github'];
+const modelEnabled = ref(false);
+const modelDestination = ref('');
+const modelName = ref('');
+const modelSources = ref([]);
 const name = ref('');
 const days = ref(30);
 const selected = ref([]);
+const selectedResources = ref([]);
+const resources = ref([]);
 const applications = ref([]);
 const events = ref([]);
 const token = ref('');
@@ -101,10 +151,14 @@ async function run(action) {
 }
 
 async function refresh() {
-  const [apps, access] = await Promise.all([
-    axios.get(api), axios.get('/api/context/access-events'),
+  const [apps, access, sources] = await Promise.all([
+    axios.get(api), axios.get('/api/context/access-events'), axios.get('/api/context/github'),
   ]);
   applications.value = apps.data.applications;
+  resources.value = sources.data.resources || [];
+  for (const application of applications.value) {
+    application.source_resources = (application.source_resources || []).filter(id => resources.value.some(resource => resource.id === id));
+  }
   events.value = access.data.events;
 }
 
@@ -112,10 +166,16 @@ function create() {
   return run(async () => {
     token.value = '';
     reveal.value = false;
-    const { data } = await axios.post(api, { name: name.value, expires_in_days: days.value, capabilities: selected.value });
+    const { data } = await axios.post(api, { name: name.value, expires_in_days: days.value, capabilities: selected.value,
+      source_resources: selectedResources.value,
+      model_disclosure: modelEnabled.value ? { destination: modelDestination.value, model: modelName.value, sources: modelSources.value } : null });
     token.value = data.token;
     name.value = '';
     selected.value = [];
+    selectedResources.value = [];
+    modelEnabled.value = false;
+    modelDestination.value = modelName.value = '';
+    modelSources.value = [];
     await refresh();
   });
 }
@@ -124,6 +184,8 @@ function save(application) {
   return run(async () => {
     await axios.put(api + '/' + application.id + '/grants', {
       grant_revision: application.grant_revision, capabilities: application.capabilities,
+      source_resources: application.source_resources,
+      model_disclosure: application.model_disclosure || null,
     });
     await refresh();
     notice.value = 'The application grants have been updated.';

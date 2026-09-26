@@ -33,6 +33,7 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
+        $this->app->scoped(\App\Services\Context\ContextMetrics::class);
         $this->app->singleton(\Illuminate\Contracts\Debug\ExceptionHandler::class,
             \App\Exceptions\SafeExceptionHandler::class);
         $this->app->bind(LlmProviderInterface::class, function () {
@@ -87,9 +88,9 @@ class AppServiceProvider extends ServiceProvider
         // adapter class. Order sets tie-break preference during detection.
         $this->app->singleton(ConversationArchiveRegistry::class, function () {
             return new ConversationArchiveRegistry([
-                new ChatGptArchiveAdapter(),
-                new ClaudeArchiveAdapter(),
-                new GeminiTakeoutArchiveAdapter(),
+                new ChatGptArchiveAdapter,
+                new ClaudeArchiveAdapter,
+                new GeminiTakeoutArchiveAdapter,
             ]);
         });
 
@@ -112,6 +113,8 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        //
+        \Illuminate\Support\Facades\DB::listen(function ($event) {
+            app(\App\Services\Context\ContextMetrics::class)->query($event);
+        });
     }
 }

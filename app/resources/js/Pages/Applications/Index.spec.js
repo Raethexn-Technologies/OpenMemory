@@ -38,11 +38,48 @@ beforeEach(() => {
 });
 
 describe('owner application controls', () => {
+  it('requires an explicit named model grant with separate source selection', async () => {
+    const wrapper = page();
+    await flushPromises();
+    const form = wrapper.get('form');
+    await form.get('#application-name').setValue('Local validation client');
+    for (const capability of ['context.resolve', 'memory.read', 'memory.disclose']) {
+      await form.get(`input[value="${capability}"]`).setValue(true);
+    }
+    await form.findAll('input[type="checkbox"]').at(-1).setValue(true);
+    const model = form.findAll('fieldset').find(node => node.text().includes('Model disclosure is an instruction'));
+    await model.get('input[type="url"]').setValue('https://api.openai.com');
+    await model.get('input[maxlength="120"]').setValue('gpt-5.4');
+    await model.get('input[value="native_memory"]').setValue(true);
+    await form.trigger('submit');
+    await flushPromises();
+    expect(axios.post).toHaveBeenCalledWith('/api/context/applications', expect.objectContaining({
+      model_disclosure: { destination: 'https://api.openai.com', model: 'gpt-5.4', sources: ['native_memory'] },
+    }));
+  });
+
+  it('requires explicit selection of repository grants independently of capabilities', async () => {
+    axios.get.mockImplementation(url => Promise.resolve({ data: url.endsWith('/github')
+      ? { resources: [{ id: 'resource-fixture', reference: 'fixture/private' }] }
+      : url.endsWith('access-events') ? { events: [] }
+        : { applications: [{ ...application, capabilities: [...application.capabilities], source_resources: [] }] },
+    }));
+    const wrapper = page();
+    await flushPromises();
+    const fieldset = wrapper.get('article').findAll('fieldset').find(node => node.text().includes('Granted GitHub repositories'));
+    expect(fieldset.get('input').element.checked).toBe(false);
+    await fieldset.get('input').setValue(true);
+    await click(wrapper, 'Save grants');
+    expect(axios.put).toHaveBeenCalledWith('/api/context/applications/' + application.id + '/grants', {
+      grant_revision: 2, capabilities: ['context.resolve'], source_resources: ['resource-fixture'], model_disclosure: null,
+    });
+  });
+
   it('starts with no capabilities selected and never registers implicitly', async () => {
     const wrapper = page();
     await flushPromises();
     const checkboxes = wrapper.get('form').findAll('input[type="checkbox"]');
-    expect(checkboxes).toHaveLength(5);
+    expect(checkboxes).toHaveLength(9);
     expect(checkboxes.every(input => !input.element.checked)).toBe(true);
     expect(axios.post).not.toHaveBeenCalled();
     expect(wrapper.text()).toContain('cannot technically prevent copying');
@@ -57,6 +94,7 @@ describe('owner application controls', () => {
     await flushPromises();
     expect(axios.post).toHaveBeenCalledWith('/api/context/applications', {
       name: 'Local coding application', expires_in_days: 30, capabilities: ['context.resolve'],
+      source_resources: [], model_disclosure: null,
     });
     expect(wrapper.get('input[aria-label="Application credential"]').attributes('type')).toBe('password');
     await click(wrapper, 'Reveal credential');
@@ -71,6 +109,7 @@ describe('owner application controls', () => {
     await click(wrapper, 'Save grants');
     expect(axios.put).toHaveBeenCalledWith('/api/context/applications/' + application.id + '/grants', {
       grant_revision: 2, capabilities: ['context.resolve'],
+      source_resources: [], model_disclosure: null,
     });
   });
 

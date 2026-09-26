@@ -21,6 +21,7 @@
           <NavLink href="/chat"    :active="$page.url.startsWith('/chat')">Chat</NavLink>
           <NavLink href="/history" :active="$page.url.startsWith('/history')">History</NavLink>
           <NavLink href="/applications" :active="$page.url.startsWith('/applications')">Applications</NavLink>
+          <NavLink href="/sources/github" :active="$page.url.startsWith('/sources/github')">GitHub</NavLink>
           <NavLink href="/native-memory" :active="$page.url.startsWith('/native-memory')">Native memory</NavLink>
           <NavLink href="/memory"  :active="$page.url.startsWith('/memory')">Legacy memory</NavLink>
           <NavLink href="/graph"   :active="$page.url.startsWith('/graph')">Graph</NavLink>

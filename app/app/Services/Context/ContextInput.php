@@ -14,7 +14,7 @@ class ContextInput
             if (! $shape instanceof \stdClass) {
                 throw new \JsonException;
             }
-            foreach (['sources', 'capabilities'] as $field) {
+            foreach (['sources', 'capabilities', 'source_resources', 'repositories', 'query_disclosures'] as $field) {
                 if (property_exists($shape, $field) && ! is_array($shape->{$field})) {
                     throw new \JsonException;
                 }

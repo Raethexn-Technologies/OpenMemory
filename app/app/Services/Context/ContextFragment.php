@@ -12,6 +12,7 @@ final readonly class ContextFragment
         public int $rank,
         public bool $truncated,
         public string $recordVersion,
+        public string $method = 'lexical',
     ) {}
 
     public function payload(string $content, bool $redacted): array
@@ -19,7 +20,7 @@ final readonly class ContextFragment
         return [
             'source' => $this->source, 'resource_id' => $this->resourceId,
             'content' => $content, 'provenance' => $this->provenance,
-            'retrieval' => ['method' => 'lexical', 'source_rank' => $this->rank],
+            'retrieval' => ['method' => $this->method, 'source_rank' => $this->rank],
             'classification' => 'private', 'trust' => 'untrusted_data',
             'excerpt_truncated' => $this->truncated || mb_strlen($content) > 600,
             'redacted' => $redacted,

@@ -7,7 +7,7 @@ use App\Models\User;
 use App\Services\QueryRelevanceScorer;
 use Illuminate\Support\Carbon;
 
-class NativeMemorySource implements ContextSource
+class NativeMemorySource implements BatchContextSource, ContextSource
 {
     public function __construct(private readonly QueryRelevanceScorer $scorer) {}
 
@@ -67,7 +67,21 @@ class NativeMemorySource implements ContextSource
 
     public function isCurrent(User $owner, ContextFragment $fragment): bool
     {
-        return NativeMemory::where('owner_id', $owner->id)->where('memory_id', $fragment->resourceId)
-            ->where('state', 'active')->where('revision', $fragment->recordVersion)->exists();
+        return isset($this->current($owner, [$fragment])[$fragment->resourceId]);
+    }
+
+    public function current(User $owner, array $fragments): array
+    {
+        $rows = NativeMemory::where('owner_id', $owner->id)->where('state', 'active')
+            ->whereIn('memory_id', array_map(fn ($fragment) => $fragment->resourceId, $fragments))
+            ->pluck('revision', 'memory_id');
+        $current = [];
+        foreach ($fragments as $fragment) {
+            if (isset($rows[$fragment->resourceId]) && (string) $rows[$fragment->resourceId] === $fragment->recordVersion) {
+                $current[$fragment->resourceId] = true;
+            }
+        }
+
+        return $current;
     }
 }

@@ -50,6 +50,7 @@ class ContextApplicationController extends Controller
             ->orderByDesc('created_at')->orderBy('id')->limit(100)->get();
         $events = $rows->map(fn ($row) => [
             'request_id' => $row->id, 'application_id' => $row->application_id,
+            'context_request_id' => $row->context_request_id,
             'operation' => $row->operation, 'outcome' => $row->outcome,
             'sources' => json_decode($row->sources, true),
             'fragment_count' => $row->fragment_count, 'duration_ms' => $row->duration_ms,

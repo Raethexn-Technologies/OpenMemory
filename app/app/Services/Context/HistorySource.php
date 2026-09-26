@@ -6,7 +6,7 @@ use App\Models\ConversationMessage;
 use App\Models\User;
 use App\Services\Conversations\ConversationEvidenceRetrievalService;
 
-class HistorySource implements ContextSource
+class HistorySource implements BatchContextSource, ContextSource
 {
     public function __construct(private readonly ConversationEvidenceRetrievalService $retrieval) {}
 
@@ -46,14 +46,30 @@ class HistorySource implements ContextSource
 
     public function isCurrent(User $owner, ContextFragment $fragment): bool
     {
-        $key = $owner->corpusOwnerKey();
+        return isset($this->current($owner, [$fragment])[$fragment->resourceId]);
+    }
 
-        return ConversationMessage::where('user_id', $key)->whereKey($fragment->resourceId)
-            ->where('on_active_path', true)->where('content_hash', $fragment->recordVersion)
-            ->where('conversation_id', $fragment->provenance['conversation_id'])
-            ->where('sequence', $fragment->provenance['sequence'])
-            ->where('role', $fragment->provenance['role'])
-            ->where('provider', $fragment->provenance['provider'])
-            ->whereHas('conversation', fn ($q) => $q->where('user_id', $key))->exists();
+    public function current(User $owner, array $fragments): array
+    {
+        $key = $owner->corpusOwnerKey();
+        $rows = ConversationMessage::where('user_id', $key)->where('on_active_path', true)
+            ->whereIn('id', array_map(fn ($fragment) => $fragment->resourceId, $fragments))
+            ->whereHas('conversation', fn ($q) => $q->where('user_id', $key))
+            ->get(['id', 'content_hash', 'conversation_id', 'sequence', 'role', 'provider', 'provider_created_at'])->keyBy('id');
+        $current = [];
+        foreach ($fragments as $fragment) {
+            $row = $rows->get($fragment->resourceId);
+            $at = isset($fragment->provenance['message_at']) ? \Carbon\Carbon::parse($fragment->provenance['message_at'])->utc()->timestamp : null;
+            if ($row && $row->content_hash === $fragment->recordVersion
+                && $row->conversation_id === ($fragment->provenance['conversation_id'] ?? null)
+                && $row->sequence === ($fragment->provenance['sequence'] ?? null)
+                && $row->role === ($fragment->provenance['role'] ?? null)
+                && $row->provider === ($fragment->provenance['provider'] ?? null)
+                && $row->provider_created_at?->timestamp === $at) {
+                $current[$fragment->resourceId] = true;
+            }
+        }
+
+        return $current;
     }
 }

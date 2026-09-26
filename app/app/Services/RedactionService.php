@@ -70,6 +70,7 @@ class RedactionService
         $this->collectRegexMatches($matches, $text, 'jwt', '/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/', $rules, $userId);
         $this->collectRegexMatches($matches, $text, 'credential', '/\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b/', $rules, $userId);
         $this->collectRegexMatches($matches, $text, 'credential', '/\bgh[pousr]_[A-Za-z0-9_]{20,}\b/', $rules, $userId);
+        $this->collectRegexMatches($matches, $text, 'credential', '/\bgithub_pat_[A-Za-z0-9_]+\b/', $rules, $userId);
         $this->collectRegexMatches($matches, $text, 'credential', '/\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/', $rules, $userId);
         $this->collectRegexMatches(
             $matches,

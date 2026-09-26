@@ -9,5 +9,7 @@ final readonly class SourceResult
         public array $fragments,
         public bool $incomplete,
         public array $coverage,
+        public ?string $status = null,
+        public bool $searched = true,
     ) {}
 }

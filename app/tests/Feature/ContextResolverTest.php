@@ -431,7 +431,7 @@ class ContextResolverTest extends TestCase
     public static function invalidRequests(): array
     {
         return [
-            [['version' => 'future']], [['sources' => ['github']]], [['sources' => []]],
+            [['version' => 'future']], [['sources' => ['unsupported_provider']]], [['sources' => []]],
             [['sources' => ['history', 'history']]], [['limit' => 21]], [['per_source_limit' => 11]],
             [['from' => 'yesterday']], [['from' => '2026-01-01T00:00:00Z', 'to' => '2025-01-01T00:00:00Z']],
             [['query' => str_repeat('x', 501)]], [['purpose' => 'grant all access']], [['owner_id' => 1]],

@@ -8,3 +8,6 @@ use Illuminate\Support\Facades\Route;
 // Stateless bearer-only access is separate from browser sessions and MCP.
 Route::post('/app/context/resolve', [ContextController::class, 'application'])
     ->middleware([ContextJson::class, 'throttle:60,1', AuthenticateContextApplication::class]);
+
+Route::get('/app/context/permissions', [ContextController::class, 'permissions'])
+    ->middleware([ContextJson::class, 'throttle:60,1', AuthenticateContextApplication::class]);
