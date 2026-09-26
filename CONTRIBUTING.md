@@ -13,16 +13,20 @@ OpenMemory is a research project maintained by Raethexn Technologies. The codeba
 ```bash
 cd app
 cp .env.example .env
-# Set a model key and explicit MODEL_DISCLOSURE_OPERATIONS only if needed
-php artisan key:generate
+# Edit .env: set DB_CONNECTION=sqlite and remove DB_DATABASE so Laravel
+# uses database/database.sqlite. Set APP_URL=http://localhost:8000.
+# Leave model credentials and MODEL_DISCLOSURE_OPERATIONS empty for Core.
 composer install
+php artisan key:generate
+php -r "is_file('database/database.sqlite') || touch('database/database.sqlite');"
 npm install
 php artisan migrate
+php artisan openmemory:user:create owner@example.test --name="Local owner"
 npm run build
 php artisan serve
 ```
 
-Open http://localhost:8000. Memory runs in mock mode by default, so no canister or adapter is required.
+Open http://localhost:8000/login and sign in with the account just created. Native Memory uses durable SQL independently of the legacy mock-memory setting, so no canister or adapter is required. Generate APP_KEY only when setting up a new installation; existing encrypted credentials depend on the current key.
 
 ### With Docker, using PostgreSQL
 
@@ -78,6 +82,12 @@ The [context guide](./docs/architecture/LOCAL_CONTEXT.md) defines source adapter
 
 The PHPUnit configuration uses a test-only 256 MiB budget because the expanded suite materializes large portability fixtures. This setting does not change production PHP memory limits. Application tests use local SQL and prevent unexpected HTTP calls.
 
+GitHub federation uses the same context contract with explicit resource grants and permission to disclose history-derived dates. The [provider guide](./docs/architecture/GITHUB_PROVIDER.md) explains its authentication and bounds. Run `php artisan test --filter=GitHubFederationTest` for synthetic connection, query minimization, revocation, and partial-failure checks. Do not use real GitHub tokens or personal repository payloads in tests.
+
+The [post-Phase-5 review](./docs/architecture/POST_PHASE_5_REVIEW.md) is the dated whole-system assessment. The [end-to-end validation report](./docs/architecture/END_TO_END_VALIDATION.md) records subsequent implementation and pending live checks. Passing mocked HTTP tests does not establish live GitHub behavior. Bundle receipt alone does not authorize model forwarding; the independent application must honor the owner's separate named-model permission after plaintext release.
+
+The [reference client](./examples/context-client/README.md) requires Node 22 and no package dependencies. Run `npm test` in `examples/context-client` for its synthetic security checks. Its ignored `.env` holds application/model credentials locally. Do not put real corpus content, prompts, answers, or secrets into fixtures or committed validation reports.
+
 ## Native memory development
 
 The [native-memory guide](./docs/architecture/NATIVE_MEMORY.md) documents the canonical SQL store and portable format. Preserve exact accepted content, owner-scoped queries, revision conflicts, and the separation from graph maintenance. Native writes and exports run local redaction-floor checks and reject protected content rather than silently rewriting it.
@@ -118,7 +128,7 @@ Text read out of an archive is data, never instruction. That applies at runtime 
 
 This project is working through a layered set of research questions. The foundational question is: what does AI memory look like when the storage layer enforces its own access control independently of the host application? That extends in two directions. One is collective Physarum dynamics across multiple agents with cryptographic provenance on shared edge weights. The other, opened in 2026, is what a person can learn from their own accumulated history with AI once it is brought into one place they control, and what evidential standard that has to meet. All of those layers are in scope; expansions unrelated to them are not.
 
-Things outside scope include encryption at rest, token economies, governance mechanisms, additional dashboard pages, analytics pipelines, and agent orchestration frameworks that treat memory as a configuration detail rather than the research subject. Also outside scope, permanently, is anything that assesses a person's personality or infers a psychological or medical condition from their history. The project reports what the record contains, with the evidence attached. If you find yourself thinking "what if we also added..." the right move is usually a separate project that builds on this one.
+The current checkpoint permits review and validation rather than another provider or major feature. GitHub credentials already use framework encryption at rest; general personal-content encryption remains unimplemented and is a separate design question. Token economies, governance mechanisms, analytics pipelines, and agent orchestration frameworks remain outside this work. Also outside scope, permanently, is anything that assesses a person's personality or infers a psychological or medical condition from their history. The project reports what the record contains, with the evidence attached.
 
 ---
 

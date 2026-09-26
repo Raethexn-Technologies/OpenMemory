@@ -1,5 +1,7 @@
 # OpenMemory: Research Vision
 
+The [2026-09-25 post-Phase-5 review](./docs/architecture/POST_PHASE_5_REVIEW.md) assesses the implemented local SQL runtime and optional live GitHub evidence. Core does not require ICP, a model, or OpenMemory Cloud. The canister and graph research below remains historical design context rather than a prerequisite or validation claim for the current Core.
+
 *What does user-sovereign AI memory actually look like when you try to build it?*
 
 This document is the research record for OpenMemory. It is not a setup guide (see README.md) and not a feature list. It captures the design questions driving the project, what was actually learned building it, what the implementation honestly proves, and where the hard problems remain.

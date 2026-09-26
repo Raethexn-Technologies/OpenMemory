@@ -1976,3 +1976,45 @@ The local resolver now normalizes active native statements and redacted imported
 Application registrations use hashed, expiring bearer credentials and separate retrieval and recipient-disclosure grants. Owner sessions remain a distinct transport, and grant changes are checked again after retrieval. Neither application authority nor natural-language instructions can add raw-history access, native writes, or MCP permissions.
 
 Access events retain only verified identities, source outcomes, counts, duration, and timestamps. Owner controls support explicit registration, grant changes, revocation, and recent-event inspection. The Phase 4 guide and report document plaintext-recipient risks, conditional audit retention, source-wide grant limits, and tests; no external federation or automatic model generation was added.
+
+## 2026-09-24: First federated GitHub context provider
+
+The context resolver now retrieves bounded live commit metadata from explicitly selected GitHub repositories. Owner-bound connections use encrypted fine-grained tokens, verified external identities, independent application capabilities, and repository UUID grants. Disconnection removes credentials and selections without changing native memory.
+
+A deterministic temporal request can use a dated imported-history match to constrain GitHub retrieval only with explicit connection consent and a separate application disclosure grant. GitHub receives repository references and bounded dates, while fragments retain untrusted evidence classification, provenance, and separate retrieval timestamps. History freshness checks now include the event timestamp used by this plan.
+
+The adapter preserves the source interface and bundle envelope while adding generic authority snapshots, retrieval methods, and partial outcomes. It stores configuration and operational metadata without persisting commit payloads. The provider guide records least-privilege limits, ambiguous upstream failures, retention, and the worked temporal example.
+
+Verification passed 613 backend tests with 3,285 assertions, 41 frontend tests, five CLI tests, six disclosure-security tests, the agent syntax checks, and the production frontend build. The architecture assessment validates this bounded provider experiment while documenting absent live-account and PostgreSQL concurrency validation. No additional provider or automatic memory extraction was introduced.
+
+## 2026-09-25: Post-Phase-5 architecture and product review
+
+The whole-system review finds a coherent context-resolution foundation with unresolved application disclosure, permission usability, retention, and operational concerns. The resolver can combine local and live evidence, but the current application contract does not authorize onward model transmission, and existing Chat and MCP workflows remain separate. The report distinguishes these product gaps from the narrower Phase 5 adapter validation.
+
+A temporary synthetic probe measured the existing resolver against 10,000 native records, 1,000 imported messages, and three mocked repositories. The temporal three-source application request returned 20 fragments after 619 SQL queries, with an observed median of 89.01 milliseconds in memory. This is evidence of redundant database work rather than a prediction of live GitHub latency. The probe passed 19 assertions and was removed after measurement; the existing resolver and GitHub tests passed 99 cases with 697 assertions.
+
+The review documents a manual live-GitHub checklist, ten usefulness experiments, retention and security assessments, standards overlap, and proposed cleanup without changing application behavior. The recommended next milestone is live end-to-end validation with one local consuming application. Documentation now distinguishes current Core behavior from historical plans, corrects local SQLite setup, and records remaining validation limits. No provider, migration, or Phase 6 implementation was added.
+
+## 2026-09-25: Local application validation infrastructure
+
+A separate loopback reference application now consumes the bearer-authenticated Context Resolver over HTTP, inspects evidence and coverage, and optionally sends explicitly permitted excerpts to OpenAI GPT-5.4 with medium reasoning and no tools or conversation state. The client keeps context transient, separates untrusted evidence from trusted instructions, and exposes citation identifiers and metadata-only measurements for human evaluation.
+
+One migration adds optional named-model permission and audit correlation. Core records owner intent without proxying model calls or claiming control over plaintext after application receipt. Resolver GitHub calls now require a durable audit intent, and freshness checks run in bounded batches before and after normalization. Provider-specific date constraints and query projection moved into the GitHub implementation.
+
+The review workload reproduced at 621 cold SQL queries, including two initialization queries absent from its historical 619-query result. Batched lifecycle checks and reduced repeated authorization lookups lowered it to 149 while retaining fresh checks between outbound requests. Nine HTTP calls and twenty returned fragments remain unchanged. Timing varied across runs, so these measurements do not establish live latency.
+
+Verification passed 626 backend tests, 42 frontend tests, twelve reference-client tests, five CLI tests, six disclosure-security tests, and the production frontend build. A later focused rerun passed 112 tests and reproduced the query count. The end-to-end report and client setup guide distinguish these synthetic results from pending live work.
+
+The existing primary installation has not yet been identified from this checkout, whose configured database has no owner bindings. No replacement owner or corpus was created, and no real GitHub or model request was made. All ten actual-data questions and human usefulness judgments remain pending. No additional provider or Phase 6 work began.
+
+## 2026-09-25: Authorized local validation setup
+
+The owner clarified that this checkout is the intended installation and authorized real owner/corpus setup here rather than searching for another installation. Metadata inspection found zero users, conversations, messages, and import records. The five pending ownership, native-memory, context-application, federation, and validation migrations applied successfully, bringing the local migration count to 23.
+
+The application key was preserved, debug output disabled, and Core started on loopback port 8000. Health and login returned HTTP 200, while unauthenticated application-permission and Native Memory requests returned HTTP 401. The setup guide now explains local account creation with hidden password entry and import using the resulting exact corpus key.
+
+The model key is configured locally, but the reference application's bearer credential is not yet configured. Real account creation and an explicitly authorized archive path remain pending. No sample owner or history was seeded, no private content was printed, and no live GitHub or model request was made.
+
+## 2026-09-25: History import awaiting a supplied archive
+
+The owner requested local entry of the login email and password and paused history import pending a specifically supplied export. The setup guide now lists the current parser formats and explains that ZIP archives, extracted directories, and recognized standalone JSON files can remain outside the repository. No archive path was inferred, no private filesystem search was performed, and no import was started.

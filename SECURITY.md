@@ -18,9 +18,10 @@ You can expect an acknowledgement within 72 hours of sending your report. After 
 
 ## Secrets and credentials
 
-The project never stores secrets in source code. All credentials, API keys, and tokens are configured through environment variables. Each component documents its required variables in a `.env.example` file:
+Secrets must never be committed to source code. Operator credentials and application keys are configured through environment variables. Owner-connected GitHub tokens are instead stored through Laravel's encrypted database cast, and Context Application bearer tokens are stored only as hashes. Each component documents its operator variables in a `.env.example` file:
 
 - `app/.env.example` covers the Laravel application.
+- `examples/context-client/.env.example` covers the independent local validation application.
 - `agent/.env.example` covers the autonomous agent.
 - `icp/mcp-server/` relies on the same environment variable pattern.
 
@@ -68,4 +69,12 @@ Exports are unencrypted files containing personal statements. Store them outside
 
 The [local resolver](./docs/architecture/LOCAL_CONTEXT.md) accepts revocable application credentials only on its stateless bearer route. Source retrieval and recipient disclosure require separate explicit grants, while owner management remains session-authenticated and CSRF-protected.
 
-Source-wide grants permit applications to accumulate data through repeated requests. Revocation cannot recall plaintext already delivered, and the current grants do not authorize onward model/provider transmission. Require TLS outside trusted local development, protect application secrets, disable payload/header capture, and run the audit-retention schedule.
+Source-wide grants permit applications to accumulate data through repeated requests. Revocation cannot recall plaintext already delivered. Optional model-disclosure grants specify a destination, model, and source scope as an obligation on the receiving application, not technical control over its plaintext. The reference client checks current permission and requires a separate confirmed send; Core does not proxy the model call. Require TLS outside trusted local development, protect application secrets, disable payload/header capture, and run the audit-retention schedule.
+
+## GitHub federation and whole-system review
+
+GitHub connections belong to authenticated local owners, with separately selected repositories and application resource grants. Credentials use Laravel encryption under APP_KEY; they are excluded from bundles, native exports, and ordinary operational logging. The host operator can decrypt them, and backups can retain old encrypted values. Disconnection removes the local credential and selections but does not revoke the token at GitHub.
+
+Sending dates derived from imported history requires explicit connection consent and the application's directed disclosure grant. The resolver sends bounded dates and repository references rather than the private natural-language question. Commit text remains untrusted evidence, and no GitHub content is persisted by the federated provider.
+
+The dated [post-Phase-5 security review](./docs/architecture/POST_PHASE_5_REVIEW.md#11-security-review) identified audit, onward permission, and concurrency gaps. Subsequent [end-to-end work](./docs/architecture/END_TO_END_VALIDATION.md) adds durable intent before resolver GitHub requests, model permission, and final batched lifecycle checks. Audit intent does not prove network delivery, and Core cannot observe application receipt, model use, or deletion. A possible raw-history deletion/import race and untested PostgreSQL concurrency remain unresolved. Raw imported originals remain unencrypted database content by default. Live GitHub behavior and production readiness remain unvalidated.

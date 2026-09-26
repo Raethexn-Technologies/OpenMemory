@@ -1,5 +1,7 @@
 # OpenMemory: Research Agenda
 
+The [2026-09-25 post-Phase-5 review](./docs/architecture/POST_PHASE_5_REVIEW.md) sets the immediate validation priority: exercise one local consuming application with real, explicitly authorized GitHub evidence. The research tracks below remain open questions rather than authorization to begin extraction, new providers, or a Phase 6 implementation.
+
 This document is the active research agenda for OpenMemory. It sits between VISION.md and DEVLOG.md in purpose: VISION.md holds stable design positions, DEVLOG.md holds timestamped discovery records, and this file holds the open questions and the work required to answer them.
 
 The agenda is not a product backlog. Each track corresponds to a scientific claim that is either unproven, partially proven, or disproven by the current implementation. When a track closes, the finding graduates into VISION.md and a DEVLOG entry records what was learned. New tracks open when the work reveals questions that were not visible before it started.

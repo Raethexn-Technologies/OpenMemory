@@ -2,6 +2,8 @@
 
 This document describes Phase 4 as implemented on 2026-09-23. The resolver uses only native SQL memory and the authenticated owner's imported conversation projection.
 
+For later behavior, see the [GitHub provider guide](GITHUB_PROVIDER.md) and [end-to-end validation report](END_TO_END_VALIDATION.md). They document federation and the optional named-model disclosure grant, permission-inspection endpoint, audit correlation, and batched lifecycle checks. The Phase 4 contract and exclusions below retain their original dated scope.
+
 Context is transient by default.
 
 Resolving context does not automatically create memory.

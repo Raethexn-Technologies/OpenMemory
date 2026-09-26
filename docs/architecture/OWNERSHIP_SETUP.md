@@ -2,6 +2,8 @@
 
 This implementation checkpoint was prepared on 2026-09-23. It covers local account authentication and explicit legacy ownership binding, not the context resolver or application-grant architecture.
 
+Current checkpoint, 2026-09-25: per-application resolver grants and owner-bound GitHub connections are now implemented. Read the [context guide](LOCAL_CONTEXT.md), [GitHub guide](GITHUB_PROVIDER.md), and [whole-system review](POST_PHASE_5_REVIEW.md) for those additions. Statements below about deferred grants describe the original ownership checkpoint; legacy MCP credentials remain separate.
+
 ## Identity boundaries
 
 | Identity | Authority in this implementation |

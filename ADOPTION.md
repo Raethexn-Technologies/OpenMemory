@@ -1,5 +1,7 @@
 # OpenMemory Adoption Plan
 
+Current checkpoint, 2026-09-25: the [post-Phase-5 review](./docs/architecture/POST_PHASE_5_REVIEW.md) recommends validating one local consuming application before expanding demonstrations or making broader product claims. Live GitHub behavior and independent application usefulness remain unvalidated. The dated adoption plan below is preserved as historical context.
+
 Date: 2026-09-10
 
 Supersedes the 2026-09-03 plan, which named the category as "shared memory for AI agents on your machine". That capability still exists and still works. It is no longer the whole product, so it is no longer the whole pitch.

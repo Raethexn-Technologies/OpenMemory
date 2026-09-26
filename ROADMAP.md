@@ -1,5 +1,15 @@
 # OpenMemory Roadmap
 
+## Current checkpoint, 2026-09-25
+
+Phases 1 through 5 are implemented. The [post-Phase-5 review](./docs/architecture/POST_PHASE_5_REVIEW.md) recommends live end-to-end validation with one local consuming application before expansion. It identifies application disclosure, permission usability, retention, and resolver cost as unresolved system-level concerns. Another provider, automatic derivation, and a Phase 6 implementation are not the current next step.
+
+The [end-to-end validation work](./docs/architecture/END_TO_END_VALIDATION.md) now includes an independent local client, explicit onward model intent, audit correlation, and measured SQL improvements. Live testing on the existing owner/corpus and human usefulness judgments remain pending. Completing those checks is the current milestone.
+
+The roadmap below is preserved as the dated 2026-09-10 research plan. Its statement that derivation is the next blocker describes that earlier checkpoint, not the current implementation priority.
+
+## Historical roadmap checkpoint
+
 Date: 2026-09-10
 
 Supersedes the 2026-09-03 roadmap, which is summarized below rather than deleted.

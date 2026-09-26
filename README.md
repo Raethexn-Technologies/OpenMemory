@@ -1,24 +1,18 @@
 # OpenMemory
 
-Your history with AI, in one place you control.
+OpenMemory is an open-source context runtime for owner-controlled memory and permission-controlled evidence retrieval. Its local Core stores intentional Native Memory, searches imported conversation history, and returns transient ContextBundles to authorized applications. An optional GitHub provider retrieves live commit metadata from explicitly selected repositories.
 
-Most people now talk to several assistants. Career decisions end up in one, months of personal reflection in another, programming work in a third. Each provider holds a partial record of the same person, and none of them can see the others. The person is the constant. The provider should not be the boundary around their memory.
+Native Memory and imported history remain in local SQL. GitHub evidence stays authoritative upstream and is retrieved only for bounded requests; it is not copied into Native Memory. Local creation, retrieval, and native export/import require no model API, OpenMemory Cloud, ICP service, or external provider.
 
-OpenMemory brings that history together. It imports conversation exports from ChatGPT, Claude, and Gemini into one local corpus, preserves the original source of every conversation, and makes the whole thing searchable and answerable with evidence you can open and read.
+## Current validation status
 
-Imported history and legacy live-memory integrations remain separate from the native store described below:
+Phases 1 through 5 are implemented. The [post-Phase-5 review](./docs/architecture/POST_PHASE_5_REVIEW.md) finds a coherent resolver foundation, with further work needed on application disclosure, owner permissions, retention, and retrieval cost. Live GitHub account behavior and usefulness to an independent application have not yet been validated.
 
-**Historical memory.** Conversation archives you export from providers. `memory:import-archive` reads an export where it already sits on disk, normalizes it into a provider-neutral model, and keeps the exact provider JSON alongside the normalized rows. Imports are idempotent, so re-exporting next month merges rather than duplicates.
+The [local validation client](./examples/context-client/README.md) now exercises application HTTP access, bundle inspection, and optional owner-authorized OpenAI GPT-5.4 use. The [end-to-end report](./docs/architecture/END_TO_END_VALIDATION.md) records permission and audit changes, the synthetic SQL reduction from 621 cold queries to 149, and the pending live checklist. Real-account testing and ten human usefulness evaluations remain incomplete. No additional provider or Phase 6 implementation has begun.
 
-**Live memory.** Durable facts written and recalled while you work, through MCP. Store a decision in Codex, recall it from Claude Code or Gemini CLI without re-explaining the project. This was the original product, and its existing MCP interfaces remain available. It is now one source of memory rather than the whole category.
+The existing Chat, graph, canister, and MCP integrations are separate legacy paths. MCP does not expose Native Memory or imported private history through the new resolver, and mock canister memory uses expiring cache storage. Bundle receipt alone does not authorize model transmission. An optional named model grant expresses separate owner intent, which the recipient application must honor; Core cannot control plaintext after release. Native export covers saved memory rather than the whole account.
 
-The interesting question is not only "find the conversation where I talked about X". Search is necessary and not sufficient. The question a multi-year, multi-provider corpus makes answerable is what someone could learn about themselves from it: what subjects they keep returning to, what they planned and never mentioned again, when an interest first appeared, where their position changed, and which patterns are invisible while each provider's history sits in its own silo.
-
-Every claim OpenMemory makes about that history has to be traceable. An answer cites specific messages; each citation resolves to a stored row with a provider, a timestamp, and a conversation you can open. Where the record supports an observation, it says so and shows the evidence. Where it does not, it says that instead. It does not tell people what they are like.
-
-[ROADMAP.md](./ROADMAP.md) defines the direction. [ADOPTION.md](./ADOPTION.md) defines the demo and community path. [VISION.md](./VISION.md) covers the design decisions and research questions in depth. [DEVLOG.md](./DEVLOG.md) is the running record of what was discovered building it. [RESEARCH.md](./RESEARCH.md) is the active research agenda. [SCIENCE.md](./SCIENCE.md) explains the mathematics and biology behind the graph layer.
-
-The [federated context report](./docs/architecture/FEDERATED_CONTEXT_REPORT.md) is the working architectural direction. Its [ADRs](./docs/adr/README.md) remain proposed where implementation has not validated them.
+[ROADMAP.md](./ROADMAP.md) retains dated planning checkpoints. [VISION.md](./VISION.md), [RESEARCH.md](./RESEARCH.md), and [SCIENCE.md](./SCIENCE.md) preserve the broader research direction. [DEVLOG.md](./DEVLOG.md) records implementation history, and [ADOPTION.md](./ADOPTION.md) retains earlier demonstration plans. The [original federation report](./docs/architecture/FEDERATED_CONTEXT_REPORT.md) and its [ADRs](./docs/adr/README.md) should be read alongside the current review, not as proof that every proposed capability exists.
 
 ## Durable native memory
 
@@ -36,15 +30,23 @@ Owners can register applications at /applications and separately grant retrieval
 
 Context remains transient, and resolving it neither creates memory nor invokes a model. The [Phase 4 report](./docs/architecture/LOCAL_CONTEXT_IMPLEMENTATION.md) records verification, compatibility, and remaining limitations.
 
+## Live GitHub context
+
+An owner can connect GitHub at /sources/github and explicitly select repositories for bounded live commit evidence. Application access requires separate GitHub retrieval, disclosure, and repository grants. Using dates learned from imported history additionally requires explicit cross-source permission.
+
+The provider retrieves metadata without cloning repositories, copying commits into native memory, or invoking a model. Read the [GitHub provider guide](./docs/architecture/GITHUB_PROVIDER.md) for token permissions, connection setup, the temporal experiment, and partial-result semantics. The [Phase 5 report](./docs/architecture/GITHUB_IMPLEMENTATION.md) records verification and the architecture assessment.
+
 ## Disclosure defaults
 
-Model processing is disabled until the operator explicitly permits an operation. History Ask additionally requires an unchecked per-request choice before selected excerpts leave for a model. Documents default to private local processing, and all chat memory proposals require review before storage.
+Core model processing is disabled until the operator explicitly permits an operation. History Ask additionally requires an unchecked per-request choice before selected excerpts leave for a model. The independent validation client instead requires an owner-granted model destination and source scope, a current permission check, and an explicit send action. Documents default to private local processing, and all chat memory proposals require review before storage.
 
 Read the [disclosure trust model](./docs/architecture/DISCLOSURE_BOUNDARY.md) before enabling model calls or public ingestion. The [security-phase report](./docs/architecture/DISCLOSURE_IMPLEMENTATION.md) records verification and remaining limitations.
 
 ## Try it
 
 Before browsing private data, follow [authenticated ownership setup](./docs/architecture/OWNERSHIP_SETUP.md) to create a local login and bind any existing corpus. Imports remain local and do not require a browser session.
+
+For the local Core workflow, first save a statement at `/native-memory`, register a narrowly authorized consumer at `/applications`, and follow the [context request example](./docs/architecture/POST_PHASE_5_REVIEW.md#3-developer-experience). This path works without GitHub or model credentials.
 
 Import an export you already have:
 
@@ -56,13 +58,13 @@ node bin/openmemory.js import-archive ~/Downloads/chatgpt-export.zip --user me
 
 Bind the `me` namespace to your local account, sign in at `/login`, and open `/history` to inspect the corpus.
 
-Or try the cross-tool live memory workflow:
+The separate legacy MCP demonstration remains available:
 
 1. Start the Laravel application in mock mode, then configure the MCP server as shown in [Connecting CLI tools via MCP](#connecting-cli-tools-via-mcp).
-2. In one connected tool, explicitly ask it to remember a durable project decision.
+2. In one connected tool, explicitly ask it to remember a harmless test decision. Mock storage expires and is unsuitable for durable personal records.
 3. In a second connected tool, ask a question about that decision. The tool should call `search_memories` before answering and receive only matching public records.
 
-The local product loop is handled by the root CLI:
+The root CLI supports legacy client setup and local archive imports:
 
 ```bash
 node bin/openmemory.js doctor
@@ -250,16 +252,20 @@ The redaction layer sits beside this access-control model. Access control decide
 ```bash
 cd app
 cp .env.example .env
-# Optional: configure a model key and explicit MODEL_DISCLOSURE_OPERATIONS
-php artisan key:generate
+# Edit .env: set DB_CONNECTION=sqlite and remove DB_DATABASE so Laravel
+# uses database/database.sqlite. Set APP_URL=http://localhost:8000.
+# Leave model credentials and MODEL_DISCLOSURE_OPERATIONS empty for Core.
 composer install
+php artisan key:generate
+php -r "is_file('database/database.sqlite') || touch('database/database.sqlite');"
 npm install
 php artisan migrate
+php artisan openmemory:user:create owner@example.test --name="Local owner"
 npm run build
 php artisan serve
 ```
 
-Open http://localhost:8000. Memory runs in mock mode by default, so no canister or adapter is needed to get started.
+Open http://localhost:8000/login and sign in with the account just created. Native Memory uses durable SQL storage independently of the legacy mock-memory setting. No canister or adapter is needed for Core. Use a fresh APP_KEY for a new installation; changing an existing key affects encrypted credentials.
 
 ---
 
@@ -275,6 +281,8 @@ docker compose exec app php artisan migrate
 ```
 
 Open http://localhost:8080.
+
+This Compose configuration is a development stack, includes the optional ICP adapter, and exposes application, database, and adapter ports. It is not a hardened production deployment or a minimal Core package. Create the local account using the [ownership setup guide](./docs/architecture/OWNERSHIP_SETUP.md), and arrange audit pruning with `php artisan context:audit:prune`; Compose does not run the Laravel scheduler automatically.
 
 ---
 
