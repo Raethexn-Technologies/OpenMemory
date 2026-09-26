@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>OpenMemory context validation client</title><link rel="stylesheet" href="/style.css"><script type="module" src="/ui.js"></script></head>
+<body><main>
+<h1>Context validation client</h1>
+<p>This independent local application uses an application credential. It has no owner session or database access. Questions and evidence stay in memory for at most ten minutes of session inactivity. Closing a tab does not immediately stop an in-flight request.</p>
+<p id="destination"></p><p id="status" role="status"></p>
+<form id="resolve">
+  <label>Validation query label <select id="query-id"><option value="unlabelled">Unlabelled</option><option>Q1</option><option>Q2</option><option>Q3</option><option>Q4</option><option>Q5</option><option>Q6</option><option>Q7</option><option>Q8</option><option>Q9</option><option>Q10</option></select></label>
+  <label>Question <textarea id="question" maxlength="500" required rows="3" autocomplete="off"></textarea></label>
+  <fieldset><legend>Requested sources remain limited by the owner's grants.</legend>
+    <label><input type="checkbox" name="source" value="native_memory" checked> Native Memory</label>
+    <label><input type="checkbox" name="source" value="history"> Imported History</label>
+    <label><input type="checkbox" name="source" value="github"> GitHub</label>
+  </fieldset>
+  <label><input type="checkbox" id="temporal"> Use the first dated history match to query GitHub within two days on either side</label>
+  <p>GitHub otherwise requires an explicit UTC window of at most 31 days. Explicit dates apply to every requested source, including Native Memory creation time.</p>
+  <label>From UTC <input id="from" placeholder="YYYY-MM-DDTHH:MM:SSZ" autocomplete="off"></label>
+  <label>To UTC <input id="to" placeholder="YYYY-MM-DDTHH:MM:SSZ" autocomplete="off"></label>
+  <button>Resolve and inspect context</button>
+</form>
+<section><h2>Evidence and coverage</h2><p>Unknown or failed source outcomes are not evidence of absence. Timestamps retain their source-specific names. This inspection projection omits connection and application authorization identifiers.</p><pre id="bundle">No context has been resolved.</pre></section>
+<section><h2>Optional model request</h2>
+<p>The client checks current owner permission before each request. OpenMemory cannot control copies after plaintext reaches this application. The question and permitted evidence are sent to OpenAI GPT-5.4 with medium reasoning. Web/search and other tools are disabled. Each request is independent, with no conversation history and response storage disabled. These settings do not guarantee zero provider retention.</p>
+<label><input type="checkbox" id="consent"> I inspected this context and authorize this single request to the displayed destination and model.</label>
+<button id="answer" type="button">Answer with permitted evidence</button><button id="baseline" type="button">Answer the same question without evidence</button>
+<p>References such as [E1] identify supplied fragments. They do not prove that a claim is supported. Unknown references are reported separately; all model text is displayed as untrusted plain text.</p>
+<h3>Answer with context</h3><pre id="answer-output"></pre><h3>Answer without context</h3><pre id="baseline-output"></pre>
+</section>
+<section><h2>Measurements and human evaluation</h2><pre id="metrics"></pre>
+<form id="evaluation">
+<label>Was relevant evidence found? <select id="relevant"><option value="not_reviewed">Not reviewed</option><option value="yes">Yes</option><option value="no">No</option></select></label>
+<label>Did irrelevant evidence dominate? <select id="irrelevant"><option value="not_reviewed">Not reviewed</option><option value="yes">Yes</option><option value="no">No</option></select></label>
+<label>Did the answer materially benefit from OpenMemory? <select id="benefit"><option value="not_reviewed">Not reviewed</option><option value="yes">Yes</option><option value="no">No</option></select></label>
+<button>Record my evaluation</button></form>
+<button id="export" type="button">Download measurements without questions or evidence</button>
+<p>The download still contains source use, timing, and your judgments. Keep it private. No automatic usefulness score is calculated.</p>
+</section>
+<button id="clear" type="button">Clear this session's question, context, answers, and measurements</button>
+</main></body></html>

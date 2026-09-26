@@ -1,0 +1,10 @@
+body { font: 16px/1.5 system-ui, sans-serif; color: #e9edf4; background: #111827; margin: 0; }
+main { max-width: 960px; padding: 24px; margin: auto; }
+section, form { border: 1px solid #4b5563; padding: 16px; margin: 20px 0; }
+label { display: block; margin: 10px 0; }
+textarea { width: 96%; }
+input, textarea, select, button { font: inherit; color: inherit; background: #1f2937; padding: 6px; border: 1px solid #9ca3af; border-radius: 3px; }
+button { cursor: pointer; margin: 8px 8px 8px 0; }
+button:disabled { opacity: .5; cursor: default; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 36rem; overflow: auto; }
+#status { color: #fcd34d; }

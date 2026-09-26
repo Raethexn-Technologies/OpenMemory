@@ -54,3 +54,10 @@ Thumbs.db
 
 # Owner-controlled native-memory exports contain private content.
 openmemory-export-v*.json
+
+# Reference-client credentials and owner-controlled validation artifacts.
+examples/context-client/.env
+examples/context-client/.env.*
+!examples/context-client/.env.example
+examples/context-client/private/
+openmemory-validation-*.json
